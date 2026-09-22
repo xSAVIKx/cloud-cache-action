@@ -33,6 +33,8 @@ export interface ArchivePlan {
   workspace: string;
   /** Scratch directory; BSD tar on Windows writes its intermediate .tar here. */
   tempDir: string;
+  /** Compression level for saving; undefined keeps the tool's own default. */
+  level?: number;
 }
 
 const ZSTD_COMPRESS = 'zstd -T0 --long=30';
@@ -103,8 +105,15 @@ function platformFlags(plan: ArchivePlan): string[] {
   return [];
 }
 
-function compressionFlags(method: CompressionMethod, program: string): string[] {
-  return method === 'zstd' ? ['--use-compress-program', program] : ['-z'];
+function zstdCompressProgram(level?: number): string {
+  return level === undefined ? ZSTD_COMPRESS : `zstd -${level} -T0 --long=30`;
+}
+
+function compressionFlags(method: CompressionMethod, program: string, level?: number): string[] {
+  if (method === 'zstd') {
+    return ['--use-compress-program', program];
+  }
+  return level === undefined ? ['-z'] : ['--use-compress-program', `gzip -${level}`];
 }
 
 /** One entry per line; entries starting with '-' get './' so no tar treats them as options. */
@@ -129,14 +138,22 @@ export function buildCreateCommands(
   args.push('-T', slashes(plan.manifestPath), ...platformFlags(plan));
 
   if (!separateZstd) {
-    args.push(...compressionFlags(plan.compression, ZSTD_COMPRESS));
+    args.push(...compressionFlags(plan.compression, zstdCompressProgram(plan.level), plan.level));
     return [{ tool: plan.tar.path, args }];
   }
   return [
     { tool: plan.tar.path, args },
     {
       tool: 'zstd',
-      args: ['-T0', '--long=30', '--force', '-o', slashes(plan.archivePath), slashes(tarFile)],
+      args: [
+        ...(plan.level === undefined ? [] : [`-${plan.level}`]),
+        '-T0',
+        '--long=30',
+        '--force',
+        '-o',
+        slashes(plan.archivePath),
+        slashes(tarFile),
+      ],
     },
   ];
 }
@@ -197,7 +214,8 @@ export async function createArchive(
   archivePath: string,
   entries: readonly string[],
   compression: CompressionConfig,
-  workspace: string
+  workspace: string,
+  level?: number
 ): Promise<void> {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cloud-cache-tar-'));
   try {
@@ -214,6 +232,7 @@ export async function createArchive(
         workspace,
         tempDir,
         manifestPath,
+        level,
       })
     );
   } finally {

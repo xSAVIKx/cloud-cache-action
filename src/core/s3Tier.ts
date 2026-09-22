@@ -96,6 +96,8 @@ export interface S3Tier {
   metadata: Record<string, string>;
   /** Object tags written on every save, when the provider supports them. */
   tags: ObjectTag[];
+  /** zstd or gzip level for saving; undefined keeps each method's own default. */
+  compressionLevel?: number;
 }
 
 export interface DownloadSettings {
@@ -248,6 +250,7 @@ export async function buildS3Tier(
   }
   // A pattern without ${ref} gives every ref the same object keys; search them only once.
   const usesRef = scopedToRef && template.objectKey('a', '') !== template.objectKey('b', '');
+  const compressionLevel = clampCompressionLevel(config.compressionLevel, compression.method);
 
   return {
     storage,
@@ -265,7 +268,22 @@ export async function buildS3Tier(
     },
     metadata: config.metadata,
     tags: config.tags,
+    compressionLevel,
   };
+}
+
+/** gzip stops at 9, so a higher level warns once and uses 9. */
+function clampCompressionLevel(
+  level: number | undefined,
+  method: CompressionMethod
+): number | undefined {
+  if (level === undefined || method !== 'gzip' || level <= Defaults.MaxGzipCompressionLevel) {
+    return level;
+  }
+  core.warning(
+    `Input "compression-level" is ${level}, above gzip's maximum of ${Defaults.MaxGzipCompressionLevel}; using ${Defaults.MaxGzipCompressionLevel}.`
+  );
+  return Defaults.MaxGzipCompressionLevel;
 }
 
 /** One object under a search prefix, with what the template makes of it. */
@@ -548,7 +566,13 @@ async function saveToS3FileMode(
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cloud-cache-save-'));
   try {
     const archivePath = path.join(tempDir, tier.compression.archiveFilename);
-    await createArchive(archivePath, entries, tier.compression, tier.workspace);
+    await createArchive(
+      archivePath,
+      entries,
+      tier.compression,
+      tier.workspace,
+      tier.compressionLevel
+    );
     const archiveSize = getArchiveSize(archivePath);
     core.info(`Uploading ${formatSize(archiveSize)} to s3://${bucket}/${objectKey}...`);
     const checksum = await sha256File(archivePath);
@@ -795,6 +819,7 @@ async function saveToS3Streaming(
       workspace: tier.workspace,
       tempDir,
       manifestPath,
+      level: tier.compressionLevel,
     });
 
     child = spawnArchiveCommand(command, ['ignore', 'pipe', 'pipe']);

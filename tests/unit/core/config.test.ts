@@ -108,6 +108,19 @@ describe('readCacheConfig', () => {
     }
   );
 
+  it('reads compression-level', () => {
+    inputs.set(Inputs.CompressionLevel, '9');
+    expect(readCacheConfig().compressionLevel).toBe(9);
+  });
+
+  it.each(['0', '20', 'fast'])('warns and leaves compression-level unset when it is %s', (raw) => {
+    inputs.set(Inputs.CompressionLevel, raw);
+    expect(readCacheConfig().compressionLevel).toBeUndefined();
+    expect(mockWarning).toHaveBeenCalledWith(
+      `Input "compression-level" must be an integer between 1 and 19; got "${raw}". Using the default for the compression method.`
+    );
+  });
+
   it('accepts the download bounds themselves', () => {
     inputs.set(Inputs.DownloadConcurrency, '1');
     inputs.set(Inputs.DownloadChunkSize, '134217728');

@@ -20,6 +20,9 @@ inputs:
     description: 'How many multipart upload parts are sent at once (1-32)'
     required: false
     default: '8'
+  compression-level:
+    description: 'Compression level for saving: 1-19 for zstd, 1-9 for gzip. Unset uses the tool default (zstd 3). Lower is faster and larger.'
+    required: false
   enableCrossOsArchive:
     description: 'An optional boolean when enabled, allows windows runners to save or restore caches that can be restored or saved respectively on other platforms'
     default: 'false'
