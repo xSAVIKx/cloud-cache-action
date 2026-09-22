@@ -307,8 +307,9 @@ has no tagging API (Garage), or the conditional create was not honored — see
 [Object Metadata and Tags](#object-metadata-and-tags).
 
 On restore, the S3 tier looks for the checksum in metadata first. When metadata carries none, it
-reads the tag, but only when the object reports at least one tag. When neither is present,
-verification is skipped. When a checksum is found, the downloaded archive is hashed again and
+reads the tag, unless the object reports a tag count of exactly zero. Some servers never report
+a tag count, and an unknown count is not proof that the object has no tags. When neither metadata
+nor a tag carries a checksum, verification is skipped. When a checksum is found, the downloaded archive is hashed again and
 compared before extraction. A mismatch does not extract the archive: the S3 tier reports an
 `Integrity check failed for s3://<bucket>/<key>: expected sha256 <expected>, got <actual>` error,
 which the restore logs as a warning (`Restoring from s3 failed, so it counts as a cache miss: ...`)

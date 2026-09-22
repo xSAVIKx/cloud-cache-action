@@ -36,6 +36,14 @@ points at the latest `v1.x.y` release.
   first time, since a tag has no size limit while the copy was refused above 5 GiB. With
   `streaming: true`, the `tags` input is capped at 9 instead of 10, because the reserved checksum
   tag takes one slot.
+  - The save sends one small `HeadObject` after the tag and compares its ETag with the upload's.
+    A provider that accepts `If-None-Match` and silently ignores it (Google Cloud Storage) would
+    otherwise let this job tag another job's bytes with this archive's checksum, which a later
+    restore would reject. When the ETags differ, the save removes its checksum tag again, warns,
+    and leaves the other job's cache alone.
+  - The documented IAM policies now grant `s3:GetObjectTagging` and `s3:PutObjectTagging`. A
+    restore that cannot read the tags now warns instead of logging a debug line, because the only
+    other symptom is an integrity check that silently stops running.
 
 ## [1.5.0] - 2026-09-22
 

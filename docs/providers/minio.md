@@ -63,6 +63,8 @@ Save the following minimal policy JSON:
       "Action": [
         "s3:GetObject",
         "s3:PutObject",
+        "s3:GetObjectTagging",
+        "s3:PutObjectTagging",
         "s3:AbortMultipartUpload"
       ],
       "Resource": "arn:aws:s3:::ci-cache/*"
@@ -70,6 +72,10 @@ Save the following minimal policy JSON:
   ]
 }
 ```
+
+`s3:GetObjectTagging` and `s3:PutObjectTagging` carry the archive checksum for a streamed save.
+Without them the save falls back to a copy and the restore skips the integrity check, with a
+warning in the log.
 
 Add the policy to MinIO:
 ```bash
