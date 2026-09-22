@@ -1195,6 +1195,35 @@ describe('buildS3Tier', () => {
     const built = await buildS3Tier({ ...config, streaming }, env);
     expect(built.streaming).toBe(streaming);
   });
+
+  it('clamps a gzip compression level above 9 to 9, and warns', async () => {
+    mockGetCompressionConfig.mockResolvedValue(gzip);
+    const built = await buildS3Tier({ ...config, compressionLevel: 19 }, env);
+    expect(built.compressionLevel).toBe(9);
+    expect(mockWarning).toHaveBeenCalledWith(
+      `Input "compression-level" is 19, above gzip's maximum of 9; using 9.`
+    );
+  });
+
+  it('passes a gzip compression level of exactly 9 through unchanged, without warning', async () => {
+    mockGetCompressionConfig.mockResolvedValue(gzip);
+    const built = await buildS3Tier({ ...config, compressionLevel: 9 }, env);
+    expect(built.compressionLevel).toBe(9);
+    expect(mockWarning).not.toHaveBeenCalled();
+  });
+
+  it('passes a zstd compression level of 19 through unclamped, without warning', async () => {
+    mockGetCompressionConfig.mockResolvedValue(zstd);
+    const built = await buildS3Tier({ ...config, compressionLevel: 19 }, env);
+    expect(built.compressionLevel).toBe(19);
+    expect(mockWarning).not.toHaveBeenCalled();
+  });
+
+  it('leaves compressionLevel undefined when unset, without warning', async () => {
+    const built = await buildS3Tier(config, env);
+    expect(built.compressionLevel).toBeUndefined();
+    expect(mockWarning).not.toHaveBeenCalled();
+  });
 });
 
 describe('saveToS3 streaming', () => {
