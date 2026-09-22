@@ -78,6 +78,15 @@ const mockReplaceObjectMetadata =
       ifMatch?: string
     ) => Promise<{ etag?: string }>
   >();
+const mockPutObjectTags =
+  jest.fn<
+    (
+      client: S3Client,
+      bucket: string,
+      key: string,
+      tags: { Key: string; Value: string }[]
+    ) => Promise<void>
+  >();
 const realSha256Tap = () => {
   const hash = crypto.createHash('sha256');
   const stream = new Transform({
@@ -196,6 +205,7 @@ jest.unstable_mockModule('../../../src/storage/operations', () => ({
   getObjectStream: mockGetObjectStream,
   createStreamUpload: mockCreateStreamUpload,
   replaceObjectMetadata: mockReplaceObjectMetadata,
+  putObjectTags: mockPutObjectTags,
 }));
 const mockDownloadFileInParts =
   jest.fn<
@@ -327,6 +337,7 @@ beforeEach(() => {
   mockResolveCachePaths.mockResolvedValue({ entries: ['node_modules'], skipped: [] });
   mockSha256File.mockResolvedValue('archive-sha256');
   mockReplaceObjectMetadata.mockResolvedValue({});
+  mockPutObjectTags.mockResolvedValue(undefined);
   mockCreateSha256Tap.mockImplementation(realSha256Tap);
   mockCreateByteCounter.mockImplementation(realByteCounter);
 
@@ -1341,6 +1352,9 @@ describe('saveToS3 streaming', () => {
   });
 
   it('reports the ETag the metadata copy produced, which supersedes the upload one', async () => {
+    // Forces the copy path (rather than the default tag) so this test can exercise it in
+    // isolation: tagging is covered separately above.
+    storage.conditionalWriteUnsupported = true;
     mockSpawnArchiveCommand.mockImplementation(() => makeFakeChild());
     mockWaitForExit.mockImplementation(async (c) => {
       c.stdout.end(Buffer.from('archive-body'));
@@ -1354,6 +1368,9 @@ describe('saveToS3 streaming', () => {
   });
 
   it('skips the metadata copy, and warns, for an archive over the 5 GiB copy limit', async () => {
+    // Forces the copy path (rather than the default tag) so this test can exercise it in
+    // isolation: tagging is covered separately above.
+    storage.conditionalWriteUnsupported = true;
     mockSpawnArchiveCommand.mockImplementation(() => makeFakeChild());
     mockWaitForExit.mockImplementation(async (c) => {
       c.stdout.end(Buffer.from('x'));
@@ -1376,6 +1393,9 @@ describe('saveToS3 streaming', () => {
   });
 
   it('keeps the save successful and warns when the metadata copy fails', async () => {
+    // Forces the copy path (rather than the default tag) so this test can exercise it in
+    // isolation: tagging is covered separately above.
+    storage.conditionalWriteUnsupported = true;
     mockSpawnArchiveCommand.mockImplementation(() => makeFakeChild());
     mockWaitForExit.mockImplementation(async (c) => {
       c.stdout.end(Buffer.from('archive-body'));
@@ -1394,6 +1414,9 @@ describe('saveToS3 streaming', () => {
   });
 
   it('keeps the save successful and warns when the metadata copy gets a 412', async () => {
+    // Forces the copy path (rather than the default tag) so this test can exercise it in
+    // isolation: tagging is covered separately above.
+    storage.conditionalWriteUnsupported = true;
     mockSpawnArchiveCommand.mockImplementation(() => makeFakeChild());
     mockWaitForExit.mockImplementation(async (c) => {
       c.stdout.end(Buffer.from('archive-body'));
@@ -1603,6 +1626,85 @@ describe('saveToS3 streaming', () => {
     } finally {
       process.off('unhandledRejection', onUnhandledRejection);
     }
+  });
+
+  it('attaches the checksum with a tag instead of copying the object', async () => {
+    mockSpawnArchiveCommand.mockImplementation(() => makeFakeChild());
+    mockWaitForExit.mockImplementation(async (c) => {
+      c.stdout.end(Buffer.from('archive-body'));
+      return 0;
+    });
+    const outcome = await saveToS3(
+      tier({ streaming: true, tags: [{ Key: 'team', Value: 'platform' }] }),
+      'k',
+      ['node_modules']
+    );
+    expect(outcome.kind).toBe('saved');
+    expect(mockReplaceObjectMetadata).not.toHaveBeenCalled();
+    const [, bucket, key, tags] = mockPutObjectTags.mock.calls[0];
+    expect(bucket).toBe('bucket');
+    expect(key).toContain('cache.tar.zst');
+    expect(tags).toEqual([
+      { Key: 'team', Value: 'platform' },
+      { Key: 'cloud-cache-sha256', Value: expect.any(String) as unknown as string },
+    ]);
+  });
+
+  it('copies instead of tagging when user metadata is configured', async () => {
+    mockSpawnArchiveCommand.mockImplementation(() => makeFakeChild());
+    mockWaitForExit.mockImplementation(async (c) => {
+      c.stdout.end(Buffer.from('archive-body'));
+      return 0;
+    });
+    await saveToS3(tier({ streaming: true, metadata: { team: 'platform' } }), 'k', [
+      'node_modules',
+    ]);
+    expect(mockPutObjectTags).not.toHaveBeenCalled();
+    expect(mockReplaceObjectMetadata).toHaveBeenCalled();
+  });
+
+  it('copies instead of tagging when the tier cannot use the conditional create', async () => {
+    mockSpawnArchiveCommand.mockImplementation(() => makeFakeChild());
+    mockWaitForExit.mockImplementation(async (c) => {
+      c.stdout.end(Buffer.from('archive-body'));
+      return 0;
+    });
+    const t = tier({ streaming: true });
+    t.storage.conditionalWriteUnsupported = true;
+    await saveToS3(t, 'k', ['node_modules']);
+    expect(mockPutObjectTags).not.toHaveBeenCalled();
+    expect(mockReplaceObjectMetadata).toHaveBeenCalled();
+  });
+
+  it('falls back to the copy, and remembers, when the server has no tagging API', async () => {
+    mockSpawnArchiveCommand.mockImplementation(() => makeFakeChild());
+    mockWaitForExit.mockImplementation(async (c) => {
+      c.stdout.end(Buffer.from('archive-body'));
+      return 0;
+    });
+    const t = tier({ streaming: true });
+    mockPutObjectTags.mockRejectedValueOnce(
+      Object.assign(new Error('NotImplemented'), {
+        name: 'NotImplemented',
+        $metadata: { httpStatusCode: 501 },
+      })
+    );
+    await saveToS3(t, 'k', ['node_modules']);
+    expect(mockReplaceObjectMetadata).toHaveBeenCalled();
+    expect(t.storage.objectTaggingUnsupported).toBe(true);
+  });
+
+  it('still succeeds, with a warning, when neither the tag nor the copy can be attached', async () => {
+    mockSpawnArchiveCommand.mockImplementation(() => makeFakeChild());
+    mockWaitForExit.mockImplementation(async (c) => {
+      c.stdout.end(Buffer.from('archive-body'));
+      return 0;
+    });
+    mockPutObjectTags.mockRejectedValue(new Error('tagging blocked'));
+    mockReplaceObjectMetadata.mockRejectedValue(new Error('copy blocked'));
+    const outcome = await saveToS3(tier({ streaming: true }), 'k', ['node_modules']);
+    expect(outcome.kind).toBe('saved');
+    expect(mockWarning).toHaveBeenCalledWith(expect.stringContaining('could not attach metadata'));
   });
 });
 

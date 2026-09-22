@@ -40,6 +40,7 @@ import {
   findNewestObject,
   getObjectStream,
   listObjects,
+  putObjectTags,
   replaceObjectMetadata,
   uploadFile,
 } from '../storage/operations';
@@ -58,6 +59,7 @@ import {
   encodeTagging,
   SHA256_METADATA_KEY,
   stripReservedMetadata,
+  withChecksumTag,
   type ObjectTag,
 } from './objectAttributes';
 import { compileKeyTemplate, type KeyTemplate } from './keyTemplate';
@@ -623,10 +625,10 @@ const MAX_COPY_SIZE = 5 * 1024 * 1024 * 1024;
  * one) costs the metadata and warns once, never the save. Returns the ETag to report: the copy
  * rewrites the object, so its ETag supersedes the upload's; on any failure the upload's stands.
  */
-async function attachStreamedMetadata(
+async function attachStreamedMetadataByCopy(
   tier: S3Tier,
   objectKey: string,
-  metadata: Record<string, string>,
+  sha256: string,
   size: number,
   uploadedEtag: string | undefined
 ): Promise<string | undefined> {
@@ -641,6 +643,7 @@ async function attachStreamedMetadata(
     // `CopySourceIfMatch`, when the upload reported an ETag: a concurrent writer that replaced
     // the object between the upload and this copy must not get this save's metadata stamped onto
     // its body. The 412 that then comes back is handled like any other copy failure.
+    const metadata = { ...tier.metadata, [SHA256_METADATA_KEY]: sha256 };
     const copied = await withRetry(
       () => replaceObjectMetadata(client, bucket, objectKey, metadata, uploadedEtag),
       {
@@ -656,6 +659,46 @@ async function attachStreamedMetadata(
     );
     return uploadedEtag;
   }
+}
+
+/**
+ * Attaches the checksum to a streamed object. A tag rewrites no data, so it costs a fraction of
+ * the copy on a large archive, but it is only safe when this job provably owns the object, which
+ * means the upload carried an honoured `If-None-Match`. Everything else — user metadata
+ * configured (which a tag cannot carry), a provider already known not to support tagging, or an
+ * upload that did not use the condition — keeps the ETag-guarded copy.
+ */
+async function attachStreamedChecksum(
+  tier: S3Tier,
+  objectKey: string,
+  sha256: string,
+  size: number,
+  uploadedEtag: string | undefined,
+  usedCondition: boolean
+): Promise<string | undefined> {
+  const { client, bucket } = tier.storage;
+  const canTag =
+    usedCondition &&
+    !tier.storage.objectTaggingUnsupported &&
+    Object.keys(tier.metadata).length === 0;
+
+  if (canTag) {
+    try {
+      await putObjectTags(client, bucket, objectKey, withChecksumTag(tier.tags, sha256));
+      return uploadedEtag;
+    } catch (err) {
+      if (isTaggingUnsupported(err)) {
+        tier.storage.objectTaggingUnsupported = true;
+        core.debug(
+          `s3://${bucket} has no object tagging API; attaching the checksum by copy instead.`
+        );
+      } else {
+        core.debug(`Could not tag s3://${bucket}/${objectKey}: ${toError(err).message}`);
+      }
+    }
+  }
+
+  return await attachStreamedMetadataByCopy(tier, objectKey, sha256, size, uploadedEtag);
 }
 
 /** Wraps a failure with tar's recent stderr output, for a clearer error message. */
@@ -763,9 +806,15 @@ async function saveToS3Streaming(
       const [uploaded] = await Promise.all([uploadDone, finalized]);
       core.info(`Cache saved to S3 with key: ${primaryKey}`);
       const size = counter.count();
-      const metadata = { ...tier.metadata, [SHA256_METADATA_KEY]: tap.digest() };
       const transferMs = Date.now() - transferStart;
-      const etag = await attachStreamedMetadata(tier, objectKey, metadata, size, uploaded.ETag);
+      const etag = await attachStreamedChecksum(
+        tier,
+        objectKey,
+        tap.digest(),
+        size,
+        uploaded.ETag,
+        sendCondition
+      );
       return { kind: 'saved', s3: { objectKey, size, etag }, transferMs };
     } catch (err) {
       // Fail the body first. When the upload stopped reading it, tar's stdout is paused with data
