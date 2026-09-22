@@ -214,6 +214,33 @@ describe('buildExplainReport', () => {
     expect(report.searches[1].truncated).toBe(1);
     expect(report.searches[0].truncated).toBe(0);
   });
+
+  it('lists every ref and key at once and still reports them in precedence order', async () => {
+    let inFlight = 0;
+    let peak = 0;
+    const previousMockListCandidates = mockListCandidates.getMockImplementation();
+    mockListCandidates.mockImplementation(async () => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      inFlight -= 1;
+      return [];
+    });
+
+    const report = await buildExplainReport(tier, config());
+
+    if (previousMockListCandidates) {
+      mockListCandidates.mockImplementation(previousMockListCandidates);
+    }
+
+    expect(peak).toBeGreaterThan(1);
+    expect(report.searches.map((search) => [search.ref, search.key])).toEqual([
+      [FEATURE, 'npm-xyz'],
+      [FEATURE, 'npm-'],
+      [MAIN, 'npm-xyz'],
+      [MAIN, 'npm-'],
+    ]);
+  });
 });
 
 describe('renderExplain', () => {
