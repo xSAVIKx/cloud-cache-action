@@ -662,6 +662,23 @@ async function attachStreamedMetadataByCopy(
 }
 
 /**
+ * True when the server answered a `PutObjectTagging` request that it does not implement the
+ * tagging API at all. Deliberately narrower than `isTaggingUnsupported` above: that predicate
+ * also treats any message mentioning "tagging" as unsupported, which is the right call for an
+ * upload's `Tagging` header (a provider that rejects it tends to say so in those words) but far
+ * too broad here — an `AccessDenied` for the `s3:PutObjectTagging` permission also mentions
+ * tagging, and must not latch `objectTaggingUnsupported`, which would silently drop the user's
+ * own tags from every later upload in the run for a reason that had nothing to do with support.
+ */
+function isTagPutUnsupported(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null) {
+    return false;
+  }
+  const error = err as { name?: string; $metadata?: { httpStatusCode?: number } };
+  return error.$metadata?.httpStatusCode === 501 || error.name === 'NotImplemented';
+}
+
+/**
  * Attaches the checksum to a streamed object. A tag rewrites no data, so it costs a fraction of
  * the copy on a large archive, but it is only safe when this job provably owns the object, which
  * means the upload carried an honoured `If-None-Match`. Everything else — user metadata
@@ -687,7 +704,7 @@ async function attachStreamedChecksum(
       await putObjectTags(client, bucket, objectKey, withChecksumTag(tier.tags, sha256));
       return uploadedEtag;
     } catch (err) {
-      if (isTaggingUnsupported(err)) {
+      if (isTagPutUnsupported(err)) {
         tier.storage.objectTaggingUnsupported = true;
         core.debug(
           `s3://${bucket} has no object tagging API; attaching the checksum by copy instead.`

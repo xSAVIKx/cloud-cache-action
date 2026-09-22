@@ -1700,11 +1700,16 @@ describe('saveToS3 streaming', () => {
       c.stdout.end(Buffer.from('archive-body'));
       return 0;
     });
+    // A generic failure whose message happens to mention "tagging" (an AccessDenied on
+    // s3:PutObjectTagging, say) must not be read as "the server has no tagging API": that would
+    // silently drop the user's own tags from every later upload in the run.
+    const t = tier({ streaming: true });
     mockPutObjectTags.mockRejectedValue(new Error('tagging blocked'));
     mockReplaceObjectMetadata.mockRejectedValue(new Error('copy blocked'));
-    const outcome = await saveToS3(tier({ streaming: true }), 'k', ['node_modules']);
+    const outcome = await saveToS3(t, 'k', ['node_modules']);
     expect(outcome.kind).toBe('saved');
     expect(mockWarning).toHaveBeenCalledWith(expect.stringContaining('could not attach metadata'));
+    expect(t.storage.objectTaggingUnsupported).toBeFalsy();
   });
 });
 
