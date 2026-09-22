@@ -152,17 +152,17 @@ rate.
 
 | Level | Archive | Ratio | Compress | Extract | Save | Restore |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| zstd-1 | 60.6 MiB | 4.58 | 0.9 s | 0.7 s | 1.2 s | 0.9 s |
+| zstd-1 | 60.6 MiB | 4.58 | 0.9 s | 0.7 s | 1.2 s | 1.0 s |
 | zstd-2 | 57.8 MiB | 4.80 | 1.0 s | 0.7 s | 1.3 s | 1.0 s |
 | **zstd-3, today** | 55.0 MiB | 5.05 | 1.1 s | 0.8 s | 1.4 s | 1.0 s |
 | zstd-5 | 52.6 MiB | 5.27 | 1.8 s | 0.8 s | 2.1 s | 1.0 s |
-| zstd-9 | 48.8 MiB | 5.69 | 3.0 s | 0.7 s | 3.3 s | 0.9 s |
+| zstd-9 | 48.8 MiB | 5.69 | 3.0 s | 0.7 s | 3.3 s | 1.0 s |
 | gzip-6, the gzip default | 71.4 MiB | 3.89 | 11.7 s | 1.9 s | 12.1 s | 2.2 s |
 | gzip-1 | 85.2 MiB | 3.26 | 4.9 s | 2.2 s | 5.3 s | 2.6 s |
 
 ### Python site-packages, 4 cores
 
-Same fixture, same 200 MiB/s transfer assumption, computed from the same sweep.
+Same 200 MiB/s transfer assumption; zstd rows from the same sweep, gzip rows measured by hand.
 
 | Level | Archive | Ratio | Compress | Extract | Save | Restore |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -172,7 +172,7 @@ Same fixture, same 200 MiB/s transfer assumption, computed from the same sweep.
 | zstd-5 | 96.1 MiB | 3.68 | 2.6 s | 0.9 s | 3.1 s | 1.4 s |
 | zstd-9 | 88.4 MiB | 4.00 | 4.3 s | 0.9 s | 4.7 s | 1.4 s |
 | gzip-6, the gzip default | 111.7 MiB | 3.17 | 17.6 s | 2.6 s | 18.1 s | 3.2 s |
-| gzip-1 | 127.4 MiB | 2.78 | 6.6 s | 2.9 s | 7.3 s | 3.5 s |
+| gzip-1 | 127.4 MiB | 2.77 | 6.6 s | 2.9 s | 7.3 s | 3.5 s |
 
 ### Findings
 
@@ -183,12 +183,16 @@ Both fixtures, and both a fast and a slow link:
 2. **On a slow link the gap closes further**, because the smaller archive wins back the extra CPU.
    At 60 MiB/s, level 2 is the fastest save on the Python tree, and level 1 and 2 tie on
    `node_modules`.
-3. **Restore barely depends on the level at all.** Extract takes 0.67 s to 0.77 s across every
-   zstd level, so the level is a save-side trade only.
+3. **Restore barely depends on the level at all.** Extract takes 0.67 s to 0.77 s on `node_modules`
+   and 0.84 s to 0.94 s on the Python tree across every zstd level, a spread of about a tenth of a
+   second within either fixture, so the level is a save-side trade only.
 4. **Levels above 5 cost real time for little size.** Level 9 triples compress time to save 11
    percent of bytes against level 3. Level 19, measured on 12 cores, took 55 s to 64 s.
-5. **gzip loses on both axes.** Its default level takes 10 times the CPU of zstd level 3 and still
-   produces a larger archive than zstd level 1.
+5. **On `node_modules`, gzip loses on both axes.** Its default level takes 10 times the CPU of
+   zstd level 3 and still produces a larger archive than zstd level 1. On the Python tree gzip's
+   CPU cost is the same story, but its default archive comes out slightly smaller than zstd
+   level 1's (111.7 MiB against 112.4 MiB) — the size advantage is fixture-dependent; the CPU cost
+   is not.
 
 ### Why the default stays at zstd level 3
 
@@ -207,7 +211,8 @@ Two starting points, if you want to change it:
 
 The `compression` mode of the benchmark (`tests/ci/compressionBenchmark.ts`) measures your own
 cache paths directly. It builds each archive through the action's real `buildCreateCommands` plan,
-so the measured command is the one a save actually runs.
+so the measured command is the one a save actually runs. It sweeps zstd levels only; it does not
+reproduce the gzip rows above, which were measured by hand.
 
 ```sh
 BENCH_FIXTURES="node_modules=/abs/path/to/node_modules" node tests/ci/compressionBenchmark.ts
@@ -223,8 +228,8 @@ BENCH_FIXTURES="node_modules=/abs/path/to/node_modules" node tests/ci/compressio
 
 Each row reports the archive size, the ratio against the raw tree size, the compress time and the
 extract time, each the fastest of `BENCH_REPEATS` runs. Restore barely depends on the level: in
-the measurements above, extract time moves by well under a tenth of a second across the whole
-zstd range, so treat the level as a save-side trade only.
+the measurements above, extract time moves by about a tenth of a second across the whole zstd
+range, so treat the level as a save-side trade only.
 
 **Warning:** the action always runs zstd as `zstd -T0`, which spreads compression across every
 core the machine has. A developer machine with more cores than a hosted runner will therefore
