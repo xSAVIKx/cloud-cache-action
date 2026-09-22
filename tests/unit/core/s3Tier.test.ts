@@ -670,6 +670,23 @@ describe('restoreFromS3', () => {
       expect(mockGetObjectTags).not.toHaveBeenCalled();
     });
 
+    it('skips verification, with a warning, when the tag read fails', async () => {
+      // The usual cause is an IAM policy without `s3:GetObjectTagging`. The restore must still
+      // succeed, but the user has to be told the integrity check did not run.
+      put(FEATURE, 'k', 1);
+      mockDownloadFile.mockResolvedValue({ tagCount: 1 });
+      mockGetObjectTags.mockRejectedValue(
+        Object.assign(new Error('Access Denied'), { name: 'AccessDenied' })
+      );
+      const outcome = await restoreFromS3(tier(), 'k', [], false);
+      expect(outcome.kind).toBe('hit');
+      expect(mockSha256File).not.toHaveBeenCalled();
+      expect(mockExtractArchive).toHaveBeenCalled();
+      expect(mockWarning).toHaveBeenCalledWith(
+        expect.stringContaining('skips the integrity check') as unknown as string
+      );
+    });
+
     it('asks for no tags when the object reports none', async () => {
       put(FEATURE, 'k', 1);
       mockDownloadFile.mockResolvedValue({ tagCount: 0 });
@@ -1711,12 +1728,26 @@ describe('saveToS3 streaming', () => {
     }
   });
 
+  /**
+   * saveToS3 sends one HeadObject before it uploads (the "already saved?" check, which must find
+   * nothing here) and attachStreamedChecksum sends a second one after the tag, to prove the
+   * object still holds this upload. This answers the first with null and the second with `etag`.
+   */
+  const headAfterTagReturns = (etag: string | undefined): void => {
+    let calls = 0;
+    mockCheckObjectExists.mockImplementation(async (_client, _bucket, key) => {
+      calls += 1;
+      return calls === 1 ? null : { key, size: 12, etag };
+    });
+  };
+
   it('attaches the checksum with a tag instead of copying the object', async () => {
     mockSpawnArchiveCommand.mockImplementation(() => makeFakeChild());
     mockWaitForExit.mockImplementation(async (c) => {
       c.stdout.end(Buffer.from('archive-body'));
       return 0;
     });
+    headAfterTagReturns('"streamed"');
     const outcome = await saveToS3(
       tier({ streaming: true, tags: [{ Key: 'team', Value: 'platform' }] }),
       'k',
@@ -1731,6 +1762,53 @@ describe('saveToS3 streaming', () => {
       { Key: 'team', Value: 'platform' },
       { Key: 'cloud-cache-sha256', Value: expect.any(String) as unknown as string },
     ]);
+    expect(mockPutObjectTags).toHaveBeenCalledTimes(1);
+  });
+
+  it('removes the checksum tag, and does not copy, when another job replaced the object', async () => {
+    // The ownership window the ETag-guarded copy used to close: a provider that accepts
+    // `If-None-Match` and ignores it (Google Cloud Storage) never sets
+    // conditionalWriteUnsupported, so the condition alone does not prove this job owns the
+    // object. A checksum left on another job's bytes would fail a later, perfectly good restore.
+    mockSpawnArchiveCommand.mockImplementation(() => makeFakeChild());
+    mockWaitForExit.mockImplementation(async (c) => {
+      c.stdout.end(Buffer.from('archive-body'));
+      return 0;
+    });
+    headAfterTagReturns('"someone-else"');
+    const outcome = await saveToS3(
+      tier({ streaming: true, tags: [{ Key: 'team', Value: 'platform' }] }),
+      'k',
+      ['node_modules']
+    );
+    expect(outcome.kind).toBe('saved');
+    expect(mockReplaceObjectMetadata).not.toHaveBeenCalled();
+    expect(mockPutObjectTags).toHaveBeenCalledTimes(2);
+    // The rewrite puts back the user's tags alone, without the reserved checksum tag.
+    expect(mockPutObjectTags.mock.calls[1][3]).toEqual([{ Key: 'team', Value: 'platform' }]);
+    expect(mockWarning).toHaveBeenCalledWith(
+      expect.stringContaining('replaced s3://bucket/') as unknown as string
+    );
+  });
+
+  it('copies instead when the HeadObject after the tag fails', async () => {
+    mockSpawnArchiveCommand.mockImplementation(() => makeFakeChild());
+    mockWaitForExit.mockImplementation(async (c) => {
+      c.stdout.end(Buffer.from('archive-body'));
+      return 0;
+    });
+    let calls = 0;
+    mockCheckObjectExists.mockImplementation(async () => {
+      calls += 1;
+      if (calls === 1) {
+        return null;
+      }
+      throw new Error('head blocked');
+    });
+    const outcome = await saveToS3(tier({ streaming: true }), 'k', ['node_modules']);
+    expect(outcome.kind).toBe('saved');
+    expect(mockPutObjectTags).toHaveBeenCalledTimes(1);
+    expect(mockReplaceObjectMetadata).toHaveBeenCalled();
   });
 
   it('copies instead of tagging when user metadata is configured', async () => {

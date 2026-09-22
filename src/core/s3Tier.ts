@@ -410,8 +410,11 @@ async function resolveExpectedSha256(
     const tags = await getObjectTags(tier.storage.client, tier.storage.bucket, objectKey);
     return tags[SHA256_METADATA_KEY];
   } catch (err) {
-    core.debug(
-      `Could not read the tags of s3://${tier.storage.bucket}/${objectKey}: ${toError(err).message}`
+    // A warning, not a debug line: the usual cause is an IAM policy without
+    // `s3:GetObjectTagging`, and the only visible effect is an integrity check that silently
+    // stops happening. The restore still proceeds — the cache itself is fine.
+    core.warning(
+      `Could not read the tags of s3://${tier.storage.bucket}/${objectKey}, so this restore skips the integrity check: ${toError(err).message}`
     );
     return undefined;
   }
@@ -734,12 +737,39 @@ function isTagPutUnsupported(err: unknown): boolean {
   return error.$metadata?.httpStatusCode === 501 || error.name === 'NotImplemented';
 }
 
+/** How the ownership check after a `PutObjectTagging` ended. */
+type TagOwnership = 'ours' | 'replaced' | 'unconfirmed';
+
+/**
+ * Confirms that the object the tag was just written to still holds the body this job uploaded,
+ * by comparing a `HeadObject` ETag with the upload's. `conditionalWriteUnsupported` only latches
+ * when a server actively rejects `If-None-Match`; a server that accepts the header and ignores
+ * it (the README names Google Cloud Storage) leaves the flag unset, so the condition alone does
+ * not prove ownership. One small HEAD per streamed save closes that window. An answer that
+ * cannot be compared — no object, or an ETag missing on either side — proves nothing and is
+ * reported as `unconfirmed`.
+ */
+async function confirmTaggedObject(
+  tier: S3Tier,
+  objectKey: string,
+  uploadedEtag: string | undefined
+): Promise<TagOwnership> {
+  const { client, bucket } = tier.storage;
+  const head = await checkObjectExists(client, bucket, objectKey);
+  const currentEtag = head?.etag;
+  if (uploadedEtag === undefined || currentEtag === undefined) {
+    return 'unconfirmed';
+  }
+  return currentEtag === uploadedEtag ? 'ours' : 'replaced';
+}
+
 /**
  * Attaches the checksum to a streamed object. A tag rewrites no data, so it costs a fraction of
  * the copy on a large archive, but it is only safe when this job provably owns the object, which
- * means the upload carried an honoured `If-None-Match`. Everything else — user metadata
- * configured (which a tag cannot carry), a provider already known not to support tagging, or an
- * upload that did not use the condition — keeps the ETag-guarded copy.
+ * means the upload carried an honoured `If-None-Match` and a `HeadObject` afterwards still
+ * reports the ETag that upload produced. Everything else — user metadata configured (which a tag
+ * cannot carry), a provider already known not to support tagging, or an upload that did not use
+ * the condition — keeps the ETag-guarded copy.
  */
 async function attachStreamedChecksum(
   tier: S3Tier,
@@ -758,7 +788,30 @@ async function attachStreamedChecksum(
   if (canTag) {
     try {
       await putObjectTags(client, bucket, objectKey, withChecksumTag(tier.tags, sha256));
-      return uploadedEtag;
+      const ownership = await confirmTaggedObject(tier, objectKey, uploadedEtag);
+      if (ownership === 'replaced') {
+        // Another job wrote this key between the upload and the tag. Take the checksum back off,
+        // so no restore ever checks their bytes against our digest, and stop here: the copy would
+        // rewrite an object that is not ours.
+        try {
+          await putObjectTags(client, bucket, objectKey, [...tier.tags]);
+        } catch (err) {
+          core.warning(
+            `Could not remove this save's checksum tag from s3://${bucket}/${objectKey}: ${toError(err).message}`
+          );
+        }
+        core.warning(
+          `Another job replaced s3://${bucket}/${objectKey} while this save was finishing, so its checksum was not attached; that cache is kept without an integrity check.`
+        );
+        return uploadedEtag;
+      }
+      if (ownership === 'ours') {
+        return uploadedEtag;
+      }
+      // `unconfirmed`: fall through to the ETag-guarded copy, exactly as a tag failure does.
+      core.debug(
+        `Could not confirm that s3://${bucket}/${objectKey} still holds this upload; attaching the checksum by copy instead.`
+      );
     } catch (err) {
       if (isTagPutUnsupported(err)) {
         tier.storage.objectTaggingUnsupported = true;
@@ -786,8 +839,10 @@ function withStderrTail(err: unknown, tail: readonly string[]): Error {
 /**
  * Streaming save (Task 8): spawns tar writing the archive to stdout and pipes it, through a
  * sha256 tap and a byte counter (there is no file to hash or stat for the size), into an S3
- * multipart upload. The sha256 and the user metadata are attached afterwards, best-effort, by a
- * CopyObject onto the saved object. Tar and
+ * multipart upload. The sha256 is attached afterwards, best-effort, in one of two ways (see
+ * `attachStreamedChecksum`): a `PutObjectTagging` that adds a reserved checksum tag, when this
+ * job provably owns the object and carries no user metadata, and otherwise an ETag-guarded
+ * CopyObject onto the saved object, which is also the only way user metadata is attached. Tar and
  * the upload run concurrently, but the upload body is only ever told the archive is complete
  * (`counter.stream.end()`) once tar has actually closed with exit code 0; any other outcome —
  * a non-zero exit, a signal, or the pipe itself breaking — destroys the body with an error
