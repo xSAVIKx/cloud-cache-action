@@ -8,6 +8,35 @@ points at the latest `v1.x.y` release.
 
 ## [Unreleased]
 
+### Added
+
+- **`compression-level` input.** Set the zstd (1–19) or gzip (1–9) level a save uses. Unset keeps
+  today's exact command (zstd level 3, or gzip via `tar -z`), so an existing workflow sees no
+  change. Only saving is affected; restore decodes whichever level a cache was saved with.
+  Measured levels for two real dependency trees, and the reasoning for leaving the default at 3,
+  are in the [Performance](./guide/performance.md) guide.
+  A new `compression` job in the `Transfer benchmark` workflow, and a `compressionBenchmark.ts`
+  script, reproduce the sweep against your own cache paths.
+- **Faster cache lookups.** Refs are still searched one at a time and in the same order as before,
+  so a later branch is never probed before an earlier one is ruled out. Within one ref, the
+  primary-key and restore-key listings now go out together instead of one after another: a total
+  miss with three refs and two restore keys drops from twelve sequential round trips to six, while
+  an exact hit still costs one request. The `explain` report and the `inspect` sub-action fan out
+  the same way, one ref's listings at a time, and still stop at the first hit, so the rendered
+  report is unchanged.
+
+### Changed
+
+- **A streamed save now stores its sha256 checksum as an object tag** instead of rewriting the
+  whole object, which removes about 8 seconds from a 512 MiB save on Amazon S3. An action older
+  than v1.6 restoring such a cache finds no checksum metadata and skips the integrity check
+  instead of failing, the same way it already does for a v1.1 cache. The object copy is still used
+  when user `metadata` is set, when the provider has no tagging API (Garage), or when the upload
+  could not use a conditional create. A streamed archive over 5 GiB now gets a checksum for the
+  first time, since a tag has no size limit while the copy was refused above 5 GiB. With
+  `streaming: true`, the `tags` input is capped at 9 instead of 10, because the reserved checksum
+  tag takes one slot.
+
 ## [1.5.0] - 2026-09-22
 
 No breaking changes, and nothing changes for an existing workflow: this release only adds a

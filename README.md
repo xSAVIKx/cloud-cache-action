@@ -300,19 +300,28 @@ caches — set `ref` explicitly in that case. See the full [Pruning Caches guide
 
 ## Archive Integrity
 
-Every save computes the sha256 checksum of the archive and stores it as object metadata
-(`cloud-cache-sha256`). On restore, when the object carries that metadata, the downloaded archive
-is hashed again and compared before extraction. A mismatch does not extract the archive: the S3
-tier reports an `Integrity check failed for s3://<bucket>/<key>: expected sha256 <expected>, got
-<actual>` error, which the restore logs as a warning (`Restoring from s3 failed, so it counts as a
-cache miss: ...`) and treats as a cache miss, like any other S3 tier failure. With dual-cache the
-GitHub tier is tried next, `fail-on-cache-miss: true` fails the step as it would for any miss, and
-only `dual-cache-strict: true` turns the mismatch itself into a step failure. With
+Every save computes the sha256 checksum of the archive. A file-mode save stores the checksum as
+object metadata (`cloud-cache-sha256`), as before. A streamed save stores the checksum as an
+object tag instead. Three cases still use the metadata copy: user `metadata` is set, the provider
+has no tagging API (Garage), or the conditional create was not honored — see
+[Object Metadata and Tags](#object-metadata-and-tags).
+
+On restore, the S3 tier looks for the checksum in metadata first. When metadata carries none, it
+reads the tag, but only when the object reports at least one tag. When neither is present,
+verification is skipped. When a checksum is found, the downloaded archive is hashed again and
+compared before extraction. A mismatch does not extract the archive: the S3 tier reports an
+`Integrity check failed for s3://<bucket>/<key>: expected sha256 <expected>, got <actual>` error,
+which the restore logs as a warning (`Restoring from s3 failed, so it counts as a cache miss: ...`)
+and treats as a cache miss, like any other S3 tier failure. With dual-cache the GitHub tier is
+tried next, `fail-on-cache-miss: true` fails the step as it would for any miss, and only
+`dual-cache-strict: true` turns the mismatch itself into a step failure. With
 [streaming](#streaming-archives-experimental), the archive is hashed while it is extracted, so a
-mismatch is only detected at the end and files may already have been extracted. Objects saved
-without the checksum — caches from v1.1, streamed saves whose post-upload metadata copy the
-provider rejected, or objects a storage provider stripped the metadata from — simply skip
-verification; this is not a breaking change.
+mismatch is only detected at the end and files may already have been extracted.
+
+Objects with no checksum at all skip verification: caches from v1.1, or objects whose tagging or
+metadata write the provider rejected. This is not a breaking change. An action older than v1.6
+that restores a cache saved as a tag finds no checksum metadata. It skips the integrity check the
+same way, instead of failing.
 
 **Garage** does preserve this metadata, so integrity checks apply there like everywhere else.
 
@@ -454,7 +463,10 @@ them.
 ```
 
 Keys starting with `cloud-cache-` are reserved. Metadata is limited to 2 KB in total and tags to
-10. On providers without object tagging the save logs one warning
+10. With `streaming: true`, the cap drops to 9: a streamed save reserves one tag slot for the
+`cloud-cache-sha256` checksum (see below). The cap is set from the `streaming` input itself, so a
+streamed save that falls back to file mode on Windows still uses the stricter cap of 9. On
+providers without object tagging the save logs one warning
 (`s3://<bucket> could not store object tags (<reason>); saved without them.`) and completes without
 tags.
 Both are best-effort extras: neither can fail the save.
@@ -470,11 +482,17 @@ Both are best-effort extras: neither can fail the save.
 Verified rows were measured by `tests/integration/objectAttributes.test.ts` against local MinIO,
 SeaweedFS, RustFS and Garage servers; the last row is not covered by the local integration suite.
 
-With [streaming](#streaming-archives-experimental), the metadata (and the sha256) is attached by a
-copy of the object onto itself right after the upload, since the checksum is only known once the
-stream has finished. A provider that cannot do that copy costs the metadata, not the cache: the
-save logs `Saved s3://<bucket>/<key> but could not attach metadata: <reason>` and succeeds. The
-copy was verified to work on MinIO, SeaweedFS, RustFS and Garage.
+With [streaming](#streaming-archives-experimental), the sha256 checksum is only known once the
+stream has finished, so it is attached after the upload. Normally it is attached as an object tag
+(`PutObjectTagging`), sent together with any user `tags`. Three cases attach it with a copy of the
+object onto itself instead, the same mechanism v1.2 through v1.5 always used: user `metadata` is
+set, the provider has no tagging API (Garage today), or the conditional create was not honored. A
+tag write that fails for any other reason falls back to the copy as well. A provider that cannot
+do the copy either — or an archive over 5 GiB, since a copy cannot span more than 5 GiB — costs
+the checksum, not the cache: the save logs
+`Saved s3://<bucket>/<key> but could not attach metadata: <reason>` and succeeds. A tag has no
+size limit, so a streamed archive over 5 GiB gets a checksum for the first time when the tag path
+applies. The copy was verified to work on MinIO, SeaweedFS, RustFS and Garage.
 
 ---
 
@@ -491,12 +509,19 @@ unaffected), uses less disk, and can be faster for large caches — but with the
   extracts the archive as it downloads, so a network or `tar` failure mid-stream becomes a cache
   miss (with a warning) and can leave the workspace partly extracted. File-mode restores download
   to a temporary file first and retry the whole download before extracting anything.
-- **The integrity checksum is attached after the upload.** A streamed archive's
-  `cloud-cache-sha256` metadata is written by a copy of the object onto itself once the stream has
-  finished and the digest is known. That copy is best-effort: on a provider that rejects it the
-  save still succeeds, logs `Saved s3://<bucket>/<key> but could not attach metadata: <reason>`,
-  and the object carries no checksum, so restoring it skips the integrity check. See
-  [Object Metadata and Tags](#object-metadata-and-tags).
+- **The integrity checksum is attached after the upload.** The digest is only known once the
+  stream has finished, so a streamed save attaches `cloud-cache-sha256` afterwards, normally as an
+  object tag rather than metadata (a copy of the object onto itself in three narrower cases; see
+  [Object Metadata and Tags](#object-metadata-and-tags)). This drops about 8 seconds from a
+  512 MiB save on Amazon S3, where the copy used to dominate the step. Attaching it is
+  best-effort: on a provider that rejects both attempts the save still succeeds, logs
+  `Saved s3://<bucket>/<key> but could not attach metadata: <reason>`, and the object carries no
+  checksum, so restoring it skips the integrity check. An action older than v1.6 restoring a
+  streamed cache saved by v1.6 or later finds no checksum metadata and skips the integrity check
+  the same way, instead of failing.
+- **`tags` allows one fewer entry.** With `streaming: true` the cap drops from 10 to 9, because
+  the checksum tag reserves one slot. The cap follows the `streaming` input itself, so a streamed
+  save that falls back to file mode on Windows keeps the stricter cap of 9.
 
 Streaming is opt-in and defaults to `false`; disabling it (or leaving it unset) is identical to
 v1.1 behavior. It automatically falls back to file mode — logging
@@ -548,7 +573,7 @@ every S3-compatible provider rejects smaller parts.
 
 **Measured on a hosted runner** (512 MiB archive, `ubuntu-latest`, 2026-09-21; the full tables,
 the run-to-run variance and the settings that measured best are in the
-[Transfer Performance](https://xsavikx.github.io/cloud-cache-action/guide/performance) guide):
+[Performance](https://xsavikx.github.io/cloud-cache-action/guide/performance) guide):
 
 | | Cloudflare R2 | Amazon S3 | Google Cloud Storage |
 | --- | ---: | ---: | ---: |
@@ -565,6 +590,10 @@ reproduces these tables against your own buckets.
 
 The restore's `cloud-cache-metrics` line reports the number of parts as `downloadParts`; see
 [Metrics and Timings](#metrics-and-timings).
+
+`compression-level` trades save time against archive size and does not affect transfer speed; see
+the compression section of the [Performance](https://xsavikx.github.io/cloud-cache-action/guide/performance)
+guide for measured levels on real dependency trees.
 
 ---
 
@@ -693,9 +722,10 @@ The post step only runs when the job succeeds. To save a cache even when a later
 | `download-chunk-size`            |    No    |                         `8388608`                          | Bytes per ranged GET request (1 MiB–128 MiB); archives no larger than this use one request |
 | `upload-concurrency`             |    No    |                            `8`                             | Multipart upload parts sent at once (1–32)                                  |
 | `upload-chunk-size`              |    No    |                         `67108864`                         | Bytes per multipart upload part (5 MiB–128 MiB); the same input `actions/cache` takes |
+| `compression-level`              |    No    |                            Tool default                            | zstd 1–19 or gzip 1–9 for saving; lower is faster and larger (see [Performance](https://xsavikx.github.io/cloud-cache-action/guide/performance)) |
 | `job-summary`                    |    No    |                           `true`                           | Write a job summary table with the cache keys, hit, source, size and duration |
 | `metadata`                       |    No    |                             —                              | User metadata (`x-amz-meta-*`) for every saved object, one `key=value` per line, with surrounding whitespace trimmed (see [Object Metadata and Tags](#object-metadata-and-tags)) |
-| `tags`                           |    No    |                             —                              | Object tags for every saved object, one `key=value` per line (up to 10) |
+| `tags`                           |    No    |                             —                              | Object tags for every saved object, one `key=value` per line (up to 10; up to 9 with `streaming: true`, which reserves one slot for the checksum tag) |
 | `explain`                        |    No    |                          `false`                           | Log why the lookup hits or misses before restoring (see [Inspecting a cache lookup](#inspecting-a-cache-lookup)) |
 | `metrics-file`                   |    No    |                            `""`                            | Append one JSON line of timings and sizes for this step to this file, relative to the workspace |
 

@@ -92,7 +92,7 @@ export default defineConfig({
           { text: 'S3 Key Templating', link: '/guide/s3-key-patterns' },
           { text: 'Pruning Caches', link: '/guide/pruning' },
           { text: 'Inspecting Lookups', link: '/guide/inspecting' },
-          { text: 'Transfer Performance', link: '/guide/performance' },
+          { text: 'Performance', link: '/guide/performance' },
           { text: 'Migrating from actions/cache', link: '/guide/migration' },
         ],
       },

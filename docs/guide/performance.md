@@ -1,14 +1,15 @@
 ---
-title: Transfer Performance
+title: Performance
 ---
 
-# Transfer Performance
+# Performance
 
 The `download-concurrency`, `download-chunk-size`, `upload-concurrency` and `upload-chunk-size`
-inputs decide how many connections a transfer uses and how much each request carries. This page
-shows what they do to a real cache on a GitHub-hosted runner, so you can pick values for your
-provider instead of guessing. See [Parallel Transfers](https://github.com/xSAVIKx/cloud-cache-action#parallel-transfers)
-in the README for how the inputs work.
+inputs decide how many connections a transfer uses and how much each request carries. The
+`compression-level` input decides how hard `zstd` or `gzip` work on a save. This page measures
+both sets of inputs on real data, so you can pick values for your provider and your cache instead
+of guessing. See [Parallel Transfers](https://github.com/xSAVIKx/cloud-cache-action#parallel-transfers)
+in the README for how the transfer inputs work.
 
 ## How the numbers were measured
 
@@ -73,7 +74,10 @@ What the table says:
 - **Streaming saves pay for the metadata copy on S3.** The whole step took 10.9 s against 2.9 s
   of transfer in both runs, because the sha256 is attached by copying the 512 MiB object onto
   itself after the upload. R2 and GCS copy in well under a second. File mode sends the checksum
-  with the upload and has no copy.
+  with the upload and has no copy. This run predates v1.6: a streamed save now attaches the
+  checksum as an object tag instead, which removes this gap on S3 in the normal case. See
+  [Object Metadata and Tags](https://github.com/xSAVIKx/cloud-cache-action#object-metadata-and-tags)
+  in the README for when the copy still applies.
 
 ## Run-to-run variance
 
@@ -124,3 +128,119 @@ gh workflow run benchmark.yml -f size-mb=1024 -f repeats=3
 It runs one job per provider whose secrets are configured (the same secrets as the live provider
 suites), writes a table per provider to the job summary, uploads `benchmark-results.md` and
 `benchmark-results.json` as `benchmark-<provider>` artifacts, and deletes the objects it created.
+
+## Compression
+
+`compression-level` sets the zstd (1–19) or gzip (1–9) level a save uses. It only changes saving:
+restore always decodes whatever level a cache was saved with, so changing this input never
+invalidates a cache and never changes restore speed.
+
+### Fixtures
+
+Measured 2026-09-22 on two real dependency trees, pinned to 4 cores with `zstd -T4` to emulate a
+4-vCPU hosted runner.
+
+| Fixture | Size | Files | Shape |
+| --- | ---: | ---: | --- |
+| `node_modules` from this repository | 278 MiB | 20916 | mostly small text |
+| Python site-packages, wheels unpacked and byte-compiled | 354 MiB | 8927 | mixed, 198 shared objects |
+
+### `node_modules`, 4 cores
+
+Save time is compress plus upload at 200 MiB/s. Restore time is extract plus download at the same
+rate.
+
+| Level | Archive | Ratio | Compress | Extract | Save | Restore |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| zstd-1 | 60.6 MiB | 4.58 | 0.9 s | 0.7 s | 1.2 s | 0.9 s |
+| zstd-2 | 57.8 MiB | 4.80 | 1.0 s | 0.7 s | 1.3 s | 1.0 s |
+| **zstd-3, today** | 55.0 MiB | 5.05 | 1.1 s | 0.8 s | 1.4 s | 1.0 s |
+| zstd-5 | 52.6 MiB | 5.27 | 1.8 s | 0.8 s | 2.1 s | 1.0 s |
+| zstd-9 | 48.8 MiB | 5.69 | 3.0 s | 0.7 s | 3.3 s | 0.9 s |
+| gzip-6, the gzip default | 71.4 MiB | 3.89 | 11.7 s | 1.9 s | 12.1 s | 2.2 s |
+| gzip-1 | 85.2 MiB | 3.26 | 4.9 s | 2.2 s | 5.3 s | 2.6 s |
+
+### Python site-packages, 4 cores
+
+Same fixture, same 200 MiB/s transfer assumption, computed from the same sweep.
+
+| Level | Archive | Ratio | Compress | Extract | Save | Restore |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| zstd-1 | 112.4 MiB | 3.15 | 1.1 s | 0.8 s | 1.7 s | 1.4 s |
+| zstd-2 | 105.6 MiB | 3.35 | 1.2 s | 0.9 s | 1.8 s | 1.4 s |
+| **zstd-3, today** | 100.1 MiB | 3.53 | 1.5 s | 0.9 s | 2.0 s | 1.4 s |
+| zstd-5 | 96.1 MiB | 3.68 | 2.6 s | 0.9 s | 3.1 s | 1.4 s |
+| zstd-9 | 88.4 MiB | 4.00 | 4.3 s | 0.9 s | 4.7 s | 1.4 s |
+| gzip-6, the gzip default | 111.7 MiB | 3.17 | 17.6 s | 2.6 s | 18.1 s | 3.2 s |
+| gzip-1 | 127.4 MiB | 2.78 | 6.6 s | 2.9 s | 7.3 s | 3.5 s |
+
+### Findings
+
+Both fixtures, and both a fast and a slow link:
+
+1. **Levels 1, 2 and 3 are within 0.3 s of each other on save.** Level 1 is nominally fastest, and
+   it pays 10 to 12 percent more bytes for it, on every save and every restore from then on.
+2. **On a slow link the gap closes further**, because the smaller archive wins back the extra CPU.
+   At 60 MiB/s, level 2 is the fastest save on the Python tree, and level 1 and 2 tie on
+   `node_modules`.
+3. **Restore barely depends on the level at all.** Extract takes 0.67 s to 0.77 s across every
+   zstd level, so the level is a save-side trade only.
+4. **Levels above 5 cost real time for little size.** Level 9 triples compress time to save 11
+   percent of bytes against level 3. Level 19, measured on 12 cores, took 55 s to 64 s.
+5. **gzip loses on both axes.** Its default level takes 10 times the CPU of zstd level 3 and still
+   produces a larger archive than zstd level 1.
+
+### Why the default stays at zstd level 3
+
+The measurement says today's default is within 0.3 s of the fastest option, and it produces the
+second-smallest archive of the fast group. Moving the default to level 1 would trade a permanent
+10 percent size increase for a saving that is noise on a 300 MiB cache. This release changes no
+default and only adds the `compression-level` input.
+
+Two starting points, if you want to change it:
+
+- `compression-level: 1` for the shortest save on a large cache, and for the gzip fallback path,
+  where it roughly halves save time.
+- `compression-level: 9` for the smallest archive, at about two extra seconds of CPU per save.
+
+## Measure it yourself
+
+The `compression` mode of the benchmark (`tests/ci/compressionBenchmark.ts`) measures your own
+cache paths directly. It builds each archive through the action's real `buildCreateCommands` plan,
+so the measured command is the one a save actually runs.
+
+```sh
+BENCH_FIXTURES="node_modules=/abs/path/to/node_modules" node tests/ci/compressionBenchmark.ts
+```
+
+- `BENCH_FIXTURES` (required): comma-separated `name=/abs/path` pairs. Point it at any directory
+  you cache, not only `node_modules` — a build output directory or a vendored dependency tree
+  works the same way.
+- `BENCH_LEVELS` (default `1,2,3,5,9`): comma-separated zstd levels to sweep.
+- `BENCH_REPEATS` (default `2`): repeats per level; the table shows the fastest.
+- `BENCH_OUT` (default the workspace): directory for `compression-results.md` and
+  `compression-results.json`.
+
+Each row reports the archive size, the ratio against the raw tree size, the compress time and the
+extract time, each the fastest of `BENCH_REPEATS` runs. Restore barely depends on the level: in
+the measurements above, extract time moves by well under a tenth of a second across the whole
+zstd range, so treat the level as a save-side trade only.
+
+**Warning:** the action always runs zstd as `zstd -T0`, which spreads compression across every
+core the machine has. A developer machine with more cores than a hosted runner will therefore
+understate compress time: your local sweep finishes faster than the same levels would on a 4-vCPU
+runner. Pin the sweep to the core count you care about before trusting it, for example
+`taskset -c 0-3 node tests/ci/compressionBenchmark.ts` on Linux, or run it in CI instead, where a
+runner's own core count is already the honest number.
+
+Trigger the **Transfer benchmark** workflow from the Actions tab, or:
+
+```sh
+gh workflow run benchmark.yml
+```
+
+Its `compression` job now runs alongside the transfer jobs: it builds a `node_modules` fixture
+from this repository and a Python site-packages fixture from a small `pip download` set, sweeps
+both, and uploads `compression-results.md` and `compression-results.json` as the
+`benchmark-compression` artifact. The job warns in its own log when the runner has more than 4
+CPUs, for the same reason as above.
