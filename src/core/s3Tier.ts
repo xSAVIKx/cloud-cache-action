@@ -39,6 +39,7 @@ import {
   downloadFile,
   findNewestObject,
   getObjectStream,
+  getObjectTags,
   listObjects,
   putObjectTags,
   replaceObjectMetadata,
@@ -367,6 +368,34 @@ export async function findS3Match(
   return undefined;
 }
 
+/**
+ * The expected sha256 for an object: metadata first, because every object written before tagging
+ * carries it there, then the reserved tag, and only when the response said the object has tags.
+ */
+async function resolveExpectedSha256(
+  tier: S3Tier,
+  objectKey: string,
+  metadata: Record<string, string> | undefined,
+  tagCount: number | undefined
+): Promise<string | undefined> {
+  const fromMetadata = metadata?.[SHA256_METADATA_KEY];
+  if (fromMetadata) {
+    return fromMetadata;
+  }
+  if (!tagCount) {
+    return undefined;
+  }
+  try {
+    const tags = await getObjectTags(tier.storage.client, tier.storage.bucket, objectKey);
+    return tags[SHA256_METADATA_KEY];
+  } catch (err) {
+    core.debug(
+      `Could not read the tags of s3://${tier.storage.bucket}/${objectKey}: ${toError(err).message}`
+    );
+    return undefined;
+  }
+}
+
 export async function restoreFromS3(
   tier: S3Tier,
   primaryKey: string,
@@ -425,9 +454,9 @@ export async function restoreFromS3(
     const archivePath = path.join(tempDir, tier.compression.archiveFilename);
     const { bucket } = tier.storage;
     const transferStart = Date.now();
-    const { metadata, parts } = await downloadArchive(tier, found, archivePath);
+    const { metadata, tagCount, parts } = await downloadArchive(tier, found, archivePath);
     recordDownload(parts, transferStart);
-    const expectedSha256 = metadata?.[SHA256_METADATA_KEY];
+    const expectedSha256 = await resolveExpectedSha256(tier, found.objectKey, metadata, tagCount);
     if (expectedSha256) {
       const actualSha256 = await sha256File(archivePath);
       if (actualSha256 !== expectedSha256) {
@@ -939,7 +968,7 @@ async function downloadArchive(
   tier: S3Tier,
   found: S3Match,
   archivePath: string
-): Promise<{ metadata?: Record<string, string>; parts: number }> {
+): Promise<{ metadata?: Record<string, string>; tagCount?: number; parts: number }> {
   const { client, bucket } = tier.storage;
   const plan = partPlan(tier, found);
   if (plan) {
@@ -952,7 +981,7 @@ async function downloadArchive(
       logRangeFallback(tier, found);
     }
   }
-  const { metadata } = await withRetry(
+  const { metadata, tagCount } = await withRetry(
     () => downloadFile(client, bucket, found.objectKey, archivePath),
     {
       retries: tier.streamRetries,
@@ -960,14 +989,19 @@ async function downloadArchive(
       shouldRetry: isRetryableStreamError,
     }
   );
-  return { metadata, parts: 1 };
+  return { metadata, tagCount, parts: 1 };
 }
 
 /** The streaming counterpart of `downloadArchive`: the archive bytes as one ordered stream. */
 async function openArchiveStream(
   tier: S3Tier,
   found: S3Match
-): Promise<{ body: Readable; metadata?: Record<string, string>; parts: number }> {
+): Promise<{
+  body: Readable;
+  metadata?: Record<string, string>;
+  tagCount?: number;
+  parts: number;
+}> {
   const { client, bucket } = tier.storage;
   const plan = partPlan(tier, found);
   if (plan) {
@@ -981,7 +1015,7 @@ async function openArchiveStream(
     }
   }
   const stream = await getObjectStream(client, bucket, found.objectKey);
-  return { body: stream.body, metadata: stream.metadata, parts: 1 };
+  return { body: stream.body, metadata: stream.metadata, tagCount: stream.tagCount, parts: 1 };
 }
 /**
  * Streaming restore (Task 8): pipes the GetObject body through the sha256 tap into a spawned
@@ -1004,7 +1038,7 @@ async function restoreFromS3Streaming(
   try {
     const stream = await openArchiveStream(tier, found);
     body = stream.body;
-    const { metadata } = stream;
+    const { metadata, tagCount } = stream;
     fs.mkdirSync(tier.workspace, { recursive: true });
     const [command] = buildExtractCommands({
       tar,
@@ -1043,7 +1077,7 @@ async function restoreFromS3Streaming(
       throw withStderrTail(err, stderrTail.lines());
     }
 
-    const expectedSha256 = metadata?.[SHA256_METADATA_KEY];
+    const expectedSha256 = await resolveExpectedSha256(tier, found.objectKey, metadata, tagCount);
     if (expectedSha256) {
       const actualSha256 = tap.digest();
       if (actualSha256 !== expectedSha256) {

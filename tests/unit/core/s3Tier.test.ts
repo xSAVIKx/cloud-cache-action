@@ -54,7 +54,7 @@ const mockDownloadFile =
       bucket: string,
       key: string,
       destination: string
-    ) => Promise<{ metadata?: Record<string, string> }>
+    ) => Promise<{ metadata?: Record<string, string>; tagCount?: number }>
   >();
 const mockUploadFile =
   jest.fn<
@@ -87,6 +87,8 @@ const mockPutObjectTags =
       tags: { Key: string; Value: string }[]
     ) => Promise<void>
   >();
+const mockGetObjectTags =
+  jest.fn<(client: S3Client, bucket: string, key: string) => Promise<Record<string, string>>>();
 const realSha256Tap = () => {
   const hash = crypto.createHash('sha256');
   const stream = new Transform({
@@ -206,6 +208,7 @@ jest.unstable_mockModule('../../../src/storage/operations', () => ({
   createStreamUpload: mockCreateStreamUpload,
   replaceObjectMetadata: mockReplaceObjectMetadata,
   putObjectTags: mockPutObjectTags,
+  getObjectTags: mockGetObjectTags,
 }));
 const mockDownloadFileInParts =
   jest.fn<
@@ -338,6 +341,7 @@ beforeEach(() => {
   mockSha256File.mockResolvedValue('archive-sha256');
   mockReplaceObjectMetadata.mockResolvedValue({});
   mockPutObjectTags.mockResolvedValue(undefined);
+  mockGetObjectTags.mockResolvedValue({});
   mockCreateSha256Tap.mockImplementation(realSha256Tap);
   mockCreateByteCounter.mockImplementation(realByteCounter);
 
@@ -622,6 +626,44 @@ describe('restoreFromS3', () => {
       expect(mockSha256File).not.toHaveBeenCalled();
       expect(mockExtractArchive).toHaveBeenCalled();
       expect(mockDebug).toHaveBeenCalledWith(expect.stringContaining('sha256'));
+    });
+
+    it('verifies against the checksum tag when the object carries no metadata', async () => {
+      put(FEATURE, 'k', 1);
+      mockDownloadFile.mockResolvedValue({ tagCount: 1 });
+      mockGetObjectTags.mockResolvedValue({ 'cloud-cache-sha256': 'good-hash' });
+      mockSha256File.mockResolvedValue('good-hash');
+      await expect(restoreFromS3(tier(), 'k', [], false)).resolves.toMatchObject({ kind: 'hit' });
+      expect(mockExtractArchive).toHaveBeenCalled();
+    });
+
+    it('rejects a mismatch found through the checksum tag', async () => {
+      put(FEATURE, 'k', 1);
+      mockDownloadFile.mockResolvedValue({ tagCount: 1 });
+      mockGetObjectTags.mockResolvedValue({ 'cloud-cache-sha256': 'expected-hash' });
+      mockSha256File.mockResolvedValue('actual-hash');
+      const outcome = await restoreFromS3(tier(), 'k', [], false);
+      expect(outcome.kind === 'error' && outcome.error.message).toContain('Integrity check failed');
+      expect(mockExtractArchive).not.toHaveBeenCalled();
+    });
+
+    it('prefers metadata over tags, and asks for no tags when metadata carries the checksum', async () => {
+      put(FEATURE, 'k', 1);
+      mockDownloadFile.mockResolvedValue({
+        metadata: { 'cloud-cache-sha256': 'good-hash' },
+        tagCount: 1,
+      });
+      mockSha256File.mockResolvedValue('good-hash');
+      await restoreFromS3(tier(), 'k', [], false);
+      expect(mockGetObjectTags).not.toHaveBeenCalled();
+    });
+
+    it('asks for no tags when the object reports none', async () => {
+      put(FEATURE, 'k', 1);
+      mockDownloadFile.mockResolvedValue({ tagCount: 0 });
+      await restoreFromS3(tier(), 'k', [], false);
+      expect(mockGetObjectTags).not.toHaveBeenCalled();
+      expect(mockDebug).toHaveBeenCalledWith(expect.stringContaining('skipping integrity check'));
     });
   });
 });
