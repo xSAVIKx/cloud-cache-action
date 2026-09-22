@@ -231,6 +231,44 @@ describe('buildCreateCommands', () => {
   });
 });
 
+describe('buildCreateCommands compression level', () => {
+  const zstdPlan = {
+    tar: gnu,
+    platform: 'linux' as NodeJS.Platform,
+    compression: 'zstd' as const,
+    archivePath: '/tmp/cache.tar.zst',
+    ...unix,
+  };
+  const gzipPlan = { ...zstdPlan, compression: 'gzip' as const, archivePath: '/tmp/cache.tar.gz' };
+
+  it('passes the level to zstd when one is set', () => {
+    expect(buildCreateCommands({ ...zstdPlan, level: 1 })[0].args).toContain(
+      'zstd -1 -T0 --long=30'
+    );
+  });
+
+  it('keeps the default zstd command when no level is set', () => {
+    expect(buildCreateCommands(zstdPlan)[0].args).toContain('zstd -T0 --long=30');
+  });
+
+  it('uses a compress program for gzip only when a level is set', () => {
+    expect(buildCreateCommands(gzipPlan)[0].args).toContain('-z');
+    expect(buildCreateCommands({ ...gzipPlan, level: 1 })[0].args).toContain('gzip -1');
+  });
+
+  it('passes the level to the Windows two-step zstd command', () => {
+    const commands = buildCreateCommands({
+      tar: systemTar,
+      platform: 'win32',
+      compression: 'zstd',
+      archivePath: 'D:\\a\\_temp\\cache.tar.zst',
+      ...win,
+      level: 5,
+    });
+    expect(commands[1].args.slice(0, 3)).toEqual(['-5', '-T0', '--long=30']);
+  });
+});
+
 describe('buildExtractCommands', () => {
   it.each<[string, Parameters<typeof buildExtractCommands>[0], ArchiveCommand[]]>([
     [

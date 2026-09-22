@@ -6,6 +6,7 @@
 
 import * as core from '@actions/core';
 import { formatSize, isExactKeyMatch } from '../utils/inputUtils';
+import { mapWithConcurrency } from '../utils/concurrency';
 import type { CacheConfig } from './config';
 import { listCandidates, type Candidate, type S3Tier } from './s3Tier';
 import { canWrite, escapeHtml, flush } from './summary';
@@ -73,6 +74,9 @@ export interface ExplainOptions {
 }
 
 const DEFAULT_MAX_CANDIDATES = 20;
+
+/** Listings sent at once while building the report; it lists everything either way. */
+const EXPLAIN_CONCURRENCY = 8;
 
 function toCandidateView(candidate: Candidate): ExplainCandidate {
   return {
@@ -185,8 +189,21 @@ export async function buildExplainReport(
 
   let hitSearch: ExplainSearch | undefined;
   for (const ref of tier.restoreRefs) {
-    for (const keyPrefix of [config.primaryKey, ...config.restoreKeys]) {
-      const all = await listCandidates(tier, ref, keyPrefix);
+    if (hitSearch) {
+      break;
+    }
+    const keyPrefixes = [config.primaryKey, ...config.restoreKeys];
+    const searchPlan = keyPrefixes.map((keyPrefix) => ({ ref, keyPrefix }));
+    // Every listing at once per ref: no early exit within a ref, so nothing speculative.
+    const listings = await mapWithConcurrency(
+      searchPlan,
+      EXPLAIN_CONCURRENCY,
+      ({ ref: r, keyPrefix }) => listCandidates(tier, r, keyPrefix)
+    );
+
+    for (let i = 0; i < searchPlan.length; i++) {
+      const { keyPrefix } = searchPlan[i];
+      const all = listings[i];
       const shown = all.slice(0, maxCandidates);
       const searched: ExplainSearch = {
         ref: ref || null,
@@ -218,9 +235,6 @@ export async function buildExplainReport(
         hitSearch = searched;
         break;
       }
-    }
-    if (hitSearch) {
-      break;
     }
   }
 

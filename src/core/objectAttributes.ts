@@ -9,7 +9,9 @@ export const METADATA_LIMIT_BYTES = 2048;
 /** Length of a hex sha256 digest, reserved out of the metadata budget. */
 const SHA256_ENTRY_BYTES = SHA256_METADATA_KEY.length + 64;
 
-const MAX_TAGS = 10;
+export const MAX_TAGS = 10;
+/** With `streaming: true` the reserved checksum tag takes one of S3's ten slots. */
+export const MAX_TAGS_WITH_CHECKSUM = MAX_TAGS - 1;
 const METADATA_KEY_PATTERN = /^[a-z0-9][a-z0-9._-]*$/;
 const PRINTABLE_ASCII = /^[\x20-\x7E]*$/;
 const TAG_CHARS = /^[A-Za-z0-9 +\-=._:/@]*$/;
@@ -77,8 +79,8 @@ export function parseMetadata(raw: string, inputName = 'metadata'): Record<strin
   return metadata;
 }
 
-/** Parses the `tags` input: up to 10 `key=value` lines with S3's tag character set. */
-export function parseTags(raw: string, inputName = 'tags'): ObjectTag[] {
+/** Parses the `tags` input: up to `maxTags` `key=value` lines with S3's tag character set. */
+export function parseTags(raw: string, inputName = 'tags', maxTags = MAX_TAGS): ObjectTag[] {
   const tags: ObjectTag[] = [];
   const seen = new Set<string>();
   for (const line of lines(raw)) {
@@ -105,10 +107,15 @@ export function parseTags(raw: string, inputName = 'tags'): ObjectTag[] {
     seen.add(key);
     tags.push({ Key: key, Value: value });
   }
-  if (tags.length > MAX_TAGS) {
-    throw new Error(`"${inputName}" allows at most ${MAX_TAGS} tags; got ${tags.length}.`);
+  if (tags.length > maxTags) {
+    throw new Error(`"${inputName}" allows at most ${maxTags} tags; got ${tags.length}.`);
   }
   return tags;
+}
+
+/** The tag set a streamed save writes: the user's tags plus the action's checksum. */
+export function withChecksumTag(tags: readonly ObjectTag[], sha256: string): ObjectTag[] {
+  return [...tags, { Key: SHA256_METADATA_KEY, Value: sha256 }];
 }
 
 /** The `Tagging` request header value (a URL-encoded query string), or undefined when empty. */

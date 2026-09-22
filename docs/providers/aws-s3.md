@@ -81,6 +81,8 @@ Attach an IAM policy granting only the minimal actions required by `cloud-cache-
       "Action": [
         "s3:GetObject",
         "s3:PutObject",
+        "s3:GetObjectTagging",
+        "s3:PutObjectTagging",
         "s3:AbortMultipartUpload"
       ],
       "Resource": "arn:aws:s3:::my-actions-cache-bucket/*"
@@ -91,6 +93,12 @@ Attach an IAM policy granting only the minimal actions required by `cloud-cache-
 
 > [!NOTE]
 > `cloud-cache-action` does not require `s3:DeleteObject`. Lifecycle cleanup is handled by bucket lifecycle rules.
+
+> [!NOTE]
+> `s3:GetObjectTagging` and `s3:PutObjectTagging` carry the archive checksum for a streamed save.
+> Without them the save falls back to a copy and the restore skips the integrity check, with a
+> warning in the log. Grant both actions to the save role and at least `s3:GetObjectTagging` to
+> the restore role.
 
 #### 3. Workflow Example (OIDC)
 

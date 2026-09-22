@@ -1,6 +1,7 @@
 import * as core from '@actions/core';
 import { DeleteObjectCommand, ListObjectsV2Command, type S3Client } from '@aws-sdk/client-s3';
 import { formatSize } from '../utils/inputUtils';
+import { mapWithConcurrency } from '../utils/concurrency';
 import type { KeyTemplate, ScopeProblem } from './keyTemplate';
 import { toError } from './outcomes';
 import type { StorageContext } from '../storage/client';
@@ -80,26 +81,6 @@ async function listArchiveObjects(
     continuationToken = page.IsTruncated ? page.NextContinuationToken : undefined;
   } while (continuationToken);
   return objects;
-}
-
-/** Runs `fn` over `items` with at most `concurrency` calls in flight at once. */
-async function mapWithConcurrency<T>(
-  items: readonly T[],
-  concurrency: number,
-  fn: (item: T) => Promise<void>
-): Promise<void> {
-  let nextIndex = 0;
-  async function worker(): Promise<void> {
-    for (;;) {
-      const index = nextIndex++;
-      if (index >= items.length) {
-        return;
-      }
-      await fn(items[index]);
-    }
-  }
-  const workerCount = Math.max(1, Math.min(concurrency, items.length));
-  await Promise.all(Array.from({ length: workerCount }, () => worker()));
 }
 
 function logPruned(objects: readonly ListedObject[], now: Date, dryRun: boolean): void {

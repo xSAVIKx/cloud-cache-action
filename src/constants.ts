@@ -4,6 +4,7 @@ export enum Inputs {
   RestoreKeys = 'restore-keys',
   UploadChunkSize = 'upload-chunk-size',
   UploadConcurrency = 'upload-concurrency',
+  CompressionLevel = 'compression-level',
   EnableCrossOsArchive = 'enableCrossOsArchive',
   FailOnCacheMiss = 'fail-on-cache-miss',
   LookupOnly = 'lookup-only',
@@ -145,6 +146,9 @@ export const Defaults = {
   MaxUploadChunkSize: 128 * 1024 * 1024,
   DefaultRestorePriority: 's3-first',
   DefaultDualCacheStrategy: 'backfill',
+  /** zstd accepts 1 to 22, but past 19 it needs --ultra, so the input stops there. */
+  MaxCompressionLevel: 19,
+  MaxGzipCompressionLevel: 9,
   /** Mixed into every cache version; bump it when the archive format changes incompatibly. */
   VersionSalt: 'cloud-cache-1',
 };

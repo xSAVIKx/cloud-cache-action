@@ -1,6 +1,11 @@
 import * as core from '@actions/core';
 import { Defaults, Inputs, State } from '../constants';
-import { parseMetadata, parseTags, type ObjectTag } from './objectAttributes';
+import {
+  parseMetadata,
+  parseTags,
+  MAX_TAGS_WITH_CHECKSUM,
+  type ObjectTag,
+} from './objectAttributes';
 import type { IStateProvider } from '../state';
 import {
   getInputAsArray,
@@ -30,6 +35,8 @@ export interface CacheConfig {
   uploadChunkSize?: number;
   /** Multipart upload parts in flight at once on the S3 tier. */
   uploadConcurrency: number;
+  /** zstd or gzip level for saving; undefined keeps each method's own default. */
+  compressionLevel?: number;
   s3KeyPattern: string;
   prefix: string;
   scopedToRepository: boolean;
@@ -92,6 +99,22 @@ function readBoundedInt<T extends number | undefined>(
   return value;
 }
 
+/** Reads `compression-level`; anything outside 1 to 19 warns and leaves the method's default. */
+function readOptionalLevel(): number | undefined {
+  const raw = core.getInput(Inputs.CompressionLevel).trim();
+  if (raw === '') {
+    return undefined;
+  }
+  const value = /^[0-9]+$/.test(raw) ? Number(raw) : Number.NaN;
+  if (Number.isNaN(value) || value < 1 || value > Defaults.MaxCompressionLevel) {
+    core.warning(
+      `Input "${Inputs.CompressionLevel}" must be an integer between 1 and ${Defaults.MaxCompressionLevel}; got "${raw}". Using the default for the compression method.`
+    );
+    return undefined;
+  }
+  return value;
+}
+
 /**
  * Reads the action inputs. When `state` is given (the post step), values the restore step
  * persisted win, so both steps compute the same object keys and warnings are not repeated.
@@ -108,6 +131,7 @@ export function readCacheConfig(state?: IStateProvider): CacheConfig {
     return value === '' ? read() : (JSON.parse(value) as T);
   };
   const retryCountState = persisted(State.CacheRetryCount);
+  const streaming = bool(State.CacheStreaming, () => getInputAsBool(Inputs.Streaming));
 
   return {
     primaryKey: text(State.CachePrimaryKey, () => core.getInput(Inputs.Key).trim()),
@@ -130,6 +154,7 @@ export function readCacheConfig(state?: IStateProvider): CacheConfig {
       1,
       Defaults.MaxUploadConcurrency
     ),
+    compressionLevel: readOptionalLevel(),
     s3KeyPattern: text(
       State.CacheS3KeyPattern,
       () => core.getInput(Inputs.S3KeyPattern) || Defaults.DefaultS3KeyPattern
@@ -151,7 +176,7 @@ export function readCacheConfig(state?: IStateProvider): CacheConfig {
     ),
     dualCacheStrategy: text(State.CacheDualCacheStrategy, readDualCacheStrategy),
     dualCacheStrict: bool(State.CacheDualCacheStrict, () => getInputAsBool(Inputs.DualCacheStrict)),
-    streaming: bool(State.CacheStreaming, () => getInputAsBool(Inputs.Streaming)),
+    streaming,
     downloadConcurrency: readBoundedInt(
       Inputs.DownloadConcurrency,
       Defaults.DefaultDownloadConcurrency,
@@ -166,7 +191,9 @@ export function readCacheConfig(state?: IStateProvider): CacheConfig {
     ),
     jobSummary: bool(State.CacheJobSummary, () => getInputAsBool(Inputs.JobSummary, true)),
     metadata: json(State.CacheMetadata, () => parseMetadata(core.getInput(Inputs.Metadata))),
-    tags: json(State.CacheTags, () => parseTags(core.getInput(Inputs.Tags))),
+    tags: json(State.CacheTags, () =>
+      parseTags(core.getInput(Inputs.Tags), 'tags', streaming ? MAX_TAGS_WITH_CHECKSUM : undefined)
+    ),
     explain: getInputAsBool(Inputs.Explain),
     metricsFile: text(State.CacheMetricsFile, () => core.getInput(Inputs.MetricsFile).trim()),
   };

@@ -154,3 +154,32 @@ jobs:
         with:
           name: benchmark-gcs
           path: ${{ runner.temp }}/benchmark
+
+  compression:
+    name: Compression levels
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Build a Python site-packages fixture
+        run: |
+          mkdir -p "$RUNNER_TEMP/wheels" "$RUNNER_TEMP/sitepkgs"
+          pip3 download --quiet --dest "$RUNNER_TEMP/wheels" numpy pandas scipy requests matplotlib
+          for w in "$RUNNER_TEMP"/wheels/*.whl; do
+            python3 -c "import zipfile,sys; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])" \
+              "$w" "$RUNNER_TEMP/sitepkgs"
+          done
+          python3 -m compileall -q "$RUNNER_TEMP/sitepkgs" || true
+      - name: Benchmark compression levels
+        env:
+          BENCH_FIXTURES: node_modules=${{ github.workspace }}/node_modules,python-site-packages=${{ runner.temp }}/sitepkgs
+          BENCH_OUT: ${{ runner.temp }}/benchmark-compression
+        run: node tests/ci/compressionBenchmark.ts
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: benchmark-compression
+          path: ${{ runner.temp }}/benchmark-compression

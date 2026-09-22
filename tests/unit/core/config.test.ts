@@ -108,6 +108,19 @@ describe('readCacheConfig', () => {
     }
   );
 
+  it('reads compression-level', () => {
+    inputs.set(Inputs.CompressionLevel, '9');
+    expect(readCacheConfig().compressionLevel).toBe(9);
+  });
+
+  it.each(['0', '20', 'fast'])('warns and leaves compression-level unset when it is %s', (raw) => {
+    inputs.set(Inputs.CompressionLevel, raw);
+    expect(readCacheConfig().compressionLevel).toBeUndefined();
+    expect(mockWarning).toHaveBeenCalledWith(
+      `Input "compression-level" must be an integer between 1 and 19; got "${raw}". Using the default for the compression method.`
+    );
+  });
+
   it('accepts the download bounds themselves', () => {
     inputs.set(Inputs.DownloadConcurrency, '1');
     inputs.set(Inputs.DownloadChunkSize, '134217728');
@@ -213,5 +226,16 @@ describe('metadata and tags inputs', () => {
   it('fails on an invalid value', () => {
     inputs.set(Inputs.Metadata, 'cloud-cache-x=1');
     expect(() => readCacheConfig()).toThrow('reserved');
+  });
+
+  it('caps tags at nine when streaming, because the checksum takes a slot', () => {
+    inputs.set(Inputs.Streaming, 'true');
+    inputs.set(Inputs.Tags, Array.from({ length: 10 }, (_, i) => `k${i}=v`).join('\n'));
+    expect(() => readCacheConfig()).toThrow('"tags" allows at most 9 tags; got 10.');
+  });
+
+  it('still allows ten tags without streaming', () => {
+    inputs.set(Inputs.Tags, Array.from({ length: 10 }, (_, i) => `k${i}=v`).join('\n'));
+    expect(readCacheConfig().tags).toHaveLength(10);
   });
 });
