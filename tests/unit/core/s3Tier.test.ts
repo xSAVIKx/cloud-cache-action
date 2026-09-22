@@ -637,6 +637,18 @@ describe('restoreFromS3', () => {
       expect(mockExtractArchive).toHaveBeenCalled();
     });
 
+    it('verifies against the checksum tag when the server does not report the tag count', async () => {
+      // Regression test: some providers (RustFS observed) never set TagCount on GetObject, even
+      // when the object has tags. `tagCount: undefined` must not be treated like `0`.
+      put(FEATURE, 'k', 1);
+      mockDownloadFile.mockResolvedValue({ tagCount: undefined });
+      mockGetObjectTags.mockResolvedValue({ 'cloud-cache-sha256': 'good-hash' });
+      mockSha256File.mockResolvedValue('good-hash');
+      await expect(restoreFromS3(tier(), 'k', [], false)).resolves.toMatchObject({ kind: 'hit' });
+      expect(mockGetObjectTags).toHaveBeenCalled();
+      expect(mockExtractArchive).toHaveBeenCalled();
+    });
+
     it('rejects a mismatch found through the checksum tag', async () => {
       put(FEATURE, 'k', 1);
       mockDownloadFile.mockResolvedValue({ tagCount: 1 });
@@ -2053,6 +2065,20 @@ describe('restoreFromS3 streaming', () => {
     const outcome = await restoreFromS3(tier({ streaming: true, workspace }), 'k', [], false);
     expect(outcome.kind).toBe('hit');
     expect(mockDebug).toHaveBeenCalledWith(expect.stringContaining('sha256'));
+  });
+
+  it('resolves the checksum from the tag when streaming, when the object carries no metadata', async () => {
+    put(FEATURE, 'k', 1);
+    const payload = Buffer.from('archive-payload');
+    const expectedSha256 = crypto.createHash('sha256').update(payload).digest('hex');
+    mockGetObjectStream.mockResolvedValue({ body: Readable.from([payload]), tagCount: 1 });
+    mockGetObjectTags.mockResolvedValue({ 'cloud-cache-sha256': expectedSha256 });
+    mockSpawnArchiveCommand.mockImplementation(() => makeFakeChild());
+    mockWaitForExit.mockResolvedValue(0);
+
+    const outcome = await restoreFromS3(tier({ streaming: true, workspace }), 'k', [], false);
+    expect(outcome.kind).toBe('hit');
+    expect(mockGetObjectTags).toHaveBeenCalled();
   });
 
   it('kills tar and returns an error, with its stderr tail, when tar fails', async () => {

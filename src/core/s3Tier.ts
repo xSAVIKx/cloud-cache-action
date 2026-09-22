@@ -370,7 +370,10 @@ export async function findS3Match(
 
 /**
  * The expected sha256 for an object: metadata first, because every object written before tagging
- * carries it there, then the reserved tag, and only when the response said the object has tags.
+ * carries it there, then the reserved tag — unless the response said outright that the object has
+ * no tags (`tagCount === 0`), which costs no extra request. A provider that just does not report
+ * the count on GetObject (`tagCount === undefined`, seen on RustFS) still gets the tag read: an
+ * unknown count is not proof of absence, and skipping it there would silently defeat the check.
  */
 async function resolveExpectedSha256(
   tier: S3Tier,
@@ -382,7 +385,7 @@ async function resolveExpectedSha256(
   if (fromMetadata) {
     return fromMetadata;
   }
-  if (!tagCount) {
+  if (tagCount === 0) {
     return undefined;
   }
   try {
