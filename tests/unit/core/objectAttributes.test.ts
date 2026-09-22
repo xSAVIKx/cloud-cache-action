@@ -4,6 +4,7 @@ import {
   parseMetadata,
   parseTags,
   stripReservedMetadata,
+  withChecksumTag,
 } from '../../../src/core/objectAttributes';
 
 describe('parseMetadata', () => {
@@ -82,6 +83,21 @@ describe('parseTags', () => {
     expect(() => parseTags('a=1,2')).toThrow('Invalid "tags" value for "a"');
     expect(() => parseTags(`${'k'.repeat(129)}=1`)).toThrow('at most 128 characters');
     expect(() => parseTags(`k=${'v'.repeat(257)}`)).toThrow('at most 256 characters');
+  });
+
+  it('accepts a lower tag cap and names it in the error', () => {
+    const nine = Array.from({ length: 9 }, (_, i) => `k${i}=v`).join('\n');
+    expect(parseTags(nine, 'tags', 9)).toHaveLength(9);
+    expect(() => parseTags(`${nine}\nk9=v`, 'tags', 9)).toThrow(
+      '"tags" allows at most 9 tags; got 10.'
+    );
+  });
+
+  it('appends the reserved checksum tag after the user tags', () => {
+    expect(withChecksumTag([{ Key: 'team', Value: 'platform' }], 'abc')).toEqual([
+      { Key: 'team', Value: 'platform' },
+      { Key: 'cloud-cache-sha256', Value: 'abc' },
+    ]);
   });
 });
 

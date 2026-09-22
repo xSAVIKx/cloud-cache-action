@@ -214,4 +214,15 @@ describe('metadata and tags inputs', () => {
     inputs.set(Inputs.Metadata, 'cloud-cache-x=1');
     expect(() => readCacheConfig()).toThrow('reserved');
   });
+
+  it('caps tags at nine when streaming, because the checksum takes a slot', () => {
+    inputs.set(Inputs.Streaming, 'true');
+    inputs.set(Inputs.Tags, Array.from({ length: 10 }, (_, i) => `k${i}=v`).join('\n'));
+    expect(() => readCacheConfig()).toThrow('"tags" allows at most 9 tags; got 10.');
+  });
+
+  it('still allows ten tags without streaming', () => {
+    inputs.set(Inputs.Tags, Array.from({ length: 10 }, (_, i) => `k${i}=v`).join('\n'));
+    expect(readCacheConfig().tags).toHaveLength(10);
+  });
 });
