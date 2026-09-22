@@ -65561,6 +65561,7 @@ var Inputs;
     Inputs["RestoreKeys"] = "restore-keys";
     Inputs["UploadChunkSize"] = "upload-chunk-size";
     Inputs["UploadConcurrency"] = "upload-concurrency";
+    Inputs["CompressionLevel"] = "compression-level";
     Inputs["EnableCrossOsArchive"] = "enableCrossOsArchive";
     Inputs["FailOnCacheMiss"] = "fail-on-cache-miss";
     Inputs["LookupOnly"] = "lookup-only";
@@ -65689,6 +65690,9 @@ const Defaults = {
     MaxUploadChunkSize: 128 * 1024 * 1024,
     DefaultRestorePriority: 's3-first',
     DefaultDualCacheStrategy: 'backfill',
+    /** zstd accepts 1 to 22, but past 19 it needs --ultra, so the input stops there. */
+    MaxCompressionLevel: 19,
+    MaxGzipCompressionLevel: 9,
     /** Mixed into every cache version; bump it when the archive format changes incompatibly. */
     VersionSalt: 'cloud-cache-1',
 };
@@ -66339,7 +66343,30 @@ function emitMetrics(metrics, metricsFile, workspace) {
     }
 }
 
+;// CONCATENATED MODULE: ./src/utils/concurrency.ts
+/**
+ * Runs `fn` over `items` with at most `concurrency` calls in flight, and returns the results in
+ * the order of `items` rather than the order they finished. Rejects with the first failure.
+ */
+async function mapWithConcurrency(items, concurrency, fn) {
+    const results = new Array(items.length);
+    let nextIndex = 0;
+    async function worker() {
+        for (;;) {
+            const index = nextIndex++;
+            if (index >= items.length) {
+                return;
+            }
+            results[index] = await fn(items[index]);
+        }
+    }
+    const workerCount = Math.max(1, Math.min(concurrency, items.length));
+    await Promise.all(Array.from({ length: workerCount }, () => worker()));
+    return results;
+}
+
 ;// CONCATENATED MODULE: ./src/core/prune.ts
+
 
 
 
@@ -66372,21 +66399,6 @@ async function listArchiveObjects(client, bucket, prefix, accept, pageSize = 100
         continuationToken = page.IsTruncated ? page.NextContinuationToken : undefined;
     } while (continuationToken);
     return objects;
-}
-/** Runs `fn` over `items` with at most `concurrency` calls in flight at once. */
-async function mapWithConcurrency(items, concurrency, fn) {
-    let nextIndex = 0;
-    async function worker() {
-        for (;;) {
-            const index = nextIndex++;
-            if (index >= items.length) {
-                return;
-            }
-            await fn(items[index]);
-        }
-    }
-    const workerCount = Math.max(1, Math.min(concurrency, items.length));
-    await Promise.all(Array.from({ length: workerCount }, () => worker()));
 }
 function logPruned(objects, now, dryRun) {
     const verb = dryRun ? 'Would prune' : 'Pruned';
