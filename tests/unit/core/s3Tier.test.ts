@@ -449,6 +449,36 @@ describe('findS3Match', () => {
       ref: '',
     });
   });
+
+  it("sends one ref's prefix listings together instead of one after another", async () => {
+    put(MAIN, 'k-old', 1);
+    let inFlight = 0;
+    let peak = 0;
+    const realFindNewest = mockFindNewestObject.getMockImplementation();
+    mockFindNewestObject.mockImplementation(async (...args) => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      inFlight -= 1;
+      return realFindNewest ? realFindNewest(...args) : undefined;
+    });
+    await findS3Match(tier(), 'k', ['k-']);
+    expect(peak).toBeGreaterThan(1);
+  });
+
+  it('does not list at all when the exact key hits', async () => {
+    put(FEATURE, 'k', 1);
+    await findS3Match(tier(), 'k', ['k-']);
+    expect(mockFindNewestObject).not.toHaveBeenCalled();
+  });
+
+  it('keeps a prefix match on the current ref ahead of an exact match on the base ref', async () => {
+    const onFeature = put(FEATURE, 'k-partial', 1);
+    put(MAIN, 'k', 5);
+    const match = await findS3Match(tier(), 'k', ['k-']);
+    expect(match?.objectKey).toBe(onFeature);
+    expect(match?.ref).toBe(FEATURE);
+  });
 });
 
 describe('restoreFromS3', () => {

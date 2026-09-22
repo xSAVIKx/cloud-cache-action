@@ -52,6 +52,7 @@ import {
 } from '../storage/parallelDownload';
 import { isRetryableStreamError, withRetry } from '../storage/retry';
 import { formatSize, isExactKeyMatch } from '../utils/inputUtils';
+import { mapWithConcurrency } from '../utils/concurrency';
 import type { CacheConfig } from './config';
 import {
   encodeTagging,
@@ -67,6 +68,9 @@ import { computeCacheVersion } from './version';
 /** Logged when streaming is requested but the plan needs the BSD-tar-plus-zstd two-step on Windows. */
 const STREAMING_FALLBACK_MESSAGE =
   'Streaming is not supported with BSD tar and zstd on Windows; using a temporary archive file.';
+
+/** Prefix listings sent at once while searching one ref. */
+const LOOKUP_CONCURRENCY = 8;
 
 export interface S3Tier {
   storage: StorageContext;
@@ -312,6 +316,10 @@ export async function findS3Match(
   restoreKeys: readonly string[]
 ): Promise<S3Match | undefined> {
   const { client, bucket } = tier.storage;
+  const keyPrefixes = [primaryKey, ...restoreKeys];
+
+  // Refs stay sequential: a prefix match on an earlier ref outranks an exact match on a later one,
+  // so a later ref may only be searched once this one has produced nothing.
   for (const ref of tier.restoreRefs) {
     const exactKey = tier.template.objectKey(ref, primaryKey);
     core.debug(`Checking s3://${bucket}/${exactKey}`);
@@ -327,15 +335,20 @@ export async function findS3Match(
       };
     }
 
-    for (const keyPrefix of [primaryKey, ...restoreKeys]) {
-      const searchPrefix = tier.template.searchPrefix(ref, keyPrefix);
-      core.debug(`Listing s3://${bucket}/${searchPrefix}`);
-      const newest = await findNewestObject(
+    for (const keyPrefix of keyPrefixes) {
+      core.debug(`Listing s3://${bucket}/${tier.template.searchPrefix(ref, keyPrefix)}`);
+    }
+    const listed = await mapWithConcurrency(keyPrefixes, LOOKUP_CONCURRENCY, (keyPrefix) =>
+      findNewestObject(
         client,
         bucket,
-        searchPrefix,
+        tier.template.searchPrefix(ref, keyPrefix),
         (objectKey) => tier.template.extractKey(ref, objectKey) !== undefined
-      );
+      )
+    );
+
+    // Resolved in key order, never in the order the responses arrived.
+    for (const newest of listed) {
       if (newest) {
         const matchedKey = tier.template.extractKey(ref, newest.key) as string;
         return {
