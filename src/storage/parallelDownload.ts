@@ -31,6 +31,8 @@ export interface PartDownloadOptions {
 export interface PartDownloadResult {
   /** Object metadata from the first part's response; undefined when the object carries none. */
   metadata?: Record<string, string>;
+  /** How many tags the object carries, from the first part's response. */
+  tagCount?: number;
   /** How many ranged requests the object was split into. */
   parts: number;
 }
@@ -88,6 +90,7 @@ export function shouldDownloadInParts(size: number, partSize: number): boolean {
 interface RangeResponse {
   body: Readable;
   metadata?: Record<string, string>;
+  tagCount?: number;
 }
 
 /** Fetches one part and checks that the server honoured the range. */
@@ -117,7 +120,7 @@ async function getObjectRange(
       `s3://${bucket}/${key} returned ${response.ContentLength} bytes for range ${part.start}-${part.end}; expected ${expected}`
     );
   }
-  return { body, metadata: response.Metadata };
+  return { body, metadata: response.Metadata, tagCount: response.TagCount };
 }
 
 /**
@@ -172,11 +175,15 @@ class PartSource {
     }
   }
 
-  /** Requests the first part and returns its metadata; the body is consumed later, in order. */
-  async open(): Promise<Record<string, string> | undefined> {
+  /**
+   * Requests the first part and returns its metadata and tag count; the body is consumed later,
+   * in order.
+   */
+  async open(): Promise<Pick<RangeResponse, 'metadata' | 'tagCount'>> {
     this.first = this.fetch(this.parts[0]);
     try {
-      return (await this.first).metadata;
+      const { metadata, tagCount } = await this.first;
+      return { metadata, tagCount };
     } catch (err) {
       this.first = undefined;
       throw err;
@@ -266,7 +273,7 @@ export async function downloadFileInParts(
   options: PartDownloadOptions
 ): Promise<PartDownloadResult> {
   const source = new PartSource(client, bucket, key, options);
-  const metadata = await source.open();
+  const { metadata, tagCount } = await source.open();
 
   fs.mkdirSync(path.dirname(destinationPath), { recursive: true });
   const handle = await fs.promises.open(destinationPath, 'w');
@@ -284,7 +291,7 @@ export async function downloadFileInParts(
   } finally {
     await handle.close();
   }
-  return { metadata, parts: source.parts.length };
+  return { metadata, tagCount, parts: source.parts.length };
 }
 
 /**
@@ -300,7 +307,7 @@ export async function openObjectPartsStream(
   options: PartDownloadOptions
 ): Promise<PartsStreamResult> {
   const source = new PartSource(client, bucket, key, options);
-  const metadata = await source.open();
+  const { metadata, tagCount } = await source.open();
   const window = Math.max(1, options.concurrency);
 
   const bufferPart = (part: PartRange): Promise<Buffer> => {
@@ -368,5 +375,5 @@ export async function openObjectPartsStream(
       callback(err);
     },
   });
-  return { body, metadata, parts: source.parts.length };
+  return { body, metadata, tagCount, parts: source.parts.length };
 }

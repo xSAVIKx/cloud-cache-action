@@ -686,6 +686,57 @@ describe('Storage Operations', () => {
     });
   });
 
+  describe('object tags', () => {
+    it('putObjectTags replaces the whole tag set', async () => {
+      const { PutObjectTaggingCommand } = await import('@aws-sdk/client-s3');
+      const { putObjectTags } = await import('../../src/storage/operations');
+      s3Mock.on(PutObjectTaggingCommand).resolves({});
+
+      await putObjectTags(client, 'b', 'k', [
+        { Key: 'team', Value: 'platform' },
+        { Key: 'cloud-cache-sha256', Value: 'abc' },
+      ]);
+
+      const [call] = s3Mock.commandCalls(PutObjectTaggingCommand);
+      expect(call.args[0].input.Tagging).toEqual({
+        TagSet: [
+          { Key: 'team', Value: 'platform' },
+          { Key: 'cloud-cache-sha256', Value: 'abc' },
+        ],
+      });
+    });
+
+    it('getObjectTags returns the tags as a plain object', async () => {
+      const { GetObjectTaggingCommand } = await import('@aws-sdk/client-s3');
+      const { getObjectTags } = await import('../../src/storage/operations');
+      s3Mock.on(GetObjectTaggingCommand).resolves({
+        TagSet: [
+          { Key: 'cloud-cache-sha256', Value: 'abc' },
+          { Key: 'team', Value: 'platform' },
+        ],
+      });
+
+      await expect(getObjectTags(client, 'b', 'k')).resolves.toEqual({
+        'cloud-cache-sha256': 'abc',
+        team: 'platform',
+      });
+    });
+
+    it('downloadFile reports the tag count from the GetObject response', async () => {
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-download-'));
+      s3Mock.on(GetObjectCommand).resolves({
+        Body: Readable.from([Buffer.from('data')]) as never,
+        TagCount: 2,
+      });
+      try {
+        const result = await downloadFile(client, 'b', 'k', path.join(tempDir, 'out.bin'));
+        expect(result.tagCount).toBe(2);
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+  });
+
   describe('replaceObjectMetadata', () => {
     it('copies the object onto itself with REPLACE and keeps tags', async () => {
       s3Mock.on(CopyObjectCommand).resolves({ CopyObjectResult: { ETag: '"copied"' } });

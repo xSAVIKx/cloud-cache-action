@@ -4,7 +4,9 @@ import {
   CopyObjectCommand,
   HeadObjectCommand,
   GetObjectCommand,
+  GetObjectTaggingCommand,
   ListObjectsV2Command,
+  PutObjectTaggingCommand,
 } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
 import * as fs from 'fs';
@@ -110,6 +112,8 @@ export async function findNewestObject(
 export interface DownloadResult {
   /** Object metadata from the GetObject response; undefined when the object carries none. */
   metadata?: Record<string, string>;
+  /** How many tags the object carries, so a caller can skip a pointless GetObjectTagging. */
+  tagCount?: number;
 }
 
 export interface ObjectStreamResult {
@@ -117,6 +121,41 @@ export interface ObjectStreamResult {
   body: Readable;
   /** Object metadata from the GetObject response; undefined when the object carries none. */
   metadata?: Record<string, string>;
+  /** How many tags the object carries, so a caller can skip a pointless GetObjectTagging. */
+  tagCount?: number;
+}
+
+export interface ObjectTagLike {
+  Key: string;
+  Value: string;
+}
+
+/** Replaces the object's whole tag set; S3 has no partial tag update. */
+export async function putObjectTags(
+  client: S3Client,
+  bucket: string,
+  key: string,
+  tags: readonly ObjectTagLike[]
+): Promise<void> {
+  await client.send(
+    new PutObjectTaggingCommand({ Bucket: bucket, Key: key, Tagging: { TagSet: [...tags] } })
+  );
+}
+
+/** Reads the object's tags as a plain object; an absent or malformed entry is skipped. */
+export async function getObjectTags(
+  client: S3Client,
+  bucket: string,
+  key: string
+): Promise<Record<string, string>> {
+  const response = await client.send(new GetObjectTaggingCommand({ Bucket: bucket, Key: key }));
+  const tags: Record<string, string> = {};
+  for (const tag of response.TagSet ?? []) {
+    if (tag.Key !== undefined && tag.Value !== undefined) {
+      tags[tag.Key] = tag.Value;
+    }
+  }
+  return tags;
 }
 
 /** How a multipart upload is split and fanned out; unset fields take the actions/cache defaults. */
@@ -233,7 +272,7 @@ export async function downloadFile(
   const fileStream = fs.createWriteStream(destinationPath);
   await pipeline(response.Body as Readable, fileStream);
 
-  return { metadata: response.Metadata };
+  return { metadata: response.Metadata, tagCount: response.TagCount };
 }
 
 /**
@@ -249,7 +288,11 @@ export async function getObjectStream(
   if (!response.Body) {
     throw new Error(`Empty response body received from S3 for key: ${key}`);
   }
-  return { body: response.Body as Readable, metadata: response.Metadata };
+  return {
+    body: response.Body as Readable,
+    metadata: response.Metadata,
+    tagCount: response.TagCount,
+  };
 }
 
 export async function uploadFile(
