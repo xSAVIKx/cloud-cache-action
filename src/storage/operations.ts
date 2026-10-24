@@ -13,7 +13,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { pipeline } from 'stream/promises';
 import { Readable } from 'stream';
-import * as core from '@actions/core';
+import { log } from '../ci/log';
 import { createSha256Tap } from '../archive/checksum';
 import { Defaults } from '../constants';
 
@@ -233,7 +233,7 @@ async function completeOrAbort(
         await client.send(
           new AbortMultipartUploadCommand({ Bucket: bucket, Key: key, UploadId: uploadId })
         );
-        core.debug(`Aborted multipart upload ${uploadId} for s3://${bucket}/${key}.`);
+        log.debug(`Aborted multipart upload ${uploadId} for s3://${bucket}/${key}.`);
       } catch (abortErr) {
         const error = abortErr as {
           name?: string;
@@ -242,9 +242,9 @@ async function completeOrAbort(
         };
         const message = `Could not abort multipart upload ${uploadId} for s3://${bucket}/${key}: ${error.message ?? String(abortErr)}`;
         if (error.name === 'NoSuchUpload' || error.$metadata?.httpStatusCode === 404) {
-          core.debug(`${message} (it was already aborted).`);
+          log.debug(`${message} (it was already aborted).`);
         } else {
-          core.warning(
+          log.warning(
             `${message}. Its parts stay stored until a bucket lifecycle rule (AbortIncompleteMultipartUpload) removes them.`
           );
         }
@@ -339,7 +339,7 @@ export async function uploadFile(
   parallelUpload.on('httpUploadProgress', (progress) => {
     if (progress.total && progress.loaded) {
       const pct = Math.round((progress.loaded / progress.total) * 100);
-      core.debug(`Upload progress: ${pct}% (${progress.loaded}/${progress.total} bytes)`);
+      log.debug(`Upload progress: ${pct}% (${progress.loaded}/${progress.total} bytes)`);
     }
   });
 
@@ -385,7 +385,7 @@ export function createStreamUpload(
   upload.on('httpUploadProgress', (progress) => {
     if (progress.total && progress.loaded) {
       const pct = Math.round((progress.loaded / progress.total) * 100);
-      core.debug(`Upload progress: ${pct}% (${progress.loaded}/${progress.total} bytes)`);
+      log.debug(`Upload progress: ${pct}% (${progress.loaded}/${progress.total} bytes)`);
     }
   });
 

@@ -8,6 +8,7 @@
 
 import * as core from '@actions/core';
 import { type RunnerOs, runnerOs } from '../ci/env';
+import { log } from '../ci/log';
 import * as glob from '@actions/glob';
 import { getWorkspace, preparePattern } from '../archive/paths';
 import { Inputs } from '../constants';
@@ -221,6 +222,6 @@ export async function applyPreset(
     }
   }
 
-  core.info(`Preset ${name}: path ${paths.join(', ')}; key ${primaryKey}`);
+  log.info(`Preset ${name}: path ${paths.join(', ')}; key ${primaryKey}`);
   return { ...config, preset: name, paths, primaryKey, restoreKeys };
 }

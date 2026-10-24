@@ -1,4 +1,4 @@
-import * as core from '@actions/core';
+import { log } from '../ci/log';
 import * as exec from '@actions/exec';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -130,7 +130,7 @@ export async function runExtract(
     if (!detector.matches()) {
       throw err;
     }
-    core.warning(SYMLINK_FALLBACK_WARNING);
+    log.warning(SYMLINK_FALLBACK_WARNING);
     await run(commands, archiveExecOptions(env, MSYS_COPY_SYMLINKS));
   }
 }
@@ -145,7 +145,7 @@ async function writeArchiveFromStdout(
   archivePath: string
 ): Promise<string> {
   // exec printed the command line before it started a command. Print it at debug level here.
-  core.debug(`[command]${command.tool} ${command.args.join(' ')}`);
+  log.debug(`[command]${command.tool} ${command.args.join(' ')}`);
   const child = spawnArchiveCommand(command, ['ignore', 'pipe', 'pipe']);
   // exec writes tar's stderr to the log. Do the same, so that tar warnings stay visible.
   child.stderr?.on('data', (chunk: string) => process.stderr.write(chunk));

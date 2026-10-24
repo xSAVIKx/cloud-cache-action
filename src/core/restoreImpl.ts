@@ -1,4 +1,5 @@
 import * as core from '@actions/core';
+import { log } from '../ci/log';
 import { getWorkspace } from '../archive/paths';
 import { Outputs, State } from '../constants';
 import { NullStateProvider, StateProvider, type IStateProvider } from '../state';
@@ -38,7 +39,7 @@ async function setUpS3(config: CacheConfig, state: IStateProvider): Promise<S3Ti
     if (!otherTierMayServe) {
       throw err;
     }
-    core.warning(`S3 client initialization failed: ${toError(err).message}`);
+    log.warning(`S3 client initialization failed: ${toError(err).message}`);
     return undefined;
   }
 }
@@ -49,7 +50,7 @@ async function attempt(
   s3: S3Tier | undefined
 ): Promise<RestoreOutcome> {
   if (source === 'github') {
-    core.info('Querying GitHub Actions Cache...');
+    log.info('Querying GitHub Actions Cache...');
     // Load the GitHub tier only when a run uses it. S3-only runs skip its start-up cost.
     const { restoreFromGitHub } = await import('./githubTier');
     return restoreFromGitHub(
@@ -84,7 +85,7 @@ function reportHit(state: IStateProvider, config: CacheConfig, source: Source, h
   core.setOutput(Outputs.CacheHit, String(hit.exact));
   core.setOutput(Outputs.CacheMatchedKey, hit.matchedKey);
   core.setOutput(Outputs.CacheHitSource, source);
-  core.info(
+  log.info(
     config.lookupOnly
       ? `Cache found in ${source} and can be restored from key: ${hit.matchedKey}`
       : `Cache restored from ${source} with key: ${hit.matchedKey}`
@@ -113,13 +114,13 @@ export async function restoreImpl(
     };
     const timings = formatTimings(full);
     if (timings) {
-      core.info(timings);
+      log.info(timings);
     }
     emitMetrics(full, config?.metricsFile ?? '', getWorkspace());
   };
   try {
     if (!isValidEvent()) {
-      core.warning(
+      log.warning(
         `Event Validation Warning: The event type ${process.env.GITHUB_EVENT_NAME} may not be tied to a branch or tag ref.`
       );
     }
@@ -147,7 +148,7 @@ export async function restoreImpl(
     // S3 tier obeys the same mode and the step reports one skip.
     const cacheMode = getCacheMode();
     if (!isCacheReadable(cacheMode)) {
-      core.info(
+      log.info(
         `Cache restore skipped: ACTIONS_CACHE_MODE is '${cacheMode}', which does not permit reads.`
       );
       stateProvider.setState(State.CacheHitSource, 'none');
@@ -188,19 +189,19 @@ export async function restoreImpl(
     if (config.explain && s3) {
       try {
         const report = await buildExplainReport(s3, config);
-        core.startGroup('Cache lookup explained');
+        log.startGroup('Cache lookup explained');
         try {
-          for (const line of renderExplain(report)) core.info(line);
+          for (const line of renderExplain(report)) log.info(line);
         } finally {
-          core.endGroup();
+          log.endGroup();
         }
         await writeExplainSummary(report, config.jobSummary);
       } catch (err) {
-        core.warning(`Could not explain the cache lookup: ${toError(err).message}`);
+        log.warning(`Could not explain the cache lookup: ${toError(err).message}`);
       }
     }
     if (config.dualCache) {
-      core.info(
+      log.info(
         `Dual-cache enabled (priority: ${config.restorePriority}, strategy: ${config.dualCacheStrategy})`
       );
     }
@@ -252,7 +253,7 @@ export async function restoreImpl(
               cause: outcome.error,
             });
           }
-          core.warning(
+          log.warning(
             `Restoring from ${source} failed, so it counts as a cache miss: ${outcome.error.message}`
           );
           failedTiers.push(source);
@@ -300,9 +301,9 @@ export async function restoreImpl(
         failedTiers.length === 1
           ? `the ${failedTiers[0]} tier failed (see the warning above)`
           : `the ${failedTiers.join(' and ')} tiers failed (see the warnings above)`;
-      core.info(`No cache restored: ${tiers}. Keys searched: ${keys}`);
+      log.info(`No cache restored: ${tiers}. Keys searched: ${keys}`);
     } else {
-      core.info(`Cache not found for input keys: ${keys}`);
+      log.info(`Cache not found for input keys: ${keys}`);
     }
     return undefined;
   } catch (err) {

@@ -1,4 +1,5 @@
 import * as core from '@actions/core';
+import { log } from '../ci/log';
 import { formatSize } from '../utils/inputUtils';
 import { toError } from './outcomes';
 
@@ -90,7 +91,7 @@ export async function flush(): Promise<void> {
   try {
     await core.summary.write();
   } catch (err) {
-    core.debug(`Failed to write the job summary: ${toError(err).message}`);
+    log.debug(`Failed to write the job summary: ${toError(err).message}`);
     core.summary.emptyBuffer();
   }
 }

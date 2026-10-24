@@ -5,6 +5,7 @@
  */
 
 import * as core from '@actions/core';
+import { log } from '../ci/log';
 import { getWorkspace } from '../archive/paths';
 import { Inputs, Outputs } from '../constants';
 import { parsePositiveInt } from '../utils/inputUtils';
@@ -53,13 +54,13 @@ export async function inspectImpl(): Promise<void> {
     core.setOutput(Outputs.CacheStorageProvider, tier.storage.providerConfig.provider);
 
     const report = await buildExplainReport(tier, config, { maxCandidates });
-    core.startGroup('Cache lookup explained');
+    log.startGroup('Cache lookup explained');
     try {
       for (const line of renderExplain(report)) {
-        core.info(line);
+        log.info(line);
       }
     } finally {
-      core.endGroup();
+      log.endGroup();
     }
     await writeExplainSummary(report, config.jobSummary);
 

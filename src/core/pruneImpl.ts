@@ -1,4 +1,5 @@
 import * as core from '@actions/core';
+import { log } from '../ci/log';
 import { getWorkspace } from '../archive/paths';
 import { Defaults, Inputs, Outputs } from '../constants';
 import { createStorageContext } from '../storage/client';
@@ -116,7 +117,7 @@ export function buildPruneTier(
     env,
   });
   for (const warning of template.warnings) {
-    core.warning(warning);
+    log.warning(warning);
   }
   return { storage, template };
 }
@@ -131,7 +132,7 @@ export async function pruneImpl(): Promise<void> {
       );
     }
     if (config.ref && !config.ref.startsWith('refs/')) {
-      core.warning(
+      log.warning(
         `The "ref" input "${config.ref}" is not a full Git ref. Prune expects a full ref such as refs/heads/main, so it may match no caches.`
       );
     }

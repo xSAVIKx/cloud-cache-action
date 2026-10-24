@@ -1,5 +1,5 @@
-import * as core from '@actions/core';
 import { getWorkspace } from '../ci/env';
+import { log } from '../ci/log';
 import * as glob from '@actions/glob';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -98,7 +98,7 @@ export async function resolveCachePaths(
     const entry = relative === '' ? '.' : relative;
     if (/[\r\n]/.test(entry)) {
       skipped.push(entry);
-      core.warning(
+      log.warning(
         `Skipping ${JSON.stringify(entry)}: file names containing line breaks cannot be cached.`
       );
       continue;

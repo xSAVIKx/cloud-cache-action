@@ -1,4 +1,5 @@
 import * as core from '@actions/core';
+import { log } from '../ci/log';
 import { getWorkspace } from '../archive/paths';
 import { Outputs, State } from '../constants';
 import { NullStateProvider, StateProvider, type IStateProvider } from '../state';
@@ -71,7 +72,7 @@ async function setUpS3(
     if (!otherTierMayServe) {
       throw err;
     }
-    core.warning(`S3 client initialization failed during save: ${toError(err).message}`);
+    log.warning(`S3 client initialization failed during save: ${toError(err).message}`);
     return undefined;
   }
 }
@@ -82,7 +83,7 @@ async function saveSingleTier(
   s3ExactHit: boolean
 ): Promise<SaveResult> {
   if (s3ExactHit) {
-    core.info(`Cache hit occurred on the primary key ${config.primaryKey}, not saving cache.`);
+    log.info(`Cache hit occurred on the primary key ${config.primaryKey}, not saving cache.`);
     core.setOutput(Outputs.CacheSavedSources, 'none');
     return { sources: [], outcome: 'exists' };
   }
@@ -109,7 +110,7 @@ async function saveSingleTier(
         return { sources: [], outcome: 'skipped' };
       case 'error': {
         const error = s3SaveError(outcome.error);
-        core.warning(`Failed to save cache to S3: ${error.message}`);
+        log.warning(`Failed to save cache to S3: ${error.message}`);
         warnedError = error.message;
         break;
       }
@@ -121,7 +122,7 @@ async function saveSingleTier(
   }
 
   if (config.useFallback) {
-    core.info('Saving to GitHub Actions Cache instead (use-fallback).');
+    log.info('Saving to GitHub Actions Cache instead (use-fallback).');
     // Load the GitHub tier only when a run uses it. S3-only runs skip its start-up cost.
     const { saveToGitHub } = await import('./githubTier');
     const outcome = await saveToGitHub(
@@ -135,7 +136,7 @@ async function saveSingleTier(
         core.setOutput(Outputs.CacheSavedSources, 'github');
         return { sources: ['github'], outcome: 'saved' };
       case 'error':
-        core.warning(`Failed to save cache to GitHub Actions Cache: ${outcome.error.message}`);
+        log.warning(`Failed to save cache to GitHub Actions Cache: ${outcome.error.message}`);
         warnedError = outcome.error.message;
         break;
       case 'exists':
@@ -173,14 +174,14 @@ async function saveBothTiers(
     if (config.dualCacheStrict) {
       throw new Error(`Saving to ${tier} failed: ${error.message}`, { cause: error });
     }
-    core.warning(`Dual-cache ${tier} save error: ${error.message}`);
+    log.warning(`Dual-cache ${tier} save error: ${error.message}`);
     warnedError = error.message;
   };
 
-  core.info(`Dual-cache save (strategy: ${config.dualCacheStrategy})`);
+  log.info(`Dual-cache save (strategy: ${config.dualCacheStrategy})`);
   const skipBoth = config.dualCacheStrategy === 'skip-on-hit' && (s3ExactHit || githubExactHit);
   if (skipBoth) {
-    core.info(
+    log.info(
       'An exact hit occurred on one tier and dual-cache-strategy is skip-on-hit; not saving.'
     );
   }
@@ -232,7 +233,7 @@ async function saveBothTiers(
     if (githubTier === undefined) {
       // The tier did not load, and tierFailed has warned. There is nothing to save with.
     } else if (alreadyThere) {
-      core.info(
+      log.info(
         `GitHub Actions Cache already has key "${config.primaryKey}"; not uploading it again.`
       );
       present.add('github');
@@ -264,7 +265,7 @@ async function saveBothTiers(
 
   const sources = (['s3', 'github'] as const).filter((source) => present.has(source));
   core.setOutput(Outputs.CacheSavedSources, sources.join(',') || 'none');
-  core.info(`Dual-cache save complete. Cache present in: ${sources.join(', ') || 'none'}`);
+  log.info(`Dual-cache save complete. Cache present in: ${sources.join(', ') || 'none'}`);
   if (sources.length === 0) {
     return warnedError
       ? { sources: [], objectKey, transferMs, outcome: 'error', error: warnedError }
@@ -299,13 +300,13 @@ export async function saveImpl(stateProvider: IStateProvider): Promise<number | 
     };
     const timings = formatTimings(full);
     if (timings) {
-      core.info(timings);
+      log.info(timings);
     }
     emitMetrics(full, config?.metricsFile ?? '', getWorkspace());
   };
   try {
     if (!isValidEvent()) {
-      core.warning(
+      log.warning(
         `Event Validation Warning: The event type ${process.env.GITHUB_EVENT_NAME} may not be tied to a branch or tag ref.`
       );
     }
@@ -330,17 +331,17 @@ export async function saveImpl(stateProvider: IStateProvider): Promise<number | 
       });
     };
     if (config.readOnly) {
-      core.info('Read-only mode enabled. Skipping cache save.');
+      log.info('Read-only mode enabled. Skipping cache save.');
       skip('read-only');
       return;
     }
     if (!config.primaryKey) {
-      core.warning('Key is not specified. Set key and path, or set preset. Skipping cache save.');
+      log.warning('Key is not specified. Set key and path, or set preset. Skipping cache save.');
       skip('no key');
       return;
     }
     if (config.paths.length === 0) {
-      core.warning('No paths specified to cache. Set path, or set preset. Skipping save.');
+      log.warning('No paths specified to cache. Set path, or set preset. Skipping save.');
       skip('no paths');
       return;
     }
@@ -348,7 +349,7 @@ export async function saveImpl(stateProvider: IStateProvider): Promise<number | 
     // S3 tier obeys the same mode and the step reports one skip. A skip never fails the step.
     const cacheMode = getCacheMode();
     if (!isCacheWritable(cacheMode)) {
-      core.info(
+      log.info(
         `Cache save skipped: ACTIONS_CACHE_MODE is '${cacheMode}', which does not permit writes.`
       );
       core.setOutput(Outputs.CacheSavedSources, 'none');
@@ -414,7 +415,7 @@ export async function saveImpl(stateProvider: IStateProvider): Promise<number | 
     if (strict) {
       core.setFailed(message);
     } else {
-      core.warning(`Save cache encountered error: ${message}`);
+      log.warning(`Save cache encountered error: ${message}`);
     }
   }
 }

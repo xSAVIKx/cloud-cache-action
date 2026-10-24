@@ -1,4 +1,5 @@
 import * as core from '@actions/core';
+import { log } from '../ci/log';
 import { Events } from '../constants';
 
 export function getInputAsArray(name: string, options?: core.InputOptions): string[] {
@@ -27,7 +28,7 @@ export function getInputAsBool(
   if (FALSE_VALUES.includes(value)) {
     return false;
   }
-  core.warning(
+  log.warning(
     `Input "${name}" must be one of true, True, TRUE, false, False, FALSE; got "${value}". Using "${defaultValue}".`
   );
   return defaultValue;
@@ -45,7 +46,7 @@ export function getInputAsEnum<T extends string>(
   if ((allowed as readonly string[]).includes(value)) {
     return value as T;
   }
-  core.warning(
+  log.warning(
     `Input "${name}" must be one of ${allowed.join(', ')}; got "${value}". Using "${defaultValue}".`
   );
   return defaultValue;

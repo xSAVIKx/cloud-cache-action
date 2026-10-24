@@ -1,4 +1,5 @@
 import * as core from '@actions/core';
+import { log } from '../ci/log';
 import { Defaults, Inputs, State } from '../constants';
 import {
   parseMetadata,
@@ -82,7 +83,7 @@ export interface CacheConfig {
 
 function readDualCacheStrategy(): DualCacheStrategy {
   if (core.getInput(Inputs.DualCacheStrategy).trim() === 'independent') {
-    core.warning(
+    log.warning(
       'dual-cache-strategy "independent" was removed in v1.1; using "backfill", which now checks each tier before uploading.'
     );
     return 'backfill';
@@ -107,7 +108,7 @@ function readBoundedInt<T extends number | undefined>(
   }
   const value = /^[0-9]+$/.test(raw) ? Number(raw) : Number.NaN;
   if (Number.isNaN(value) || value < min || value > max) {
-    core.warning(
+    log.warning(
       `Input "${name}" must be an integer between ${min} and ${max}; got "${raw}". Using ${effective}.`
     );
     return { value: defaultValue, set: false };
@@ -123,7 +124,7 @@ function readOptionalLevel(): number | undefined {
   }
   const value = /^[0-9]+$/.test(raw) ? Number(raw) : Number.NaN;
   if (Number.isNaN(value) || value < 1 || value > Defaults.MaxCompressionLevel) {
-    core.warning(
+    log.warning(
       `Input "${Inputs.CompressionLevel}" must be an integer between 1 and ${Defaults.MaxCompressionLevel}; got "${raw}". Using the default for the compression method.`
     );
     return undefined;
