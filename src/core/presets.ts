@@ -199,8 +199,8 @@ export async function applyPreset(
     return config;
   }
   const preset = PRESETS[name];
-  const os = options.os ?? runnerOs();
-  const workspace = options.workspace ?? getWorkspace();
+  const os = options.os ?? runnerOs(getHost().context().env);
+  const workspace = options.workspace ?? getWorkspace(getHost().context().env);
   const hash = options.hash ?? ((patterns, ws) => glob.hashFiles(patterns, ws));
 
   const paths = config.paths.length > 0 ? config.paths : [...preset.paths[os]];

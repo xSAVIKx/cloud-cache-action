@@ -1,3 +1,4 @@
+import { getHost } from '../ci/host';
 import { log } from '../ci/log';
 import type { ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -235,7 +236,7 @@ async function resolveCompression(persisted: string | undefined): Promise<Compre
 
 export async function buildS3Tier(
   config: CacheConfig,
-  env: NodeJS.ProcessEnv = process.env,
+  env: NodeJS.ProcessEnv = getHost().context().env,
   options: BuildS3TierOptions = {}
 ): Promise<S3Tier> {
   const storage = createStorageContext({

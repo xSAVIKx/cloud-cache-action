@@ -153,3 +153,28 @@ describe('getHost and setHost', () => {
     expect(coreMock.info).toHaveBeenCalledWith('hello');
   });
 });
+
+describe('job summary through the host', () => {
+  it('no summary writer, no summary', async () => {
+    const { writeRestoreSummary } = await import('../../../src/core/summary');
+    const previous = process.env.GITHUB_STEP_SUMMARY;
+    process.env.GITHUB_STEP_SUMMARY = '/tmp/summary-not-used';
+    try {
+      setHost({ ...new GitHubActionsHost({}), summary: undefined } as never);
+      await expect(
+        writeRestoreSummary({
+          jobSummary: true,
+          primaryKey: 'k',
+          cacheHit: false,
+          source: 'none',
+          durationMs: 1,
+        })
+      ).resolves.toBeUndefined();
+      expect(summaryMock.addHeading).not.toHaveBeenCalled();
+      expect(summaryMock.write).not.toHaveBeenCalled();
+    } finally {
+      if (previous === undefined) delete process.env.GITHUB_STEP_SUMMARY;
+      else process.env.GITHUB_STEP_SUMMARY = previous;
+    }
+  });
+});

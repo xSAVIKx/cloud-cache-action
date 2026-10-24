@@ -62,7 +62,7 @@ async function setUpS3(
   stateProvider: IStateProvider
 ): Promise<S3Tier | undefined> {
   try {
-    const tier = await buildS3Tier(config, process.env, {
+    const tier = await buildS3Tier(config, getHost().context().env, {
       compression: stateProvider.getState(State.CacheCompression),
     });
     getHost().setOutput(Outputs.CacheStorageProvider, tier.storage.providerConfig.provider);
@@ -307,7 +307,7 @@ export async function saveImpl(stateProvider: IStateProvider): Promise<number | 
   try {
     if (!isValidEvent()) {
       log.warning(
-        `Event Validation Warning: The event type ${process.env.GITHUB_EVENT_NAME} may not be tied to a branch or tag ref.`
+        `Event Validation Warning: The event type ${getHost().context().eventName} may not be tied to a branch or tag ref.`
       );
     }
 

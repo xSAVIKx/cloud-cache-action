@@ -101,7 +101,7 @@ export function readPruneConfig(): PruneConfig {
  */
 export function buildPruneTier(
   config: PruneConfig,
-  env: NodeJS.ProcessEnv = process.env
+  env: NodeJS.ProcessEnv = getHost().context().env
 ): PruneTier {
   const storage = createStorageContext({
     maxAttempts: config.retryEnabled ? config.retryCount + 1 : 1,

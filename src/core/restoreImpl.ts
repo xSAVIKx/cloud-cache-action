@@ -121,7 +121,7 @@ export async function restoreImpl(
   try {
     if (!isValidEvent()) {
       log.warning(
-        `Event Validation Warning: The event type ${process.env.GITHUB_EVENT_NAME} may not be tied to a branch or tag ref.`
+        `Event Validation Warning: The event type ${getHost().context().eventName} may not be tied to a branch or tag ref.`
       );
     }
 

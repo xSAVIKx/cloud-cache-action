@@ -1,7 +1,6 @@
 import { getHost } from '../ci/host';
 import type { InputOptions } from '../ci/host';
 import { log } from '../ci/log';
-import { Events } from '../constants';
 
 export function getInputAsArray(name: string, options?: InputOptions): string[] {
   return getHost()
@@ -90,7 +89,7 @@ export function getInputWithEnv(
 
   // Check environment variables
   for (const envVar of envVarNames) {
-    const envVal = process.env[envVar];
+    const envVal = getHost().context().env[envVar];
     if (envVal !== undefined && envVal !== '') {
       return envVal;
     }
@@ -107,7 +106,7 @@ export function isExactKeyMatch(primaryKey: string, matchedKey?: string): boolea
 }
 
 export function isValidEvent(): boolean {
-  const event = process.env[Events.Key];
+  const event = getHost().context().eventName;
   // GitHub Actions events that are not tied to a ref (e.g. issues, discussion) might not be appropriate for caching
   // actions/cache warns if event is not ref-based, but allows execution
   return Boolean(event);
