@@ -7,7 +7,14 @@
   },
   "files": {
     "ignoreUnknown": true,
-    "includes": ["**", "!!**/dist", "!!**/coverage", "!!**/node_modules", "!!**/package-lock.json"]
+    "includes": [
+      "**",
+      "!!**/dist",
+      "!!**/coverage",
+      "!!**/node_modules",
+      "!!**/package-lock.json",
+      "!!.release-please-manifest.json"
+    ]
   },
   "formatter": {
     "enabled": true,
