@@ -1,6 +1,6 @@
+import { GitHubActionsHost } from '../ci/github';
 import { getHost } from '../ci/host';
 import { log } from '../ci/log';
-import { getWorkspace } from '../archive/paths';
 import { Defaults, Inputs, Outputs } from '../constants';
 import { createStorageContext } from '../storage/client';
 import {
@@ -99,22 +99,25 @@ export function readPruneConfig(): PruneConfig {
  * matches saved objects through `KeyTemplate.scopeMatcher`, which accepts any version and both
  * known archive filenames.
  */
-export function buildPruneTier(
-  config: PruneConfig,
-  env: NodeJS.ProcessEnv = getHost().context().env
-): PruneTier {
+export function buildPruneTier(config: PruneConfig, env?: NodeJS.ProcessEnv): PruneTier {
+  // process.env is the live environment, so it means "the CI host of this run". Any other env
+  // object is a test or caller fixture, read as GitHub variables.
+  const ctx =
+    env === undefined || env === process.env
+      ? getHost().context()
+      : new GitHubActionsHost(env).context();
   const storage = createStorageContext({
     maxAttempts: config.retryEnabled ? config.retryCount + 1 : 1,
   });
   const template = compileKeyTemplate({
     pattern: config.s3KeyPattern,
-    repository: env.GITHUB_REPOSITORY ?? '',
+    repository: ctx.repository,
     prefix: config.prefix,
     scopedToRepository: config.scopedToRepository,
     scopedToRef: config.scopedToRef,
     version: '',
     archiveFilename: Defaults.DefaultArchiveFilenameZstd,
-    env,
+    env: ctx.env,
   });
   for (const warning of template.warnings) {
     log.warning(warning);
@@ -165,7 +168,7 @@ export async function pruneImpl(): Promise<void> {
         },
       },
       config.metricsFile,
-      getWorkspace()
+      getHost().context().workspace
     );
   } catch (err) {
     getHost().setFailed(toError(err).message);

@@ -1,5 +1,6 @@
 import type { RefCandidates } from '../core/refs';
 import type { IStateProvider } from '../state';
+import type { RunnerOs } from './env';
 import { GitHubActionsHost } from './github';
 
 /** A table cell. The shape matches the table cell of the job summary API. */
@@ -26,7 +27,7 @@ export interface CiContext {
   eventName?: string;
   workspace: string;
   homeDir: string;
-  runnerOs: string;
+  runnerOs: RunnerOs;
   /** The environment this context was read from. */
   env: NodeJS.ProcessEnv;
 }

@@ -6,7 +6,6 @@
 
 import { getHost } from '../ci/host';
 import { log } from '../ci/log';
-import { getWorkspace } from '../archive/paths';
 import { Inputs, Outputs } from '../constants';
 import { parsePositiveInt } from '../utils/inputUtils';
 import { readCacheConfig } from './config';
@@ -87,7 +86,7 @@ export async function inspectImpl(): Promise<void> {
         extra: { candidateCount },
       },
       config.metricsFile,
-      getWorkspace()
+      getHost().context().workspace
     );
 
     if (!report.wouldHit && config.failOnCacheMiss) {

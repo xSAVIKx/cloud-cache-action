@@ -1,6 +1,5 @@
 import { getHost } from '../ci/host';
 import { log } from '../ci/log';
-import { getWorkspace } from '../archive/paths';
 import { Outputs, State } from '../constants';
 import { NullStateProvider, type IStateProvider } from '../state';
 import { isValidEvent } from '../utils/inputUtils';
@@ -116,7 +115,7 @@ export async function restoreImpl(
     if (timings) {
       log.info(timings);
     }
-    emitMetrics(full, config?.metricsFile ?? '', getWorkspace());
+    emitMetrics(full, config?.metricsFile ?? '', getHost().context().workspace);
   };
   try {
     if (!isValidEvent()) {

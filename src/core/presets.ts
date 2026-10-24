@@ -7,10 +7,10 @@
  */
 
 import { getHost } from '../ci/host';
-import { type RunnerOs, runnerOs } from '../ci/env';
+import type { RunnerOs } from '../ci/env';
 import { log } from '../ci/log';
 import * as glob from '@actions/glob';
-import { getWorkspace, preparePattern } from '../archive/paths';
+import { preparePattern } from '../archive/paths';
 import { Inputs } from '../constants';
 import type { CacheConfig } from './config';
 
@@ -199,8 +199,8 @@ export async function applyPreset(
     return config;
   }
   const preset = PRESETS[name];
-  const os = options.os ?? runnerOs(getHost().context().env);
-  const workspace = options.workspace ?? getWorkspace(getHost().context().env);
+  const os = options.os ?? getHost().context().runnerOs;
+  const workspace = options.workspace ?? getHost().context().workspace;
   const hash = options.hash ?? ((patterns, ws) => glob.hashFiles(patterns, ws));
 
   const paths = config.paths.length > 0 ? config.paths : [...preset.paths[os]];

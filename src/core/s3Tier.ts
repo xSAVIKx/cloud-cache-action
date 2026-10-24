@@ -1,3 +1,4 @@
+import { GitHubActionsHost } from '../ci/github';
 import { getHost } from '../ci/host';
 import { log } from '../ci/log';
 import type { ChildProcess } from 'node:child_process';
@@ -13,7 +14,7 @@ import {
   type CompressionMethod,
 } from '../archive/compression';
 import { createSha256Tap, sha256File } from '../archive/checksum';
-import { getWorkspace, resolveCachePaths } from '../archive/paths';
+import { resolveCachePaths } from '../archive/paths';
 import {
   buildCreateCommands,
   buildExtractCommands,
@@ -72,7 +73,6 @@ import {
 } from './objectAttributes';
 import { compileKeyTemplate, type KeyTemplate } from './keyTemplate';
 import { toError, type RestoreOutcome, type SaveOutcome } from './outcomes';
-import { resolveRefCandidates } from './refs';
 import { computeCacheVersion } from './version';
 
 /** Logged when streaming is requested but the plan needs the BSD-tar-plus-zstd two-step on Windows. */
@@ -236,14 +236,20 @@ async function resolveCompression(persisted: string | undefined): Promise<Compre
 
 export async function buildS3Tier(
   config: CacheConfig,
-  env: NodeJS.ProcessEnv = getHost().context().env,
+  env?: NodeJS.ProcessEnv,
   options: BuildS3TierOptions = {}
 ): Promise<S3Tier> {
+  // process.env is the live environment, so it means "the CI host of this run". Any other env
+  // object is a test or caller fixture, read as GitHub variables.
+  const ctx =
+    env === undefined || env === process.env
+      ? getHost().context()
+      : new GitHubActionsHost(env).context();
   const storage = createStorageContext({
     maxAttempts: config.retryEnabled ? config.retryCount + 1 : 1,
   });
   const compression = await resolveCompression(options.compression);
-  const refs = resolveRefCandidates(env);
+  const refs = ctx.refs;
   const scopedToRef = config.scopedToRef && refs.current !== undefined;
   if (config.scopedToRef && !scopedToRef) {
     log.debug('GITHUB_REF is not set, so caches are not scoped to a ref.');
@@ -251,13 +257,13 @@ export async function buildS3Tier(
 
   const template = compileKeyTemplate({
     pattern: config.s3KeyPattern,
-    repository: env.GITHUB_REPOSITORY ?? '',
+    repository: ctx.repository,
     prefix: config.prefix,
     scopedToRepository: config.scopedToRepository,
     scopedToRef,
     version: computeCacheVersion(config.paths, compression.method, config.enableCrossOsArchive),
     archiveFilename: compression.archiveFilename,
-    env,
+    env: ctx.env,
   });
   for (const warning of template.warnings) {
     log.warning(warning);
@@ -272,7 +278,7 @@ export async function buildS3Tier(
     restoreRefs: usesRef ? refs.restore : [''],
     saveRef: usesRef ? (refs.current as string) : '',
     compression,
-    workspace: getWorkspace(env),
+    workspace: ctx.workspace,
     streamRetries: config.retryEnabled ? config.retryCount : 0,
     streaming: config.streaming,
     download: { concurrency: config.downloadConcurrency, partSize: config.downloadChunkSize },

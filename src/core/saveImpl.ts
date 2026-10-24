@@ -1,6 +1,5 @@
 import { getHost } from '../ci/host';
 import { log } from '../ci/log';
-import { getWorkspace } from '../archive/paths';
 import { Outputs, State } from '../constants';
 import { NullStateProvider, type IStateProvider } from '../state';
 import { isWriteAccessDeniedError } from '../storage/errors';
@@ -62,7 +61,7 @@ async function setUpS3(
   stateProvider: IStateProvider
 ): Promise<S3Tier | undefined> {
   try {
-    const tier = await buildS3Tier(config, getHost().context().env, {
+    const tier = await buildS3Tier(config, process.env, {
       compression: stateProvider.getState(State.CacheCompression),
     });
     getHost().setOutput(Outputs.CacheStorageProvider, tier.storage.providerConfig.provider);
@@ -302,7 +301,7 @@ export async function saveImpl(stateProvider: IStateProvider): Promise<number | 
     if (timings) {
       log.info(timings);
     }
-    emitMetrics(full, config?.metricsFile ?? '', getWorkspace());
+    emitMetrics(full, config?.metricsFile ?? '', getHost().context().workspace);
   };
   try {
     if (!isValidEvent()) {
