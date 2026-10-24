@@ -22,6 +22,7 @@ const SKIP_DIRS = new Set([
   'node_modules',
   '.git',
   'dist',
+  'build',
   'cache',
   'coverage',
   '.vitepress-cache',

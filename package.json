@@ -6,6 +6,8 @@
   "type": "module",
   "scripts": {
     "build": "ncc build --transpile-only -o dist/lib src/main.ts && node scripts/writeEntries.ts",
+    "build:cli": "node scripts/buildCli.ts",
+    "pack:cli": "node scripts/packCli.ts",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
     "test:coverage": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage",
     "test:contract": "node --experimental-vm-modules node_modules/jest/bin/jest.js tests/contract",
@@ -58,6 +60,7 @@
     "@types/node": "^26.6.5",
     "@vercel/ncc": "^0.45.0",
     "aws-sdk-client-mock": "^4.1.0",
+    "esbuild": "0.28.2",
     "eslint": "^10.13.0",
     "jest": "^30.5.2",
     "ts-jest": "^29.4.15",
