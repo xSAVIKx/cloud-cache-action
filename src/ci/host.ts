@@ -1,9 +1,16 @@
-import type { summary } from '@actions/core';
 import type { RefCandidates } from '../core/refs';
 import type { IStateProvider } from '../state';
 import { GitHubActionsHost } from './github';
 
-type SummaryTableRows = Parameters<typeof summary.addTable>[0];
+/** A table cell. The shape matches the table cell of the job summary API. */
+export interface SummaryTableCell {
+  data: string;
+  header?: boolean;
+  colspan?: string;
+  rowspan?: string;
+}
+
+export type SummaryTableRow = (SummaryTableCell | string)[];
 
 export interface InputOptions {
   required?: boolean;
@@ -37,7 +44,7 @@ export interface CiLogger {
 export interface SummaryWriter {
   addHeading(text: string, level?: number): SummaryWriter;
   addRaw(text: string, addEOL?: boolean): SummaryWriter;
-  addTable(rows: SummaryTableRows): SummaryWriter;
+  addTable(rows: SummaryTableRow[]): SummaryWriter;
   addDetails(label: string, content: string): SummaryWriter;
   emptyBuffer(): SummaryWriter;
   write(): Promise<unknown>;

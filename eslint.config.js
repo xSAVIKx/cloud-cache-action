@@ -1,6 +1,19 @@
 import eslint from '@eslint/js';
 import tseslint from 'typescript-eslint';
 
+const coreImport = {
+  name: '@actions/core',
+  message:
+    'Import @actions/core only in src/ci/github.ts and src/state.ts. Use the CiHost port from src/ci/host.ts.',
+};
+const cacheImport = {
+  name: '@actions/cache',
+  message: 'Import @actions/cache only in src/core/githubTier.ts.',
+};
+const CI_ENV = '/^(GITHUB|RUNNER)_/';
+const CI_ENV_MESSAGE =
+  'Do not read GITHUB_* or RUNNER_* environment variables outside src/ci. Add the read to a CiHost in src/ci.';
+
 export default tseslint.config(
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
@@ -27,6 +40,41 @@ export default tseslint.config(
       '@typescript-eslint/no-unused-vars': [
         'error',
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
+      ],
+    },
+  },
+  {
+    files: ['src/**/*.ts'],
+    rules: {
+      'no-restricted-imports': ['error', { paths: [coreImport, cacheImport] }],
+    },
+  },
+  {
+    files: ['src/ci/github.ts', 'src/state.ts'],
+    rules: {
+      'no-restricted-imports': ['error', { paths: [cacheImport] }],
+    },
+  },
+  {
+    files: ['src/core/githubTier.ts'],
+    rules: {
+      'no-restricted-imports': ['error', { paths: [coreImport] }],
+    },
+  },
+  {
+    files: ['src/**/*.ts'],
+    ignores: ['src/ci/**'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: `MemberExpression[object.object.name='process'][object.property.name='env'][computed=false][property.name=${CI_ENV}]`,
+          message: CI_ENV_MESSAGE,
+        },
+        {
+          selector: `MemberExpression[object.object.name='process'][object.property.name='env'][computed=true][property.value=${CI_ENV}]`,
+          message: CI_ENV_MESSAGE,
+        },
       ],
     },
   }
