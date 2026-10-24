@@ -53,6 +53,13 @@ jobs:
             git status --porcelain dist
             exit 1
           fi
+      - name: Build the CLI and upload it to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          npm run build:cli
+          (cd build/cli && sha256sum cloud-cache.mjs > SHA256SUMS)
+          gh release upload "$TAG" build/cli/cloud-cache.mjs build/cli/SHA256SUMS --clobber
       - name: Move the major version tag
         if: ${{ !github.event.release.prerelease }}
         env:
@@ -71,3 +78,34 @@ jobs:
           git config user.email "41898828+github-actions[bot]@users.noreply.github.com"
           git tag -fa "$MAJOR" -m "Release $MAJOR" "$RELEASE_SHA"
           git push --force "$REMOTE" "refs/tags/$MAJOR:refs/tags/$MAJOR"
+
+  # Publishes the CLI to npm when the repository variable NPM_PUBLISH is "true".
+  # This job has no npm token. It uses npm trusted publishing (OIDC).
+  # The maintainer must do two manual steps first:
+  # 1. Publish the first version of the package by hand.
+  # 2. Configure the trusted publisher for the package on npmjs.com. When release-please.yml
+  #    calls this workflow, npm sees release-please.yml as the workflow, not release.yml.
+  npm:
+    name: Publish the CLI to npm
+    needs: release
+    if: vars.NPM_PUBLISH == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      TAG: ${{ inputs.tag_name || github.event.release.tag_name }}
+    steps:
+      - name: Checkout the release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.TAG }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - run: npm ci --ignore-scripts
+      - run: npm run build:cli
+      - run: npm run pack:cli
+      - run: npm publish ./build/npm --provenance --access public
