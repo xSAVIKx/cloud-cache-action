@@ -57,6 +57,7 @@ describe('GenericHost', () => {
   });
 
   it('context uses defaults when env is empty', () => {
+    jest.spyOn(process.stderr, 'write').mockReturnValue(true);
     const ctx = host().context();
     expect(ctx.repository).toBe('');
     expect(ctx.eventName).toBe('cli');
@@ -75,7 +76,12 @@ describe('GenericHost', () => {
     ] as const) {
       const refs = host(
         {},
-        { CLOUD_CACHE_REF: ref, CLOUD_CACHE_BASE_REF: base, CLOUD_CACHE_DEFAULT_BRANCH: def }
+        {
+          CLOUD_CACHE_REPOSITORY: 'acme/app',
+          CLOUD_CACHE_REF: ref,
+          CLOUD_CACHE_BASE_REF: base,
+          CLOUD_CACHE_DEFAULT_BRANCH: def,
+        }
       ).context().refs;
       expect(refs).toEqual({ current: 'refs/heads/pr', restore: expected });
     }
@@ -184,6 +190,46 @@ describe('GenericHost', () => {
 
   it('summary is undefined', () => {
     expect(host().summary).toBeUndefined();
+  });
+
+  it('inputs named like a context variable read only their flag', () => {
+    const env = {
+      CLOUD_CACHE_REF: 'refs/heads/feature',
+      CLOUD_CACHE_REPOSITORY: 'acme/app',
+      CLOUD_CACHE_BASE_REF: 'main',
+      CLOUD_CACHE_DEFAULT_BRANCH: 'develop',
+      CLOUD_CACHE_WORKSPACE: '/work',
+      CLOUD_CACHE_EVENT_NAME: 'push',
+      CLOUD_CACHE_KEY: 'env-key',
+    };
+    const names = ['ref', 'repository', 'base-ref', 'default-branch', 'workspace', 'event-name'];
+    const fromEnv = host({}, env);
+    for (const name of names) {
+      expect(fromEnv.input(name)).toBe('');
+    }
+    // Other inputs still read their env var.
+    expect(fromEnv.input('key')).toBe('env-key');
+
+    const flags = Object.fromEntries(names.map((name) => [name, `flag-${name}`]));
+    const fromFlags = host({ inputs: flags, defaults: { ref: 'def' } }, env);
+    for (const name of names) {
+      expect(fromFlags.input(name)).toBe(`flag-${name}`);
+    }
+    expect(host({ defaults: { ref: 'def' } }, env).input('ref')).toBe('def');
+  });
+
+  it('an empty repository warns once', () => {
+    const err = jest.spyOn(process.stderr, 'write').mockReturnValue(true);
+    const empty = host();
+    empty.context();
+    empty.context();
+    expect(err).toHaveBeenCalledTimes(1);
+    expect(String(err.mock.calls[0]?.[0])).toContain('warning: CLOUD_CACHE_REPOSITORY is empty');
+
+    err.mockClear();
+    host({}, { CLOUD_CACHE_REPOSITORY: 'acme/app' }).context();
+    host({ inputs: { 'scoped-to-repository': 'false' } }).context();
+    expect(err).not.toHaveBeenCalled();
   });
 });
 

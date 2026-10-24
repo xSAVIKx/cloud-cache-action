@@ -45,11 +45,26 @@ function toBranchName(value: string | undefined): string | undefined {
   return trimmed?.startsWith('refs/heads/') ? trimmed.slice('refs/heads/'.length) : trimmed;
 }
 
+/**
+ * Env vars that hold the CI context, not an input. An input with the same env name (for example
+ * the prune input `ref`) reads only its flag, so the context of the run cannot set it.
+ */
+const CONTEXT_ENV_NAMES: ReadonlySet<string> = new Set([
+  'CLOUD_CACHE_REF',
+  'CLOUD_CACHE_REPOSITORY',
+  'CLOUD_CACHE_BASE_REF',
+  'CLOUD_CACHE_DEFAULT_BRANCH',
+  'CLOUD_CACHE_WORKSPACE',
+  'CLOUD_CACHE_EVENT_NAME',
+]);
+
 /** The host for the cloud-cache CLI. It reads inputs from flags, then env, then defaults. */
 export class GenericHost implements CiHost {
   readonly state: IStateProvider;
 
   readonly log: CiLogger;
+
+  private repositoryWarned = false;
 
   constructor(private readonly options: GenericHostOptions) {
     this.state = new FileStateProvider(options.stateFile);
@@ -73,9 +88,19 @@ export class GenericHost implements CiHost {
 
   context(): CiContext {
     const env = this.env;
+    const repository = env.CLOUD_CACHE_REPOSITORY ?? '';
+    if (repository === '' && !this.repositoryWarned) {
+      this.repositoryWarned = true;
+      if (this.input('scoped-to-repository') !== 'false') {
+        this.log.warning(
+          'CLOUD_CACHE_REPOSITORY is empty, so the cache keys have no repository part. ' +
+            'Caches of all repositories that use this bucket and prefix are shared.'
+        );
+      }
+    }
     return {
       platform: 'generic',
-      repository: env.CLOUD_CACHE_REPOSITORY ?? '',
+      repository,
       refs: refCandidates({
         current: toFullRef(env.CLOUD_CACHE_REF),
         baseRef: toBranchName(env.CLOUD_CACHE_BASE_REF),
@@ -91,8 +116,8 @@ export class GenericHost implements CiHost {
 
   input(name: string, options?: InputOptions): string {
     const envName = `CLOUD_CACHE_${name.toUpperCase().replace(/-/g, '_')}`;
-    const value =
-      this.options.inputs[name] ?? this.env[envName] ?? this.options.defaults[name] ?? '';
+    const fromEnv = CONTEXT_ENV_NAMES.has(envName) ? undefined : this.env[envName];
+    const value = this.options.inputs[name] ?? fromEnv ?? this.options.defaults[name] ?? '';
     if (options?.required && value === '') {
       throw new Error(`Input required and not supplied: ${name}`);
     }
