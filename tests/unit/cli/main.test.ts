@@ -8,7 +8,7 @@ import {
   it,
   jest,
 } from '@jest/globals';
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { CiHost } from '../../../src/ci/host';
@@ -23,9 +23,11 @@ jest.unstable_mockModule('../../../src/core/restoreImpl', () => ({ restoreImpl }
 jest.unstable_mockModule('../../../src/core/saveImpl', () => ({ saveImpl }));
 jest.unstable_mockModule('../../../src/core/inspectImpl', () => ({ inspectImpl }));
 jest.unstable_mockModule('../../../src/core/pruneImpl', () => ({ pruneImpl }));
+// The real check runs the system tar, which differs per runner OS. tarCheck.test.ts tests it.
+const checkTar = jest.fn<() => Promise<void>>();
+jest.unstable_mockModule('../../../src/cli/tarCheck', () => ({ checkTar }));
 
 const { main } = await import('../../../src/cli/main');
-const { checkTar } = await import('../../../src/cli/tarCheck');
 const { getHost, setHost } = await import('../../../src/ci/host');
 const { GenericHost } = await import('../../../src/ci/generic');
 const { FileStateProvider } = await import('../../../src/ci/stateFile');
@@ -45,6 +47,9 @@ afterAll(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 beforeEach(() => {
+  for (const mock of [restoreImpl, saveImpl, inspectImpl, pruneImpl, checkTar]) {
+    mock.mockReset();
+  }
   stdout = '';
   stderr = '';
   jest.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
@@ -63,15 +68,6 @@ afterEach(() => {
   setHost(undefined);
   jest.restoreAllMocks();
 });
-
-/** Puts a fake `tar` first on PATH. It prints `output` and exits with `code`. */
-function fakeTar(output: string, code: number): void {
-  const bin = mkdtempSync(join(dir, 'bin-'));
-  const tar = join(bin, 'tar');
-  writeFileSync(tar, `#!/bin/sh\necho '${output}' >&2\nexit ${code}\n`);
-  chmodSync(tar, 0o755);
-  process.env.PATH = `${bin}:${savedEnv.PATH ?? ''}`;
-}
 
 describe('main', () => {
   it('cli sets the generic host before it runs a command', async () => {
@@ -137,6 +133,7 @@ describe('main', () => {
     expect(stdout).toContain('--retry-count <value>  (default: 3)');
     expect(stdout).toContain('--max-candidates');
     expect(stdout).toContain('--state-file');
+    expect(stdout).toContain('name<<delimiter');
     expect(stdout).toContain('CLOUD_CACHE_');
     expect(stderr).toBe('');
   });
@@ -146,22 +143,23 @@ describe('main', () => {
     expect(stdout).toBe('0.0.0-dev\n');
   });
 
-  it('busybox tar fails with an apk hint', async () => {
-    fakeTar(
-      "tar: unrecognized option '--version'\nBusyBox v1.36.1 (2024-06-10) multi-call binary.",
-      1
-    );
-    await expect(checkTar()).rejects.toThrow(BUSYBOX_ERROR);
+  it('restore and save stop on a busybox tar error', async () => {
+    checkTar.mockImplementation(async () => {
+      // The check runs after the host is set.
+      expect(getHost()).toBeInstanceOf(GenericHost);
+      throw new Error(BUSYBOX_ERROR);
+    });
 
     expect(await main(['restore', '--key', 'k', '--path', 'p'])).toBe(1);
+    expect(await main(['save', '--key', 'k', '--path', 'p'])).toBe(1);
     expect(stderr).toContain(`error: ${BUSYBOX_ERROR}`);
     expect(restoreImpl).not.toHaveBeenCalled();
-    // inspect does not run tar, so it does not check it.
-    expect(await main(['inspect'])).toBe(0);
-  });
+    expect(saveImpl).not.toHaveBeenCalled();
+    expect(checkTar).toHaveBeenCalledTimes(2);
 
-  it('GNU tar passes the tar check', async () => {
-    fakeTar('tar (GNU tar) 1.35', 0);
-    await expect(checkTar()).resolves.toBeUndefined();
+    // inspect and prune do not run tar, so they do not check it.
+    expect(await main(['inspect'])).toBe(0);
+    expect(await main(['prune'])).toBe(0);
+    expect(checkTar).toHaveBeenCalledTimes(2);
   });
 });
