@@ -8,10 +8,11 @@ import {
   it,
   jest,
 } from '@jest/globals';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { CiHost } from '../../../src/ci/host';
+import { State } from '../../../src/constants';
 import type { IStateProvider } from '../../../src/state';
 
 const restoreImpl = jest.fn<(state: IStateProvider, earlyExit?: boolean) => Promise<unknown>>();
@@ -141,6 +142,52 @@ describe('main', () => {
   it('prints the version', async () => {
     expect(await main(['--version'])).toBe(0);
     expect(stdout).toBe('0.0.0-dev\n');
+  });
+
+  it('restore starts from an empty state file', async () => {
+    const stateFile = join(dir, 'state.json');
+    const old = { [State.CachePrimaryKey]: 'k1', [State.CacheS3ExactHit]: 'true' };
+    writeFileSync(stateFile, JSON.stringify(old));
+    const seen: string[] = [];
+    restoreImpl.mockImplementation(async (state) => {
+      seen.push(state.getState(State.CachePrimaryKey), state.getState(State.CacheS3ExactHit));
+      return undefined;
+    });
+
+    expect(await main(['restore', '--key', 'k2', '--path', 'p'])).toBe(0);
+    expect(seen).toEqual(['', '']);
+  });
+
+  it('save warns when the key or the paths differ from the state', async () => {
+    const stateFile = join(dir, 'state.json');
+    const restored = { [State.CachePrimaryKey]: 'k1', [State.CachePaths]: '["a","b"]' };
+    writeFileSync(stateFile, JSON.stringify(restored));
+
+    expect(await main(['save', '--key', 'k2', '--path', 'c'])).toBe(0);
+    expect(stderr).toContain(
+      `warning: The key k2 differs from the key k1 in the state file ${stateFile}.`
+    );
+    expect(stderr).toContain(
+      `warning: The paths c differ from the paths a, b in the state file ${stateFile}.`
+    );
+    expect(stderr).toContain('The state from restore wins');
+    expect(saveImpl).toHaveBeenCalledTimes(1);
+
+    // An env var counts as a value that the user gave.
+    stderr = '';
+    process.env.CLOUD_CACHE_KEY = 'k3';
+    expect(await main(['save'])).toBe(0);
+    expect(stderr).toContain('The key k3 differs from the key k1');
+    expect(stderr).not.toContain('paths');
+    delete process.env.CLOUD_CACHE_KEY;
+
+    // Equal values, no values, or no state give no warning.
+    stderr = '';
+    expect(await main(['save', '--key', 'k1', '--path', 'a', '--path', 'b'])).toBe(0);
+    expect(await main(['save'])).toBe(0);
+    rmSync(stateFile);
+    expect(await main(['save', '--key', 'k2', '--path', 'c'])).toBe(0);
+    expect(stderr).toBe('');
   });
 
   it('restore and save stop on a busybox tar error', async () => {

@@ -190,7 +190,8 @@ describeCli('cloud-cache CLI bundle against S3', () => {
   });
 
   itS3('save uploads the archive', async () => {
-    // The failed restore above wrote the state of another key. Restore this key again first.
+    // Save takes the key from the state of the last restore, and the failed restore above wrote
+    // another key. Restore this key first.
     await cli('restore', ['--key', key, '--path', 'payload']);
     const result = await cli('save', ['--key', key, '--path', 'payload']);
     expect(result.code).toBe(0);
@@ -220,5 +221,22 @@ describeCli('cloud-cache CLI bundle against S3', () => {
     expect(after.etag).toBe(before.etag);
     expect(after.modified?.getTime()).toBe(before.modified?.getTime());
     expect(await listObjects()).toHaveLength(1);
+  });
+
+  itS3('save uploads a new key after a hit on another key', async () => {
+    const other = `${key}-2`;
+    const hit = await cli('restore', ['--key', key, '--path', 'payload']);
+    expect(hit.outputs['cache-hit']).toBe('true');
+    // The hit on the first key must not stay in the state file.
+    const miss = await cli('restore', ['--key', other, '--path', 'payload']);
+    expect(miss.code).toBe(0);
+    expect(miss.outputs['cache-hit']).toBe('false');
+
+    const result = await cli('save', ['--key', other, '--path', 'payload']);
+    expect(result.code).toBe(0);
+    expect(result.log).not.toContain('not saving cache');
+    const objects = await listObjects();
+    expect(objects).toHaveLength(2);
+    expect(objects.some((o) => o.key.includes(`/${other}/`))).toBe(true);
   });
 });

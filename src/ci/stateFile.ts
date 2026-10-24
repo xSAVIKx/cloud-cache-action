@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { State } from '../constants';
 import type { IStateProvider } from '../state';
@@ -39,6 +39,11 @@ export class FileStateProvider implements IStateProvider {
     state[key] = value;
     mkdirSync(dirname(this.path), { recursive: true });
     writeFileSync(this.path, JSON.stringify(state));
+  }
+
+  /** Removes the state file. A missing file is not an error. */
+  reset(): void {
+    rmSync(this.path, { force: true });
   }
 
   getCacheState(): string {

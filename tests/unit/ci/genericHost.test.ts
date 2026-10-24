@@ -211,6 +211,17 @@ describe('FileStateProvider', () => {
     );
   });
 
+  it('reset removes the state file', () => {
+    const file = join(dir, 'reset.json');
+    const provider = new FileStateProvider(file);
+    provider.setState(State.CacheS3ExactHit, 'true');
+    provider.reset();
+    expect(provider.getState(State.CacheS3ExactHit)).toBe('');
+    expect(() => readFileSync(file)).toThrow();
+    // A missing file is not an error.
+    expect(() => provider.reset()).not.toThrow();
+  });
+
   it('missing or corrupt state file reads as empty', () => {
     const missing = new FileStateProvider(join(dir, 'nope.json'));
     expect(missing.getState('x')).toBe('');
