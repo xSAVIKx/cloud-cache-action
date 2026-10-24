@@ -53,14 +53,6 @@ jobs:
             git status --porcelain dist
             exit 1
           fi
-      - name: Build the CLI and write the checksum
-        run: |
-          npm run build:cli
-          (cd build/cli && sha256sum cloud-cache.mjs > SHA256SUMS)
-      - name: Upload the CLI to the release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$TAG" build/cli/cloud-cache.mjs build/cli/SHA256SUMS --clobber
       - name: Move the major version tag
         if: ${{ !github.event.release.prerelease }}
         env:
@@ -79,6 +71,37 @@ jobs:
           git config user.email "41898828+github-actions[bot]@users.noreply.github.com"
           git tag -fa "$MAJOR" -m "Release $MAJOR" "$RELEASE_SHA"
           git push --force "$REMOTE" "refs/tags/$MAJOR:refs/tags/$MAJOR"
+
+  # Attaches the CLI bundle and its checksum to the release. This job runs after the major tag
+  # step, so a CLI failure cannot block the major tag.
+  cli-asset:
+    name: Attach the CLI to the release
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ inputs.tag_name || github.event.release.tag_name }}
+    steps:
+      - name: Checkout the release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.TAG }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      # The build steps get no token. Only the upload step gets one.
+      - run: npm run build:cli
+      - name: Write the checksum
+        working-directory: build/cli
+        run: sha256sum cloud-cache.mjs > SHA256SUMS
+      - name: Upload the CLI to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" build/cli/cloud-cache.mjs build/cli/SHA256SUMS --clobber
 
   # Publishes the CLI to npm when the repository variable NPM_PUBLISH is "true".
   # This job has no npm token. It uses npm trusted publishing (OIDC).
