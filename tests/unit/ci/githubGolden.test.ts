@@ -2,13 +2,6 @@ import { jest } from '@jest/globals';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildCreateCommands } from '../../../src/archive/commands';
-import { getWorkspace } from '../../../src/archive/paths';
-import { Defaults } from '../../../src/constants';
-import { compileKeyTemplate } from '../../../src/core/keyTemplate';
-import { runnerOs } from '../../../src/core/presets';
-import { resolveRefCandidates } from '../../../src/core/refs';
-import { computeCacheVersion } from '../../../src/core/version';
 
 const PATHS = ['node_modules', '~/.npm'];
 
@@ -235,6 +228,13 @@ jest.unstable_mockModule('@actions/core', () => ({
   info: jest.fn(),
   warning: jest.fn(),
 }));
+const { buildCreateCommands } = await import('../../../src/archive/commands');
+const { getWorkspace } = await import('../../../src/archive/paths');
+const { Defaults } = await import('../../../src/constants');
+const { compileKeyTemplate } = await import('../../../src/core/keyTemplate');
+const { runnerOs } = await import('../../../src/core/presets');
+const { resolveRefCandidates } = await import('../../../src/core/refs');
+const { computeCacheVersion } = await import('../../../src/core/version');
 const { readCacheConfig } = await import('../../../src/core/config');
 const { buildS3Tier } = await import('../../../src/core/s3Tier');
 
