@@ -1,5 +1,5 @@
 import { S3Client, S3ClientConfig } from '@aws-sdk/client-s3';
-import * as core from '@actions/core';
+import { getHost } from '../ci/host';
 import { log } from '../ci/log';
 import { ProviderConfig, isKnownProvider, resolveProviderDefaults } from './providers';
 import { getInputWithEnv, getInputAsBool } from '../utils/inputUtils';
@@ -373,12 +373,12 @@ export function createStorageContext(options: StorageClientOptions): StorageCont
     'AWS_ENDPOINT_URL_S3',
   ]);
   const regionInput = getInputWithEnv(Inputs.Region, ['AWS_REGION', 'AWS_DEFAULT_REGION']);
-  const providerInput = core.getInput(Inputs.Provider);
+  const providerInput = getHost().input(Inputs.Provider);
   if (providerInput && !isKnownProvider(providerInput)) {
     log.warning(`Unknown provider "${providerInput}"; using generic S3-compatible defaults.`);
   }
 
-  const forcePathStyleRaw = core.getInput(Inputs.ForcePathStyle);
+  const forcePathStyleRaw = getHost().input(Inputs.ForcePathStyle);
   const forcePathStyleInput =
     forcePathStyleRaw !== '' ? getInputAsBool(Inputs.ForcePathStyle) : undefined;
 

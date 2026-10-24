@@ -1,4 +1,4 @@
-import * as core from '@actions/core';
+import { getHost } from '../ci/host';
 import { log } from '../ci/log';
 import { Defaults, Inputs, State } from '../constants';
 import {
@@ -82,7 +82,7 @@ export interface CacheConfig {
 }
 
 function readDualCacheStrategy(): DualCacheStrategy {
-  if (core.getInput(Inputs.DualCacheStrategy).trim() === 'independent') {
+  if (getHost().input(Inputs.DualCacheStrategy).trim() === 'independent') {
     log.warning(
       'dual-cache-strategy "independent" was removed in v1.1; using "backfill", which now checks each tier before uploading.'
     );
@@ -102,7 +102,7 @@ function readBoundedInt<T extends number | undefined>(
   max: number,
   effective: number | string = defaultValue as number
 ): { value: number | T; set: boolean } {
-  const raw = core.getInput(name).trim();
+  const raw = getHost().input(name).trim();
   if (raw === '') {
     return { value: defaultValue, set: false };
   }
@@ -118,7 +118,7 @@ function readBoundedInt<T extends number | undefined>(
 
 /** Reads `compression-level`; anything outside 1 to 19 warns and leaves the method's default. */
 function readOptionalLevel(): number | undefined {
-  const raw = core.getInput(Inputs.CompressionLevel).trim();
+  const raw = getHost().input(Inputs.CompressionLevel).trim();
   if (raw === '') {
     return undefined;
   }
@@ -185,7 +185,7 @@ export function readCacheConfig(state?: IStateProvider): CacheConfig {
   );
 
   return {
-    primaryKey: text(State.CachePrimaryKey, () => core.getInput(Inputs.Key).trim()),
+    primaryKey: text(State.CachePrimaryKey, () => getHost().input(Inputs.Key).trim()),
     paths: json(State.CachePaths, () => getInputAsArray(Inputs.Path)),
     restoreKeys: getInputAsArray(Inputs.RestoreKeys),
     lookupOnly: getInputAsBool(Inputs.LookupOnly),
@@ -197,9 +197,9 @@ export function readCacheConfig(state?: IStateProvider): CacheConfig {
     compressionLevel: readOptionalLevel(),
     s3KeyPattern: text(
       State.CacheS3KeyPattern,
-      () => core.getInput(Inputs.S3KeyPattern) || Defaults.DefaultS3KeyPattern
+      () => getHost().input(Inputs.S3KeyPattern) || Defaults.DefaultS3KeyPattern
     ),
-    prefix: text(State.CachePrefix, () => core.getInput(Inputs.Prefix)),
+    prefix: text(State.CachePrefix, () => getHost().input(Inputs.Prefix)),
     scopedToRepository: bool(State.CacheScopedToRepository, () =>
       getInputAsBool(Inputs.ScopedToRepository, true)
     ),
@@ -227,12 +227,16 @@ export function readCacheConfig(state?: IStateProvider): CacheConfig {
       downloadChunkSize: downloadChunkSize.set,
     },
     jobSummary: bool(State.CacheJobSummary, () => getInputAsBool(Inputs.JobSummary, true)),
-    metadata: json(State.CacheMetadata, () => parseMetadata(core.getInput(Inputs.Metadata))),
+    metadata: json(State.CacheMetadata, () => parseMetadata(getHost().input(Inputs.Metadata))),
     tags: json(State.CacheTags, () =>
-      parseTags(core.getInput(Inputs.Tags), 'tags', streaming ? MAX_TAGS_WITH_CHECKSUM : undefined)
+      parseTags(
+        getHost().input(Inputs.Tags),
+        'tags',
+        streaming ? MAX_TAGS_WITH_CHECKSUM : undefined
+      )
     ),
     explain: getInputAsBool(Inputs.Explain),
-    metricsFile: text(State.CacheMetricsFile, () => core.getInput(Inputs.MetricsFile).trim()),
+    metricsFile: text(State.CacheMetricsFile, () => getHost().input(Inputs.MetricsFile).trim()),
   };
 }
 

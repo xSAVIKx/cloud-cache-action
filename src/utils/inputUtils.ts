@@ -1,10 +1,11 @@
-import * as core from '@actions/core';
+import { getHost } from '../ci/host';
+import type { InputOptions } from '../ci/host';
 import { log } from '../ci/log';
 import { Events } from '../constants';
 
-export function getInputAsArray(name: string, options?: core.InputOptions): string[] {
-  return core
-    .getInput(name, options)
+export function getInputAsArray(name: string, options?: InputOptions): string[] {
+  return getHost()
+    .input(name, options)
     .split('\n')
     .map((s) => s.trim())
     .filter((x) => x !== '');
@@ -16,9 +17,9 @@ const FALSE_VALUES = ['false', 'False', 'FALSE'];
 export function getInputAsBool(
   name: string,
   defaultValue = false,
-  options?: core.InputOptions
+  options?: InputOptions
 ): boolean {
-  const value = core.getInput(name, options).trim();
+  const value = getHost().input(name, options).trim();
   if (!value) {
     return defaultValue;
   }
@@ -39,7 +40,7 @@ export function getInputAsEnum<T extends string>(
   allowed: readonly T[],
   defaultValue: T
 ): T {
-  const value = core.getInput(name).trim();
+  const value = getHost().input(name).trim();
   if (!value) {
     return defaultValue;
   }
@@ -55,9 +56,9 @@ export function getInputAsEnum<T extends string>(
 export function getInputAsInt(
   name: string,
   defaultValue?: number,
-  options?: core.InputOptions
+  options?: InputOptions
 ): number | undefined {
-  const value = core.getInput(name, options);
+  const value = getHost().input(name, options);
   if (!value) {
     return defaultValue;
   }
@@ -74,14 +75,14 @@ export function getInputWithEnv(
   camelCaseInputName?: string
 ): string {
   // Check primary input
-  let value = core.getInput(inputName);
+  let value = getHost().input(inputName);
   if (value) {
     return value;
   }
 
   // Check camelCase alias if provided
   if (camelCaseInputName) {
-    value = core.getInput(camelCaseInputName);
+    value = getHost().input(camelCaseInputName);
     if (value) {
       return value;
     }

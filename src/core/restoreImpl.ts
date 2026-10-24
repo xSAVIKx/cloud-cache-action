@@ -1,8 +1,8 @@
-import * as core from '@actions/core';
+import { getHost } from '../ci/host';
 import { log } from '../ci/log';
 import { getWorkspace } from '../archive/paths';
 import { Outputs, State } from '../constants';
-import { NullStateProvider, StateProvider, type IStateProvider } from '../state';
+import { NullStateProvider, type IStateProvider } from '../state';
 import { isValidEvent } from '../utils/inputUtils';
 import { getCacheMode, isCacheReadable } from './cacheMode';
 import { persistCacheConfig, readCacheConfig, type CacheConfig } from './config';
@@ -29,7 +29,7 @@ function restoreOrder(config: CacheConfig): Source[] {
 async function setUpS3(config: CacheConfig, state: IStateProvider): Promise<S3Tier | undefined> {
   try {
     const tier = await buildS3Tier(config);
-    core.setOutput(Outputs.CacheStorageProvider, tier.storage.providerConfig.provider);
+    getHost().setOutput(Outputs.CacheStorageProvider, tier.storage.providerConfig.provider);
     state.setState(State.CacheStorageProvider, tier.storage.providerConfig.provider);
     // The post step reuses this method, so zstd appearing mid-job cannot change the keys.
     state.setState(State.CacheCompression, tier.compression.method);
@@ -75,16 +75,16 @@ function reportHit(state: IStateProvider, config: CacheConfig, source: Source, h
   }
   if (hit.s3) {
     state.setState(State.CacheS3Key, hit.s3.objectKey);
-    core.setOutput(Outputs.CacheS3Key, hit.s3.objectKey);
-    core.setOutput(Outputs.CacheSize, String(hit.s3.size));
+    getHost().setOutput(Outputs.CacheS3Key, hit.s3.objectKey);
+    getHost().setOutput(Outputs.CacheSize, String(hit.s3.size));
     if (hit.s3.etag) {
-      core.setOutput(Outputs.CacheETag, hit.s3.etag);
+      getHost().setOutput(Outputs.CacheETag, hit.s3.etag);
     }
   }
-  core.setOutput(Outputs.CacheMetadata, JSON.stringify(hit.s3?.metadata ?? {}));
-  core.setOutput(Outputs.CacheHit, String(hit.exact));
-  core.setOutput(Outputs.CacheMatchedKey, hit.matchedKey);
-  core.setOutput(Outputs.CacheHitSource, source);
+  getHost().setOutput(Outputs.CacheMetadata, JSON.stringify(hit.s3?.metadata ?? {}));
+  getHost().setOutput(Outputs.CacheHit, String(hit.exact));
+  getHost().setOutput(Outputs.CacheMatchedKey, hit.matchedKey);
+  getHost().setOutput(Outputs.CacheHitSource, source);
   log.info(
     config.lookupOnly
       ? `Cache found in ${source} and can be restored from key: ${hit.matchedKey}`
@@ -134,15 +134,15 @@ export async function restoreImpl(
     }
 
     persistCacheConfig(stateProvider, config);
-    core.setOutput(Outputs.CachePrimaryKey, config.primaryKey);
-    core.setOutput(Outputs.CacheHit, 'false');
-    core.setOutput(Outputs.CacheHitSource, 'none');
-    core.setOutput(Outputs.CacheMetadata, '{}');
+    getHost().setOutput(Outputs.CachePrimaryKey, config.primaryKey);
+    getHost().setOutput(Outputs.CacheHit, 'false');
+    getHost().setOutput(Outputs.CacheHitSource, 'none');
+    getHost().setOutput(Outputs.CacheMetadata, '{}');
     // Set up front and overwritten on success, so every path — including an error handled as a
     // warning — leaves the timing and size outputs defined.
-    core.setOutput(Outputs.CacheRestoreDurationMs, '0');
-    core.setOutput(Outputs.CacheTransferDurationMs, '0');
-    core.setOutput(Outputs.CacheBytes, '0');
+    getHost().setOutput(Outputs.CacheRestoreDurationMs, '0');
+    getHost().setOutput(Outputs.CacheTransferDurationMs, '0');
+    getHost().setOutput(Outputs.CacheBytes, '0');
 
     // @actions/cache skips the GitHub tier itself in these modes. Skip both tiers here, so the
     // S3 tier obeys the same mode and the step reports one skip.
@@ -152,7 +152,7 @@ export async function restoreImpl(
         `Cache restore skipped: ACTIONS_CACHE_MODE is '${cacheMode}', which does not permit reads.`
       );
       stateProvider.setState(State.CacheHitSource, 'none');
-      core.setOutput(Outputs.CacheRestoreDurationMs, String(Date.now() - start));
+      getHost().setOutput(Outputs.CacheRestoreDurationMs, String(Date.now() - start));
       report({
         step: 'restore',
         key: config.primaryKey,
@@ -213,9 +213,9 @@ export async function restoreImpl(
         case 'hit': {
           const matchedKey = reportHit(stateProvider, config, source, outcome);
           const bytes = outcome.s3?.size ?? 0;
-          core.setOutput(Outputs.CacheRestoreDurationMs, String(Date.now() - start));
-          core.setOutput(Outputs.CacheTransferDurationMs, String(outcome.transferMs ?? 0));
-          core.setOutput(Outputs.CacheBytes, String(bytes));
+          getHost().setOutput(Outputs.CacheRestoreDurationMs, String(Date.now() - start));
+          getHost().setOutput(Outputs.CacheTransferDurationMs, String(outcome.transferMs ?? 0));
+          getHost().setOutput(Outputs.CacheBytes, String(bytes));
           report({
             step: 'restore',
             provider,
@@ -266,7 +266,7 @@ export async function restoreImpl(
     }
 
     stateProvider.setState(State.CacheHitSource, 'none');
-    core.setOutput(Outputs.CacheRestoreDurationMs, String(Date.now() - start));
+    getHost().setOutput(Outputs.CacheRestoreDurationMs, String(Date.now() - start));
     report({
       step: 'restore',
       provider,
@@ -307,7 +307,7 @@ export async function restoreImpl(
     }
     return undefined;
   } catch (err) {
-    core.setFailed(toError(err).message);
+    getHost().setFailed(toError(err).message);
     report({
       step: 'restore',
       provider,
@@ -324,7 +324,7 @@ export async function restoreImpl(
 }
 
 export async function runRestore(earlyExit = true): Promise<void> {
-  await restoreImpl(new StateProvider(), earlyExit);
+  await restoreImpl(getHost().state, earlyExit);
   if (earlyExit) {
     // An explicit exit code overrides process.exitCode, so keep the one core.setFailed set.
     process.exit(process.exitCode ?? 0);

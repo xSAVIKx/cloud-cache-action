@@ -4,7 +4,7 @@
  * it only lists, so it is safe to run on any branch, in any job.
  */
 
-import * as core from '@actions/core';
+import { getHost } from '../ci/host';
 import { log } from '../ci/log';
 import { getWorkspace } from '../archive/paths';
 import { Inputs, Outputs } from '../constants';
@@ -46,12 +46,12 @@ export async function inspectImpl(): Promise<void> {
       throw new Error('Input required and not supplied: path');
     }
     const maxCandidates = parsePositiveInt(
-      core.getInput(Inputs.MaxCandidates) || '20',
+      getHost().input(Inputs.MaxCandidates) || '20',
       'max-candidates'
     );
 
     const tier = await buildS3Tier(config);
-    core.setOutput(Outputs.CacheStorageProvider, tier.storage.providerConfig.provider);
+    getHost().setOutput(Outputs.CacheStorageProvider, tier.storage.providerConfig.provider);
 
     const report = await buildExplainReport(tier, config, { maxCandidates });
     log.startGroup('Cache lookup explained');
@@ -68,11 +68,11 @@ export async function inspectImpl(): Promise<void> {
       (total, searched) => total + searched.candidates.length + searched.truncated,
       0
     );
-    core.setOutput(Outputs.WouldHit, String(Boolean(report.wouldHit)));
-    core.setOutput(Outputs.WouldMatchKey, report.wouldHit?.matchedKey ?? '');
-    core.setOutput(Outputs.WouldMatchObject, report.wouldHit?.objectKey ?? '');
-    core.setOutput(Outputs.CandidateCount, String(candidateCount));
-    core.setOutput(Outputs.Report, reportJson(report, candidateCount));
+    getHost().setOutput(Outputs.WouldHit, String(Boolean(report.wouldHit)));
+    getHost().setOutput(Outputs.WouldMatchKey, report.wouldHit?.matchedKey ?? '');
+    getHost().setOutput(Outputs.WouldMatchObject, report.wouldHit?.objectKey ?? '');
+    getHost().setOutput(Outputs.CandidateCount, String(candidateCount));
+    getHost().setOutput(Outputs.Report, reportJson(report, candidateCount));
     emitMetrics(
       {
         step: 'inspect',
@@ -94,7 +94,7 @@ export async function inspectImpl(): Promise<void> {
       throw new Error(`No cache would be restored for key "${config.primaryKey}".`);
     }
   } catch (err) {
-    core.setFailed(toError(err).message);
+    getHost().setFailed(toError(err).message);
   }
 }
 

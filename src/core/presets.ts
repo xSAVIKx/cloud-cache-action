@@ -6,7 +6,7 @@
  * cites the source of every value.
  */
 
-import * as core from '@actions/core';
+import { getHost } from '../ci/host';
 import { type RunnerOs, runnerOs } from '../ci/env';
 import { log } from '../ci/log';
 import * as glob from '@actions/glob';
@@ -164,7 +164,7 @@ export const PRESETS: Record<PresetName, PresetDefinition> = {
 };
 
 /** Reads the `preset` input; an unknown value fails the step, because a typo caches nothing. */
-export function readPreset(raw: string = core.getInput(Inputs.Preset)): PresetName | undefined {
+export function readPreset(raw: string = getHost().input(Inputs.Preset)): PresetName | undefined {
   const value = raw.trim();
   if (value === '') {
     return undefined;

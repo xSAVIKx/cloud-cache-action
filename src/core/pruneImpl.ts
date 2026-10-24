@@ -1,4 +1,4 @@
-import * as core from '@actions/core';
+import { getHost } from '../ci/host';
 import { log } from '../ci/log';
 import { getWorkspace } from '../archive/paths';
 import { Defaults, Inputs, Outputs } from '../constants';
@@ -59,16 +59,16 @@ function parseDryRun(raw: string): boolean {
 export function readPruneRules(): PruneRules {
   const rules: PruneRules = {
     olderThanDays: parseOptionalPositiveInt(
-      core.getInput(Inputs.OlderThanDays),
+      getHost().input(Inputs.OlderThanDays),
       Inputs.OlderThanDays
     ),
-    keepLatest: parseOptionalPositiveInt(core.getInput(Inputs.KeepLatest), Inputs.KeepLatest),
+    keepLatest: parseOptionalPositiveInt(getHost().input(Inputs.KeepLatest), Inputs.KeepLatest),
     maxTotalSize: parseOptionalNonNegativeInt(
-      core.getInput(Inputs.MaxTotalSize),
+      getHost().input(Inputs.MaxTotalSize),
       Inputs.MaxTotalSize
     ),
     abortUploadsOlderThanHours: parseOptionalPositiveInt(
-      core.getInput(Inputs.AbortUploadsOlderThanHours),
+      getHost().input(Inputs.AbortUploadsOlderThanHours),
       Inputs.AbortUploadsOlderThanHours
     ),
   };
@@ -81,15 +81,15 @@ export function readPruneRules(): PruneRules {
 export function readPruneConfig(): PruneConfig {
   return {
     rules: readPruneRules(),
-    ref: core.getInput(Inputs.Ref).trim(),
-    dryRun: parseDryRun(core.getInput(Inputs.DryRun)),
-    prefix: core.getInput(Inputs.Prefix),
-    s3KeyPattern: core.getInput(Inputs.S3KeyPattern) || Defaults.DefaultS3KeyPattern,
+    ref: getHost().input(Inputs.Ref).trim(),
+    dryRun: parseDryRun(getHost().input(Inputs.DryRun)),
+    prefix: getHost().input(Inputs.Prefix),
+    s3KeyPattern: getHost().input(Inputs.S3KeyPattern) || Defaults.DefaultS3KeyPattern,
     scopedToRepository: getInputAsBool(Inputs.ScopedToRepository, true),
     scopedToRef: getInputAsBool(Inputs.ScopedToRef, true),
     retryEnabled: getInputAsBool(Inputs.Retry, true),
     retryCount: getInputAsInt(Inputs.RetryCount) ?? Defaults.DefaultRetryCount,
-    metricsFile: core.getInput(Inputs.MetricsFile).trim(),
+    metricsFile: getHost().input(Inputs.MetricsFile).trim(),
   };
 }
 
@@ -144,10 +144,10 @@ export async function pruneImpl(): Promise<void> {
       dryRun: config.dryRun,
     });
 
-    core.setOutput(Outputs.PrunedCount, String(result.pruned.length));
-    core.setOutput(Outputs.PrunedBytes, String(result.prunedBytes));
-    core.setOutput(Outputs.KeptCount, String(result.keptCount));
-    core.setOutput(Outputs.AbortedUploads, String(result.abortedUploads));
+    getHost().setOutput(Outputs.PrunedCount, String(result.pruned.length));
+    getHost().setOutput(Outputs.PrunedBytes, String(result.prunedBytes));
+    getHost().setOutput(Outputs.KeptCount, String(result.keptCount));
+    getHost().setOutput(Outputs.AbortedUploads, String(result.abortedUploads));
     emitMetrics(
       {
         step: 'prune',
@@ -168,7 +168,7 @@ export async function pruneImpl(): Promise<void> {
       getWorkspace()
     );
   } catch (err) {
-    core.setFailed(toError(err).message);
+    getHost().setFailed(toError(err).message);
   }
 }
 
