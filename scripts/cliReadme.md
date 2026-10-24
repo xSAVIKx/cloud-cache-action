@@ -5,9 +5,6 @@ cloud-cache-action GitHub Action. Use it in any CI system or on a local machine.
 
 Node.js 24 or later is required. The commands `tar` and `zstd` must be in the PATH.
 
-    npm install --global cloud-cache-action
-    cloud-cache --help
-
 Commands:
 
 - `cloud-cache restore` restores a cache.

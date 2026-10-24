@@ -11,7 +11,6 @@ const bundle = join(root, 'build', 'cli', 'cloud-cache.mjs');
 
 type Manifest = {
   version: string;
-  description: string;
   license: string;
   repository: unknown;
   author: unknown;
@@ -25,7 +24,7 @@ mkdirSync(out, { recursive: true });
 const manifest = {
   name: 'cloud-cache-action',
   version: pkg.version,
-  description: pkg.description,
+  description: 'CLI that restores and saves build caches in S3-compatible storage',
   type: 'module',
   bin: { 'cloud-cache': 'cloud-cache.mjs' },
   engines: { node: '>=24' },

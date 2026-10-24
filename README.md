@@ -132,7 +132,7 @@ Full documentation, provider guides, and advanced configurations are available a
 
 The `cloud-cache` command line tool runs the same cache engine outside GitHub Actions. It has the commands `restore`, `save`, `inspect` and `prune`. The flags have the names of the action inputs.
 
-Each GitHub release has `cloud-cache.mjs` and a `SHA256SUMS` file. The same CLI is also available as `npx cloud-cache-action@<version>`. Read the [CLI guide](https://xsavikx.github.io/cloud-cache-action/guide/cli.html).
+The first release that includes the CLI, and each later release, has `cloud-cache.mjs` and a `SHA256SUMS` file. Read the [CLI guide](https://xsavikx.github.io/cloud-cache-action/guide/cli.html).
 
 ---
 
