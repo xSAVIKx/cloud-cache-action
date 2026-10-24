@@ -11,8 +11,11 @@ export class FileStateProvider implements IStateProvider {
     let text: string;
     try {
       text = readFileSync(this.path, 'utf8');
-    } catch {
-      return {};
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        return {};
+      }
+      throw new Error(`Cannot read the state file ${this.path}`, { cause: error });
     }
     try {
       const parsed: unknown = JSON.parse(text);

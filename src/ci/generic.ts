@@ -39,6 +39,12 @@ function toFullRef(value: string | undefined): string | undefined {
   return trimmed.startsWith('refs/') ? trimmed : `refs/heads/${trimmed}`;
 }
 
+/** A branch name without a leading refs/heads/. Other values pass through: only branches are valid. */
+function toBranchName(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed?.startsWith('refs/heads/') ? trimmed.slice('refs/heads/'.length) : trimmed;
+}
+
 /** The host for the cloud-cache CLI. It reads inputs from flags, then env, then defaults. */
 export class GenericHost implements CiHost {
   readonly state: IStateProvider;
@@ -72,8 +78,8 @@ export class GenericHost implements CiHost {
       repository: env.CLOUD_CACHE_REPOSITORY ?? '',
       refs: refCandidates({
         current: toFullRef(env.CLOUD_CACHE_REF),
-        baseRef: env.CLOUD_CACHE_BASE_REF,
-        defaultBranch: env.CLOUD_CACHE_DEFAULT_BRANCH,
+        baseRef: toBranchName(env.CLOUD_CACHE_BASE_REF),
+        defaultBranch: toBranchName(env.CLOUD_CACHE_DEFAULT_BRANCH),
       }),
       eventName: env.CLOUD_CACHE_EVENT_NAME ?? 'cli',
       workspace: env.CLOUD_CACHE_WORKSPACE || process.cwd(),
@@ -94,7 +100,12 @@ export class GenericHost implements CiHost {
   }
 
   setOutput(name: string, value: unknown): void {
-    const text = typeof value === 'string' ? value : JSON.stringify(value);
+    const text =
+      value === undefined || value === null
+        ? ''
+        : typeof value === 'string'
+          ? value
+          : JSON.stringify(value);
     this.log.info(`${name}=${text}`);
     const file = this.options.outputsFile;
     if (file) {

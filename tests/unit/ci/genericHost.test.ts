@@ -65,13 +65,20 @@ describe('GenericHost', () => {
   });
 
   it('bare branch and full ref give the same refs', () => {
-    const bare = host({}, { CLOUD_CACHE_REF: 'main', CLOUD_CACHE_BASE_REF: 'main' }).context();
-    const full = host(
-      {},
-      { CLOUD_CACHE_REF: 'refs/heads/main', CLOUD_CACHE_BASE_REF: 'main' }
-    ).context();
-    expect(bare.refs).toEqual(full.refs);
-    expect(bare.refs.current).toBe('refs/heads/main');
+    const expected = ['refs/heads/pr', 'refs/heads/main', 'refs/heads/develop'];
+    for (const [ref, base, def] of [
+      ['pr', 'main', 'develop'],
+      ['refs/heads/pr', 'main', 'develop'],
+      ['pr', 'refs/heads/main', 'develop'],
+      ['pr', 'main', 'refs/heads/develop'],
+      ['refs/heads/pr', 'refs/heads/main', 'refs/heads/develop'],
+    ] as const) {
+      const refs = host(
+        {},
+        { CLOUD_CACHE_REF: ref, CLOUD_CACHE_BASE_REF: base, CLOUD_CACHE_DEFAULT_BRANCH: def }
+      ).context().refs;
+      expect(refs).toEqual({ current: 'refs/heads/pr', restore: expected });
+    }
   });
 
   it('flag beats env beats default', () => {
@@ -118,6 +125,15 @@ describe('GenericHost', () => {
     h.setOutput('obj', { a: 1 });
     expect(readFileSync(outputsFile, 'utf8')).toBe('cache-hit=true\ncount=3\nobj={"a":1}\n');
     expect(info).toHaveBeenCalledWith('cache-hit=true\n');
+  });
+
+  it('setOutput writes an empty value for undefined and null', () => {
+    const outputsFile = join(dir, 'out-2.txt');
+    jest.spyOn(process.stdout, 'write').mockReturnValue(true);
+    const h = host({ outputsFile });
+    h.setOutput('a', undefined);
+    h.setOutput('b', null);
+    expect(readFileSync(outputsFile, 'utf8')).toBe('a=\nb=\n');
   });
 
   it('setOutput only prints without an outputs file', () => {
@@ -178,6 +194,21 @@ describe('FileStateProvider', () => {
     const next = new FileStateProvider(file);
     expect(next.getState(State.CacheMatchedKey)).toBe('k1');
     expect(next.getCacheState()).toBe('k1');
+  });
+
+  it('a second provider instance keeps the first key', () => {
+    const file = join(dir, 'two.json');
+    new FileStateProvider(file).setState('a', '1');
+    new FileStateProvider(file).setState('b', '2');
+    const next = new FileStateProvider(file);
+    expect(next.getState('a')).toBe('1');
+    expect(next.getState('b')).toBe('2');
+  });
+
+  it('a state file that cannot be read throws a clear error', () => {
+    expect(() => new FileStateProvider(dir).getState('x')).toThrow(
+      `Cannot read the state file ${dir}`
+    );
   });
 
   it('missing or corrupt state file reads as empty', () => {
