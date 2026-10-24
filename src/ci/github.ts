@@ -1,7 +1,6 @@
 import * as os from 'node:os';
 import * as core from '@actions/core';
-import { getWorkspace } from '../archive/paths';
-import { runnerOs } from '../core/presets';
+import { getWorkspace, runnerOs } from './env';
 import { resolveRefCandidates } from '../core/refs';
 import { type IStateProvider, StateProvider } from '../state';
 import type { CiContext, CiHost, CiLogger, InputOptions, SummaryWriter } from './host';

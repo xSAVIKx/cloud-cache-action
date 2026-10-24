@@ -7,10 +7,13 @@
  */
 
 import * as core from '@actions/core';
+import { type RunnerOs, runnerOs } from '../ci/env';
 import * as glob from '@actions/glob';
 import { getWorkspace, preparePattern } from '../archive/paths';
 import { Inputs } from '../constants';
 import type { CacheConfig } from './config';
+
+export { type RunnerOs, runnerOs } from '../ci/env';
 
 export const PRESET_NAMES = [
   'npm',
@@ -26,9 +29,6 @@ export const PRESET_NAMES = [
   'go',
 ] as const;
 export type PresetName = (typeof PRESET_NAMES)[number];
-
-/** The values of `runner.os` on GitHub-hosted and self-hosted runners. */
-export type RunnerOs = 'Linux' | 'macOS' | 'Windows';
 
 export interface PresetDefinition {
   /** The default `path` lines per operating system. */
@@ -161,21 +161,6 @@ export const PRESETS: Record<PresetName, PresetDefinition> = {
     lockfiles: ['**/go.sum'],
   },
 };
-
-/** `runner.os` from RUNNER_OS, or from the platform when RUNNER_OS is not a known value. */
-export function runnerOs(
-  env: NodeJS.ProcessEnv = process.env,
-  platform: NodeJS.Platform = process.platform
-): RunnerOs {
-  const fromEnv = env.RUNNER_OS;
-  if (fromEnv === 'Linux' || fromEnv === 'macOS' || fromEnv === 'Windows') {
-    return fromEnv;
-  }
-  if (platform === 'win32') {
-    return 'Windows';
-  }
-  return platform === 'darwin' ? 'macOS' : 'Linux';
-}
 
 /** Reads the `preset` input; an unknown value fails the step, because a typo caches nothing. */
 export function readPreset(raw: string = core.getInput(Inputs.Preset)): PresetName | undefined {
