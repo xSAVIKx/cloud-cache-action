@@ -148,6 +148,36 @@ jobs:
           test "${{ steps.restore.outputs.cache-hit }}" = "true"
           node tests/support/fixtureTree.ts verify "$RUNNER_TEMP/fixture.json"
 
+  cli:
+    name: CLI bundle against RustFS
+    runs-on: ubuntu-latest
+    env:
+      TEST_S3_ENDPOINT: http://127.0.0.1:9010
+      TEST_S3_REGION: us-east-1
+      TEST_S3_ACCESS_KEY: cloudcacheci
+      TEST_S3_SECRET_KEY: cloudcachecisecret
+      TEST_S3_PROVIDER: rustfs
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build:cli
+      - name: Start RustFS
+        run: docker compose -f docker-compose.test.yml up -d rustfs
+      - name: Wait for S3 and create the bucket
+        run: |
+          for _ in $(seq 1 60); do
+            if node tests/support/s3Server.ts; then exit 0; fi
+            sleep 2
+          done
+          docker compose -f docker-compose.test.yml logs rustfs
+          exit 1
+      - name: Run the CLI integration test
+        run: npm test -- tests/integration/cli.test.ts --testTimeout=60000
+
   roundtrip:
     name: Round trip (${{ matrix.os }}, streaming ${{ matrix.streaming }})
     strategy:
