@@ -60692,21 +60692,28 @@ function readDefaultBranch(eventPath, readFile) {
     }
 }
 /** Mirrors actions/cache: a run may restore from its own ref, its PR base, and the default branch. */
-function resolveRefCandidates(env = process.env, readFile = (file) => (0,external_node_fs_.readFileSync)(file, 'utf8')) {
-    const current = env.GITHUB_REF?.trim() || undefined;
+function refCandidates(input) {
+    const current = input.current?.trim() || undefined;
     if (!current) {
         return { current: undefined, restore: [] };
     }
     const candidates = [current];
-    const baseRef = env.GITHUB_BASE_REF?.trim();
+    const baseRef = input.baseRef?.trim();
     if (baseRef) {
         candidates.push(`refs/heads/${baseRef}`);
     }
-    const defaultBranch = readDefaultBranch(env.GITHUB_EVENT_PATH, readFile);
-    if (defaultBranch) {
-        candidates.push(`refs/heads/${defaultBranch}`);
+    if (input.defaultBranch) {
+        candidates.push(`refs/heads/${input.defaultBranch}`);
     }
     return { current, restore: [...new Set(candidates)] };
+}
+/** Reads the GitHub environment and applies the ref candidate rules. */
+function resolveRefCandidates(env = process.env, readFile = (file) => (0,external_node_fs_.readFileSync)(file, 'utf8')) {
+    return refCandidates({
+        current: env.GITHUB_REF,
+        baseRef: env.GITHUB_BASE_REF,
+        defaultBranch: readDefaultBranch(env.GITHUB_EVENT_PATH, readFile),
+    });
 }
 
 // EXTERNAL MODULE: ./src/state.ts
