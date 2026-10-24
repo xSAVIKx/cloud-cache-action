@@ -1,3 +1,4 @@
+import { jest } from '@jest/globals';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -201,7 +202,8 @@ describe('GitHub-visible values', () => {
       archiveFilename: 'cache.tar.zst',
       env,
     });
-    expect(template.objectKey(refs.current as string, 'deps-1')).toBe(expected.saveKey);
+    expect(refs.current).toBe(expected.restore[0]);
+    expect(template.objectKey(expected.restore[0], 'deps-1')).toBe(expected.saveKey);
 
     expect(getWorkspace(env)).toBe(expected.workspace);
     expect(runnerOs(env, platform)).toBe(expected.runnerOs);
@@ -216,5 +218,63 @@ describe('GitHub-visible values', () => {
       manifestPath: '/t/manifest.txt',
     });
     expect(commands).toEqual([{ tool: 'tar', args: expected.tarArgs }]);
+  });
+});
+
+const INPUTS: Record<string, string> = {
+  key: 'deps-1',
+  path: 'node_modules\n~/.npm',
+  bucket: 'golden-bucket',
+  region: 'us-east-1',
+  'access-key-id': 'golden',
+  'secret-access-key': 'golden',
+};
+jest.unstable_mockModule('@actions/core', () => ({
+  getInput: (name: string) => INPUTS[name] ?? '',
+  debug: jest.fn(),
+  info: jest.fn(),
+  warning: jest.fn(),
+}));
+const { readCacheConfig } = await import('../../../src/core/config');
+const { buildS3Tier } = await import('../../../src/core/s3Tier');
+
+describe('S3 tier wiring reads the process environment', () => {
+  const saved = { ...process.env };
+
+  afterEach(() => {
+    for (const name of Object.keys(process.env)) {
+      if (!(name in saved)) {
+        delete process.env[name];
+      }
+    }
+    Object.assign(process.env, saved);
+  });
+
+  // buildS3Tier hashes the version with process.platform, not RUNNER_OS. On a Linux test host the
+  // Windows scenario therefore keeps the Linux version hash (87b7cfd49c9b3221).
+  const WIRED = [
+    { ...SCENARIOS[0], saveKey: SCENARIOS[0].expected.saveKey },
+    { ...SCENARIOS[1], saveKey: SCENARIOS[1].expected.saveKey },
+    {
+      ...SCENARIOS[4],
+      saveKey: 'octo/app/refs%2Fheads%2Fmain/deps-1/87b7cfd49c9b3221/cache.tar.zst',
+    },
+  ];
+
+  it.each(WIRED)('$name', async ({ name, env, expected, saveKey }) => {
+    for (const variable of ['GITHUB_REF', 'GITHUB_BASE_REF', 'GITHUB_EVENT_NAME']) {
+      delete process.env[variable];
+    }
+    Object.assign(process.env, env, {
+      GITHUB_EVENT_PATH: eventFile(name),
+      HOME: '/home/runner',
+    });
+
+    const tier = await buildS3Tier(readCacheConfig(), undefined, { compression: 'zstd' });
+
+    expect(tier.restoreRefs).toEqual(expected.restore);
+    expect(tier.saveRef).toBe(expected.restore[0]);
+    expect(tier.workspace).toBe(expected.workspace);
+    expect(tier.template.objectKey(tier.saveRef, 'deps-1')).toBe(saveKey);
   });
 });
