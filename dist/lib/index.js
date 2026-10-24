@@ -60659,16 +60659,14 @@ function runnerOs(env = process.env, platform = process.platform) {
 
 /***/ }),
 
-/***/ 2817:
+/***/ 6418:
 /***/ ((__unused_webpack_module, __webpack_exports__, __nccwpck_require__) => {
 
 
 // EXPORTS
 __nccwpck_require__.d(__webpack_exports__, {
-  L: () => (/* binding */ getHost)
+  p: () => (/* binding */ GitHubActionsHost)
 });
-
-// UNUSED EXPORTS: setHost
 
 // EXTERNAL MODULE: external "node:os"
 var external_node_os_ = __nccwpck_require__(8161);
@@ -60676,8 +60674,41 @@ var external_node_os_ = __nccwpck_require__(8161);
 var core = __nccwpck_require__(3838);
 // EXTERNAL MODULE: ./src/ci/env.ts
 var ci_env = __nccwpck_require__(4543);
-// EXTERNAL MODULE: ./src/core/refs.ts
-var refs = __nccwpck_require__(9301);
+// EXTERNAL MODULE: external "node:fs"
+var external_node_fs_ = __nccwpck_require__(3024);
+;// CONCATENATED MODULE: ./src/core/refs.ts
+
+function readDefaultBranch(eventPath, readFile) {
+    if (!eventPath) {
+        return undefined;
+    }
+    try {
+        const payload = JSON.parse(readFile(eventPath));
+        const branch = payload.repository?.default_branch;
+        return typeof branch === 'string' && branch ? branch : undefined;
+    }
+    catch {
+        return undefined;
+    }
+}
+/** Mirrors actions/cache: a run may restore from its own ref, its PR base, and the default branch. */
+function resolveRefCandidates(env = process.env, readFile = (file) => (0,external_node_fs_.readFileSync)(file, 'utf8')) {
+    const current = env.GITHUB_REF?.trim() || undefined;
+    if (!current) {
+        return { current: undefined, restore: [] };
+    }
+    const candidates = [current];
+    const baseRef = env.GITHUB_BASE_REF?.trim();
+    if (baseRef) {
+        candidates.push(`refs/heads/${baseRef}`);
+    }
+    const defaultBranch = readDefaultBranch(env.GITHUB_EVENT_PATH, readFile);
+    if (defaultBranch) {
+        candidates.push(`refs/heads/${defaultBranch}`);
+    }
+    return { current, restore: [...new Set(candidates)] };
+}
+
 // EXTERNAL MODULE: ./src/state.ts
 var state = __nccwpck_require__(2462);
 ;// CONCATENATED MODULE: ./src/ci/github.ts
@@ -60686,6 +60717,15 @@ var state = __nccwpck_require__(2462);
 
 
 
+/** The home directory of the OS user, or '' when the user has no passwd entry. */
+function osHomeDir() {
+    try {
+        return external_node_os_.homedir();
+    }
+    catch {
+        return '';
+    }
+}
 /** The host for GitHub Actions. It calls `core` only when a method runs, never when it loads. */
 class GitHubActionsHost {
     fixedEnv;
@@ -60709,10 +60749,10 @@ class GitHubActionsHost {
         return {
             platform: 'github',
             repository: env.GITHUB_REPOSITORY ?? '',
-            refs: (0,refs/* resolveRefCandidates */.W)(env),
+            refs: resolveRefCandidates(env),
             eventName: env.GITHUB_EVENT_NAME,
             workspace: (0,ci_env/* getWorkspace */.K)(env),
-            homeDir: env.HOME || env.USERPROFILE || external_node_os_.homedir(),
+            homeDir: env.HOME || env.USERPROFILE || osHomeDir(),
             runnerOs: (0,ci_env/* runnerOs */.t)(env),
             env,
         };
@@ -60731,12 +60771,22 @@ class GitHubActionsHost {
     }
 }
 
-;// CONCATENATED MODULE: ./src/ci/host.ts
+
+/***/ }),
+
+/***/ 6068:
+/***/ ((__unused_webpack_module, __webpack_exports__, __nccwpck_require__) => {
+
+/* harmony export */ __nccwpck_require__.d(__webpack_exports__, {
+/* harmony export */   L: () => (/* binding */ getHost)
+/* harmony export */ });
+/* unused harmony export setHost */
+/* harmony import */ var _github__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(6418);
 
 let current;
 /** The active host. The GitHub Actions host is created on first use. */
 function getHost() {
-    current ??= new GitHubActionsHost();
+    current ??= new _github__WEBPACK_IMPORTED_MODULE_0__/* .GitHubActionsHost */ .p();
     return current;
 }
 /** Sets the active host. Pass undefined to go back to the default. */
@@ -60753,7 +60803,7 @@ function setHost(host) {
 /* harmony export */ __nccwpck_require__.d(__webpack_exports__, {
 /* harmony export */   R: () => (/* binding */ log)
 /* harmony export */ });
-/* harmony import */ var _host__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(2817);
+/* harmony import */ var _host__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(6068);
 
 /** Logger that sends each call to the active host, so a host change takes effect at once. */
 const log = {
@@ -60945,49 +60995,6 @@ function toError(err) {
 
 /***/ }),
 
-/***/ 9301:
-/***/ ((__unused_webpack_module, __webpack_exports__, __nccwpck_require__) => {
-
-/* harmony export */ __nccwpck_require__.d(__webpack_exports__, {
-/* harmony export */   W: () => (/* binding */ resolveRefCandidates)
-/* harmony export */ });
-/* harmony import */ var node_fs__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(3024);
-/* harmony import */ var node_fs__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__nccwpck_require__.n(node_fs__WEBPACK_IMPORTED_MODULE_0__);
-
-function readDefaultBranch(eventPath, readFile) {
-    if (!eventPath) {
-        return undefined;
-    }
-    try {
-        const payload = JSON.parse(readFile(eventPath));
-        const branch = payload.repository?.default_branch;
-        return typeof branch === 'string' && branch ? branch : undefined;
-    }
-    catch {
-        return undefined;
-    }
-}
-/** Mirrors actions/cache: a run may restore from its own ref, its PR base, and the default branch. */
-function resolveRefCandidates(env = process.env, readFile = (file) => (0,node_fs__WEBPACK_IMPORTED_MODULE_0__.readFileSync)(file, 'utf8')) {
-    const current = env.GITHUB_REF?.trim() || undefined;
-    if (!current) {
-        return { current: undefined, restore: [] };
-    }
-    const candidates = [current];
-    const baseRef = env.GITHUB_BASE_REF?.trim();
-    if (baseRef) {
-        candidates.push(`refs/heads/${baseRef}`);
-    }
-    const defaultBranch = readDefaultBranch(env.GITHUB_EVENT_PATH, readFile);
-    if (defaultBranch) {
-        candidates.push(`refs/heads/${defaultBranch}`);
-    }
-    return { current, restore: [...new Set(candidates)] };
-}
-
-
-/***/ }),
-
 /***/ 2462:
 /***/ ((__unused_webpack_module, __webpack_exports__, __nccwpck_require__) => {
 
@@ -61042,7 +61049,7 @@ class NullStateProvider {
 /* harmony export */   q3: () => (/* binding */ getInputAsArray),
 /* harmony export */   q8: () => (/* binding */ getInputAsEnum)
 /* harmony export */ });
-/* harmony import */ var _ci_host__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(2817);
+/* harmony import */ var _ci_host__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(6068);
 /* harmony import */ var _ci_log__WEBPACK_IMPORTED_MODULE_1__ = __nccwpck_require__(9098);
 
 
@@ -68109,18 +68116,6 @@ function copyFile(srcFile, destFile, force) {
 /******/ /* webpack/runtime/asset-relocator-loader */
 /******/ if (typeof __nccwpck_require__ !== 'undefined') __nccwpck_require__.ab = decodeURIComponent(new URL('.', import.meta.url).pathname).slice(import.meta.url.match(/^file:\/\/\/\w:/) ? 1 : 0, -1) + "/";
 /******/ 
-/******/ /* webpack/runtime/compat get default export */
-/******/ (() => {
-/******/ 	// getDefaultExport function for compatibility with non-harmony modules
-/******/ 	__nccwpck_require__.n = (module) => {
-/******/ 		var getter = module && module.__esModule ?
-/******/ 			() => (module['default']) :
-/******/ 			() => (module);
-/******/ 		__nccwpck_require__.d(getter, { a: getter });
-/******/ 		return getter;
-/******/ 	};
-/******/ })();
-/******/ 
 /******/ /* webpack/runtime/create fake namespace object */
 /******/ (() => {
 /******/ 	var getProto = Object.getPrototypeOf ? (obj) => (Object.getPrototypeOf(obj)) : (obj) => (obj.__proto__);
@@ -68277,106 +68272,10 @@ __nccwpck_require__.d(__webpack_exports__, {
   h2: () => (/* reexport */ runSaveOnly)
 });
 
-// EXTERNAL MODULE: ./src/ci/host.ts + 1 modules
-var host = __nccwpck_require__(2817);
+// EXTERNAL MODULE: ./src/ci/host.ts
+var host = __nccwpck_require__(6068);
 // EXTERNAL MODULE: ./src/ci/log.ts
 var log = __nccwpck_require__(9098);
-// EXTERNAL MODULE: ./src/ci/env.ts
-var ci_env = __nccwpck_require__(4543);
-// EXTERNAL MODULE: ./node_modules/@actions/glob/lib/glob.js + 17 modules
-var glob = __nccwpck_require__(2377);
-// EXTERNAL MODULE: external "node:os"
-var external_node_os_ = __nccwpck_require__(8161);
-// EXTERNAL MODULE: external "node:path"
-var external_node_path_ = __nccwpck_require__(6760);
-;// CONCATENATED MODULE: ./src/archive/paths.ts
-
-
-
-
-
-
-/**
- * Mirrors `os.homedir()`'s own documented resolution (`$HOME`/`%USERPROFILE%` first, native
- * lookup otherwise) but reads the environment variable directly rather than delegating to the
- * native binding. The native binding reads the process's real environment, which under Jest's
- * `node` test environment is a snapshot disconnected from the `process.env` object tests mutate;
- * reading the variable in plain JS keeps it overridable in tests while matching real behaviour.
- */
-function defaultHomedir(platform) {
-    const fromEnv = platform === 'win32' ? process.env.USERPROFILE : process.env.HOME;
-    return fromEnv || external_node_os_.homedir();
-}
-/** Escapes glob metacharacters in a literal path so it can prefix a pattern. */
-function globEscape(value, platform = process.platform) {
-    const escaped = platform === 'win32' ? value : value.replace(/\\/g, '\\\\');
-    return escaped.replace(/\[/g, '[[]').replace(/\?/g, '[?]').replace(/\*/g, '[*]');
-}
-/**
- * Makes one `path` line absolute and free of `.`/`..` segments, which @actions/glob rejects.
- * `~` expands to the home directory; relative patterns are anchored at the workspace.
- */
-function preparePattern(raw, workspace, platform = process.platform, homedir = defaultHomedir(platform)) {
-    const p = platform === 'win32' ? external_node_path_.win32 : external_node_path_.posix;
-    let pattern = raw.trim();
-    const negate = pattern.startsWith('!');
-    if (negate) {
-        pattern = pattern.slice(1).trim();
-    }
-    if (pattern === '~' || pattern.startsWith('~/') || pattern.startsWith('~\\')) {
-        pattern = p.join(globEscape(homedir, platform), pattern.slice(1));
-    }
-    else if (p.isAbsolute(pattern)) {
-        pattern = p.normalize(pattern);
-    }
-    else {
-        pattern = p.join(globEscape(workspace, platform), pattern);
-    }
-    return negate ? `!${pattern}` : pattern;
-}
-/** True when an ancestor of `entry` is itself an entry, so tar already archives it. */
-function isCovered(entry, entries) {
-    const insideWorkspace = entry !== '..' && !entry.startsWith('../') && !external_node_path_.isAbsolute(entry);
-    if (entry !== '.' && insideWorkspace && entries.has('.')) {
-        return true;
-    }
-    const segments = entry.split('/');
-    for (let length = 1; length < segments.length; length++) {
-        if (entries.has(segments.slice(0, length).join('/'))) {
-            return true;
-        }
-    }
-    return false;
-}
-/** Expands `path` patterns like actions/cache: globs, `~`, and ordered `!` exclusions. */
-async function resolveCachePaths(patterns, workspace = (0,ci_env/* getWorkspace */.K)()) {
-    const prepared = patterns
-        .map((line) => line.trim())
-        .filter((line) => line !== '')
-        .map((line) => preparePattern(line, workspace));
-    if (prepared.length === 0) {
-        return { entries: [], skipped: [] };
-    }
-    const globber = await glob/* create */.v(prepared.join('\n'), {
-        implicitDescendants: false,
-        followSymbolicLinks: false,
-    });
-    const found = new Set();
-    const skipped = [];
-    for await (const match of globber.globGenerator()) {
-        const relative = external_node_path_.relative(workspace, match).split(external_node_path_.sep).join('/');
-        const entry = relative === '' ? '.' : relative;
-        if (/[\r\n]/.test(entry)) {
-            skipped.push(entry);
-            log/* log */.R.warning(`Skipping ${JSON.stringify(entry)}: file names containing line breaks cannot be cached.`);
-            continue;
-        }
-        found.add(entry);
-    }
-    const entries = [...found].filter((entry) => !isCovered(entry, found)).sort();
-    return { entries, skipped };
-}
-
 // EXTERNAL MODULE: ./src/constants.ts
 var constants = __nccwpck_require__(7242);
 // EXTERNAL MODULE: ./src/utils/inputUtils.ts
@@ -68657,10 +68556,16 @@ async function mapWithConcurrency(items, concurrency, fn) {
     return results;
 }
 
+// EXTERNAL MODULE: ./src/ci/github.ts + 1 modules
+var github = __nccwpck_require__(6418);
 // EXTERNAL MODULE: external "node:crypto"
 var external_node_crypto_ = __nccwpck_require__(7598);
 // EXTERNAL MODULE: external "node:fs"
 var external_node_fs_ = __nccwpck_require__(3024);
+// EXTERNAL MODULE: external "node:os"
+var external_node_os_ = __nccwpck_require__(8161);
+// EXTERNAL MODULE: external "node:path"
+var external_node_path_ = __nccwpck_require__(6760);
 ;// CONCATENATED MODULE: external "node:stream/promises"
 const promises_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("node:stream/promises");
 // EXTERNAL MODULE: ./node_modules/@actions/io/lib/io.js
@@ -68725,6 +68630,98 @@ function createSha256Tap() {
         stream,
         digest: () => hash.digest('hex'),
     };
+}
+
+// EXTERNAL MODULE: ./src/ci/env.ts
+var env = __nccwpck_require__(4543);
+// EXTERNAL MODULE: ./node_modules/@actions/glob/lib/glob.js + 17 modules
+var glob = __nccwpck_require__(2377);
+;// CONCATENATED MODULE: ./src/archive/paths.ts
+
+
+
+
+
+
+/**
+ * Mirrors `os.homedir()`'s own documented resolution (`$HOME`/`%USERPROFILE%` first, native
+ * lookup otherwise) but reads the environment variable directly rather than delegating to the
+ * native binding. The native binding reads the process's real environment, which under Jest's
+ * `node` test environment is a snapshot disconnected from the `process.env` object tests mutate;
+ * reading the variable in plain JS keeps it overridable in tests while matching real behaviour.
+ */
+function defaultHomedir(platform) {
+    const fromEnv = platform === 'win32' ? process.env.USERPROFILE : process.env.HOME;
+    return fromEnv || external_node_os_.homedir();
+}
+/** Escapes glob metacharacters in a literal path so it can prefix a pattern. */
+function globEscape(value, platform = process.platform) {
+    const escaped = platform === 'win32' ? value : value.replace(/\\/g, '\\\\');
+    return escaped.replace(/\[/g, '[[]').replace(/\?/g, '[?]').replace(/\*/g, '[*]');
+}
+/**
+ * Makes one `path` line absolute and free of `.`/`..` segments, which @actions/glob rejects.
+ * `~` expands to the home directory; relative patterns are anchored at the workspace.
+ */
+function preparePattern(raw, workspace, platform = process.platform, homedir = defaultHomedir(platform)) {
+    const p = platform === 'win32' ? external_node_path_.win32 : external_node_path_.posix;
+    let pattern = raw.trim();
+    const negate = pattern.startsWith('!');
+    if (negate) {
+        pattern = pattern.slice(1).trim();
+    }
+    if (pattern === '~' || pattern.startsWith('~/') || pattern.startsWith('~\\')) {
+        pattern = p.join(globEscape(homedir, platform), pattern.slice(1));
+    }
+    else if (p.isAbsolute(pattern)) {
+        pattern = p.normalize(pattern);
+    }
+    else {
+        pattern = p.join(globEscape(workspace, platform), pattern);
+    }
+    return negate ? `!${pattern}` : pattern;
+}
+/** True when an ancestor of `entry` is itself an entry, so tar already archives it. */
+function isCovered(entry, entries) {
+    const insideWorkspace = entry !== '..' && !entry.startsWith('../') && !external_node_path_.isAbsolute(entry);
+    if (entry !== '.' && insideWorkspace && entries.has('.')) {
+        return true;
+    }
+    const segments = entry.split('/');
+    for (let length = 1; length < segments.length; length++) {
+        if (entries.has(segments.slice(0, length).join('/'))) {
+            return true;
+        }
+    }
+    return false;
+}
+/** Expands `path` patterns like actions/cache: globs, `~`, and ordered `!` exclusions. */
+async function resolveCachePaths(patterns, workspace = (0,env/* getWorkspace */.K)()) {
+    const prepared = patterns
+        .map((line) => line.trim())
+        .filter((line) => line !== '')
+        .map((line) => preparePattern(line, workspace));
+    if (prepared.length === 0) {
+        return { entries: [], skipped: [] };
+    }
+    const globber = await glob/* create */.v(prepared.join('\n'), {
+        implicitDescendants: false,
+        followSymbolicLinks: false,
+    });
+    const found = new Set();
+    const skipped = [];
+    for await (const match of globber.globGenerator()) {
+        const relative = external_node_path_.relative(workspace, match).split(external_node_path_.sep).join('/');
+        const entry = relative === '' ? '.' : relative;
+        if (/[\r\n]/.test(entry)) {
+            skipped.push(entry);
+            log/* log */.R.warning(`Skipping ${JSON.stringify(entry)}: file names containing line breaks cannot be cached.`);
+            continue;
+        }
+        found.add(entry);
+    }
+    const entries = [...found].filter((entry) => !isCovered(entry, found)).sort();
+    return { entries, skipped };
 }
 
 // EXTERNAL MODULE: ./node_modules/@actions/exec/lib/exec.js + 3 modules
@@ -71047,8 +71044,6 @@ function compileKeyTemplate(options) {
 
 // EXTERNAL MODULE: ./src/core/outcomes.ts
 var outcomes = __nccwpck_require__(9570);
-// EXTERNAL MODULE: ./src/core/refs.ts
-var core_refs = __nccwpck_require__(9301);
 ;// CONCATENATED MODULE: ./src/core/version.ts
 
 
@@ -71176,25 +71171,30 @@ async function resolveCompression(persisted) {
     }
     return getCompressionConfig();
 }
-async function buildS3Tier(config, env = (0,host/* getHost */.L)().context().env, options = {}) {
+async function buildS3Tier(config, env, options = {}) {
+    // process.env is the live environment, so it means "the CI host of this run". Any other env
+    // object is a test or caller fixture, read as GitHub variables.
+    const ctx = env === undefined || env === process.env
+        ? (0,host/* getHost */.L)().context()
+        : new github/* GitHubActionsHost */.p(env).context();
     const storage = createStorageContext({
         maxAttempts: config.retryEnabled ? config.retryCount + 1 : 1,
     });
     const compression = await resolveCompression(options.compression);
-    const refs = (0,core_refs/* resolveRefCandidates */.W)(env);
+    const refs = ctx.refs;
     const scopedToRef = config.scopedToRef && refs.current !== undefined;
     if (config.scopedToRef && !scopedToRef) {
         log/* log */.R.debug('GITHUB_REF is not set, so caches are not scoped to a ref.');
     }
     const template = compileKeyTemplate({
         pattern: config.s3KeyPattern,
-        repository: env.GITHUB_REPOSITORY ?? '',
+        repository: ctx.repository,
         prefix: config.prefix,
         scopedToRepository: config.scopedToRepository,
         scopedToRef,
         version: computeCacheVersion(config.paths, compression.method, config.enableCrossOsArchive),
         archiveFilename: compression.archiveFilename,
-        env,
+        env: ctx.env,
     });
     for (const warning of template.warnings) {
         log/* log */.R.warning(warning);
@@ -71208,7 +71208,7 @@ async function buildS3Tier(config, env = (0,host/* getHost */.L)().context().env
         restoreRefs: usesRef ? refs.restore : [''],
         saveRef: usesRef ? refs.current : '',
         compression,
-        workspace: (0,ci_env/* getWorkspace */.K)(env),
+        workspace: ctx.workspace,
         streamRetries: config.retryEnabled ? config.retryCount : 0,
         streaming: config.streaming,
         download: { concurrency: config.downloadConcurrency, partSize: config.downloadChunkSize },
@@ -72475,7 +72475,6 @@ function emitMetrics(metrics, metricsFile, workspace) {
 
 
 
-
 /** GitHub truncates step outputs well before this, and a huge report is unusable anyway. */
 const MAX_REPORT_BYTES = 65536;
 /**
@@ -72534,7 +72533,7 @@ async function inspectImpl() {
             durationMs: Date.now() - start,
             outcome: report.wouldHit ? 'would-hit' : 'would-miss',
             extra: { candidateCount },
-        }, config.metricsFile, (0,ci_env/* getWorkspace */.K)());
+        }, config.metricsFile, (0,host/* getHost */.L)().context().workspace);
         if (!report.wouldHit && config.failOnCacheMiss) {
             throw new Error(`No cache would be restored for key "${config.primaryKey}".`);
         }
@@ -72933,19 +72932,24 @@ function readPruneConfig() {
  * matches saved objects through `KeyTemplate.scopeMatcher`, which accepts any version and both
  * known archive filenames.
  */
-function buildPruneTier(config, env = (0,host/* getHost */.L)().context().env) {
+function buildPruneTier(config, env) {
+    // process.env is the live environment, so it means "the CI host of this run". Any other env
+    // object is a test or caller fixture, read as GitHub variables.
+    const ctx = env === undefined || env === process.env
+        ? (0,host/* getHost */.L)().context()
+        : new github/* GitHubActionsHost */.p(env).context();
     const storage = createStorageContext({
         maxAttempts: config.retryEnabled ? config.retryCount + 1 : 1,
     });
     const template = compileKeyTemplate({
         pattern: config.s3KeyPattern,
-        repository: env.GITHUB_REPOSITORY ?? '',
+        repository: ctx.repository,
         prefix: config.prefix,
         scopedToRepository: config.scopedToRepository,
         scopedToRef: config.scopedToRef,
         version: '',
         archiveFilename: constants/* Defaults */.Hw.DefaultArchiveFilenameZstd,
-        env,
+        env: ctx.env,
     });
     for (const warning of template.warnings) {
         log/* log */.R.warning(warning);
@@ -72986,7 +72990,7 @@ async function pruneImpl() {
                 abortedUploads: result.abortedUploads,
                 dryRun: result.dryRun,
             },
-        }, config.metricsFile, (0,ci_env/* getWorkspace */.K)());
+        }, config.metricsFile, (0,host/* getHost */.L)().context().workspace);
     }
     catch (err) {
         (0,host/* getHost */.L)().setFailed((0,outcomes/* toError */.i)(err).message);
@@ -73076,7 +73080,6 @@ function formatTimings(metrics) {
  * defaults; the action never runs the package manager to find them. docs/guide/presets.md
  * cites the source of every value.
  */
-
 
 
 
@@ -73240,8 +73243,8 @@ async function applyPreset(config, name, options = {}) {
         return config;
     }
     const preset = PRESETS[name];
-    const os = options.os ?? (0,ci_env/* runnerOs */.t)((0,host/* getHost */.L)().context().env);
-    const workspace = options.workspace ?? (0,ci_env/* getWorkspace */.K)((0,host/* getHost */.L)().context().env);
+    const os = options.os ?? (0,host/* getHost */.L)().context().runnerOs;
+    const workspace = options.workspace ?? (0,host/* getHost */.L)().context().workspace;
     const hash = options.hash ?? ((patterns, ws) => glob/* hashFiles */.y(patterns, ws));
     const paths = config.paths.length > 0 ? config.paths : [...preset.paths[os]];
     let primaryKey = config.primaryKey;
@@ -73264,7 +73267,6 @@ async function applyPreset(config, name, options = {}) {
 }
 
 ;// CONCATENATED MODULE: ./src/core/restoreImpl.ts
-
 
 
 
@@ -73360,7 +73362,7 @@ async function restoreImpl(stateProvider, earlyExit) {
         if (timings) {
             log/* log */.R.info(timings);
         }
-        emitMetrics(full, config?.metricsFile ?? '', (0,ci_env/* getWorkspace */.K)());
+        emitMetrics(full, config?.metricsFile ?? '', (0,host/* getHost */.L)().context().workspace);
     };
     try {
         if (!(0,inputUtils/* isValidEvent */.FR)()) {
@@ -73582,7 +73584,6 @@ async function runRestoreOnly(earlyExit = true) {
 
 
 
-
 const ACCESS_DENIED_HINT = 'The credentials may not be allowed to write to the bucket. Set read-only: true to skip the save.';
 /**
  * The S3 save error message, with a hint about read-only when S3 denied a write call. A 403 on a
@@ -73608,7 +73609,7 @@ function reportS3(info) {
 }
 async function saveImpl_setUpS3(config, stateProvider) {
     try {
-        const tier = await buildS3Tier(config, (0,host/* getHost */.L)().context().env, {
+        const tier = await buildS3Tier(config, process.env, {
             compression: stateProvider.getState(constants/* State */.Uw.CacheCompression),
         });
         (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheStorageProvider, tier.storage.providerConfig.provider);
@@ -73818,7 +73819,7 @@ async function saveImpl(stateProvider) {
         if (timings) {
             log/* log */.R.info(timings);
         }
-        emitMetrics(full, config?.metricsFile ?? '', (0,ci_env/* getWorkspace */.K)());
+        emitMetrics(full, config?.metricsFile ?? '', (0,host/* getHost */.L)().context().workspace);
     };
     try {
         if (!(0,inputUtils/* isValidEvent */.FR)()) {
