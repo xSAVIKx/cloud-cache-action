@@ -53,13 +53,14 @@ jobs:
             git status --porcelain dist
             exit 1
           fi
-      - name: Build the CLI and upload it to the release
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Build the CLI and write the checksum
         run: |
           npm run build:cli
           (cd build/cli && sha256sum cloud-cache.mjs > SHA256SUMS)
-          gh release upload "$TAG" build/cli/cloud-cache.mjs build/cli/SHA256SUMS --clobber
+      - name: Upload the CLI to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" build/cli/cloud-cache.mjs build/cli/SHA256SUMS --clobber
       - name: Move the major version tag
         if: ${{ !github.event.release.prerelease }}
         env:
@@ -83,12 +84,13 @@ jobs:
   # This job has no npm token. It uses npm trusted publishing (OIDC).
   # The maintainer must do two manual steps first:
   # 1. Publish the first version of the package by hand.
-  # 2. Configure the trusted publisher for the package on npmjs.com. When release-please.yml
-  #    calls this workflow, npm sees release-please.yml as the workflow, not release.yml.
+  # 2. Configure the trusted publisher for the package on npmjs.com. It must name
+  #    release-please.yml, because that workflow calls this one (the normal path). A manual
+  #    `release: published` run reports release.yml, and the publish step then fails.
   npm:
     name: Publish the CLI to npm
     needs: release
-    if: vars.NPM_PUBLISH == 'true'
+    if: vars.NPM_PUBLISH == 'true' && !github.event.release.prerelease
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -108,4 +110,7 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run build:cli
       - run: npm run pack:cli
+      # Trusted publishing needs npm 11.5.1 or later.
+      - run: npm install -g npm@^11.5.1
+      - run: npm --version
       - run: npm publish ./build/npm --provenance --access public
