@@ -6,8 +6,6 @@
 
 The CLI has four commands. They match the action and its sub-actions: `restore`, `save`, `inspect` and `prune`. The flags have the names of the action inputs. The cache keys and the S3 object keys are the same as the keys of the action.
 
-Bitbucket support with OIDC comes in a later release.
-
 ## Requirements
 
 - Node.js 24 or later.
@@ -36,7 +34,7 @@ Each GitHub release has two files: `cloud-cache.mjs` and `SHA256SUMS`.
 4. Run the file with Node.js.
 
 ```sh
-VERSION=1.10.0
+VERSION=<version>
 BASE="https://github.com/xSAVIKx/cloud-cache-action/releases/download/v${VERSION}"
 curl -fsSLO "${BASE}/cloud-cache.mjs"
 curl -fsSLO "${BASE}/SHA256SUMS"
@@ -44,20 +42,20 @@ sha256sum -c SHA256SUMS
 node cloud-cache.mjs --version
 ```
 
-Replace `1.10.0` with the version that you want. The command `sha256sum -c` prints `cloud-cache.mjs: OK` when the file is correct. On macOS, use `shasum -a 256 -c SHA256SUMS`.
+Replace `<version>` with the version that you want. Use the version of a release that has the `cloud-cache.mjs` asset. The command `sha256sum -c` prints `cloud-cache.mjs: OK` when the file is correct. On macOS, use `shasum -a 256 -c SHA256SUMS`.
 
 ### Option 2: use npm
 
 Run the package with `npx`. Pin the version.
 
 ```sh
-npx cloud-cache-action@1.10.0 restore --key my-key --path node_modules
+npx cloud-cache-action@<version> restore --key my-key --path node_modules
 ```
 
 You can also install the package globally. The package installs the `cloud-cache` command.
 
 ```sh
-npm install --global cloud-cache-action@1.10.0
+npm install --global cloud-cache-action@<version>
 cloud-cache --help
 ```
 
@@ -180,10 +178,10 @@ This is the same format as the `GITHUB_OUTPUT` file of GitHub Actions.
 | Code | Meaning                                                                          |
 | ---- | -------------------------------------------------------------------------------- |
 | 0    | Success. A cache miss is also success.                                           |
-| 1    | A failure. For example, `--fail-on-cache-miss=true` with a miss, or a storage error. |
+| 1    | A failure. For example, a required input is missing, `--fail-on-cache-miss=true` with a miss, or a failure with `--dual-cache-strict=true`. |
 | 2    | A usage error. For example, an unknown command or flag.                          |
 
-The CLI fails in the same cases in which the action fails the step.
+The CLI fails in the same cases in which the action fails the step. A storage error during restore or save is a warning. The exit code is 0.
 
 ## Example: a generic CI job
 
@@ -220,4 +218,3 @@ To save the cache when the build fails, run `cloud-cache save` in a step that al
 
 - The CLI does not write a job summary.
 - The CLI reads the repository and the refs from the `CLOUD_CACHE_*` context variables.
-- Bitbucket support with OIDC comes in a later release.
