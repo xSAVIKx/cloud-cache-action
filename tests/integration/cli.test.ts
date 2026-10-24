@@ -1,4 +1,4 @@
-import { HeadObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
+import { DeleteObjectsCommand, HeadObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
 import { execFile } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -24,6 +24,17 @@ interface CliResult {
   code: number;
   log: string;
   outputs: Record<string, string>;
+}
+
+/** The parent env without the variables the CLI reads, so a developer's setup cannot leak in. */
+function cleanEnv(): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  for (const name of Object.keys(env)) {
+    if (/^(CLOUD_CACHE_|AWS_|GITHUB_|RUNNER_)/.test(name)) {
+      delete env[name];
+    }
+  }
+  return env;
 }
 
 /** Runs the built CLI bundle in the work directory, as a user of the CLI would. */
@@ -58,7 +69,7 @@ async function cli(command: string, flags: string[]): Promise<CliResult> {
     const { stdout, stderr } = await execFileAsync(process.execPath, args, {
       cwd: work,
       env: {
-        ...process.env,
+        ...cleanEnv(),
         CLOUD_CACHE_REPOSITORY: repository,
         CLOUD_CACHE_REF: 'main',
         CLOUD_CACHE_WORKSPACE: work,
@@ -122,19 +133,35 @@ async function ensureBundle(): Promise<void> {
   }
 }
 
-describe('cloud-cache CLI bundle against S3', () => {
+// Only the `cli` CI job sets TEST_CLI. Runs on Windows and macOS come with the per-OS binaries later.
+const describeCli = process.env.TEST_CLI === '1' ? describe : describe.skip;
+
+describeCli('cloud-cache CLI bundle against S3', () => {
   const key = `cli-${runId}`;
 
   beforeAll(async () => {
-    await ensureBundle();
     available = await prepareTestBucket(s3);
+    if (available) {
+      await ensureBundle();
+    }
     work = makeTempDir('cli');
     outputsFile = path.join(work, 'outputs.txt');
     stateFile = path.join(work, 'state.json');
     writeFiles(path.join(work, 'payload'), { 'a.txt': 'alpha', 'sub/b.txt': 'beta' });
   }, 120_000);
 
-  afterAll(() => {
+  afterAll(async () => {
+    if (available) {
+      const objects = await listObjects();
+      if (objects.length > 0) {
+        await client.send(
+          new DeleteObjectsCommand({
+            Bucket: s3.bucket,
+            Delete: { Objects: objects.map((o) => ({ Key: o.key })) },
+          })
+        );
+      }
+    }
     client.destroy();
     if (work) {
       removeDir(work);
@@ -157,6 +184,9 @@ describe('cloud-cache CLI bundle against S3', () => {
       '--fail-on-cache-miss',
     ]);
     expect(result.code).not.toBe(0);
+    expect(result.log).toContain(
+      `Failed to restore cache entry. Exiting as fail-on-cache-miss is set. Input key: ${key}-absent`
+    );
   });
 
   itS3('save uploads the archive', async () => {
