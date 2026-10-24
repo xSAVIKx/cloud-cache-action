@@ -98,6 +98,7 @@ export default defineConfig({
           { text: 'Performance', link: '/guide/performance' },
           { text: 'Benchmarks', link: '/guide/benchmarks' },
           { text: 'Migrating from actions/cache', link: '/guide/migration' },
+          { text: 'Command Line (CLI)', link: '/guide/cli' },
         ],
       },
       {
