@@ -1,4 +1,4 @@
-import * as core from '@actions/core';
+import { log } from '../ci/log';
 
 export interface RetryOptions {
   retries: number;
@@ -86,7 +86,7 @@ export async function withRetry<T>(operation: () => Promise<T>, options: RetryOp
       }
       const delay = Math.round(minTimeout * factor ** (attempt - 1) + Math.random() * maxJitter);
       const message = err instanceof Error ? err.message : String(err);
-      core.info(
+      log.info(
         `${opName}: attempt ${attempt}/${retries + 1} failed: ${message}. Retrying in ${delay}ms...`
       );
       await new Promise((resolve) => setTimeout(resolve, delay));

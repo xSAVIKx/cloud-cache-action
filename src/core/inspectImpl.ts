@@ -4,8 +4,8 @@
  * it only lists, so it is safe to run on any branch, in any job.
  */
 
-import * as core from '@actions/core';
-import { getWorkspace } from '../archive/paths';
+import { getHost } from '../ci/host';
+import { log } from '../ci/log';
 import { Inputs, Outputs } from '../constants';
 import { parsePositiveInt } from '../utils/inputUtils';
 import { readCacheConfig } from './config';
@@ -45,21 +45,21 @@ export async function inspectImpl(): Promise<void> {
       throw new Error('Input required and not supplied: path');
     }
     const maxCandidates = parsePositiveInt(
-      core.getInput(Inputs.MaxCandidates) || '20',
+      getHost().input(Inputs.MaxCandidates) || '20',
       'max-candidates'
     );
 
     const tier = await buildS3Tier(config);
-    core.setOutput(Outputs.CacheStorageProvider, tier.storage.providerConfig.provider);
+    getHost().setOutput(Outputs.CacheStorageProvider, tier.storage.providerConfig.provider);
 
     const report = await buildExplainReport(tier, config, { maxCandidates });
-    core.startGroup('Cache lookup explained');
+    log.startGroup('Cache lookup explained');
     try {
       for (const line of renderExplain(report)) {
-        core.info(line);
+        log.info(line);
       }
     } finally {
-      core.endGroup();
+      log.endGroup();
     }
     await writeExplainSummary(report, config.jobSummary);
 
@@ -67,11 +67,11 @@ export async function inspectImpl(): Promise<void> {
       (total, searched) => total + searched.candidates.length + searched.truncated,
       0
     );
-    core.setOutput(Outputs.WouldHit, String(Boolean(report.wouldHit)));
-    core.setOutput(Outputs.WouldMatchKey, report.wouldHit?.matchedKey ?? '');
-    core.setOutput(Outputs.WouldMatchObject, report.wouldHit?.objectKey ?? '');
-    core.setOutput(Outputs.CandidateCount, String(candidateCount));
-    core.setOutput(Outputs.Report, reportJson(report, candidateCount));
+    getHost().setOutput(Outputs.WouldHit, String(Boolean(report.wouldHit)));
+    getHost().setOutput(Outputs.WouldMatchKey, report.wouldHit?.matchedKey ?? '');
+    getHost().setOutput(Outputs.WouldMatchObject, report.wouldHit?.objectKey ?? '');
+    getHost().setOutput(Outputs.CandidateCount, String(candidateCount));
+    getHost().setOutput(Outputs.Report, reportJson(report, candidateCount));
     emitMetrics(
       {
         step: 'inspect',
@@ -86,14 +86,14 @@ export async function inspectImpl(): Promise<void> {
         extra: { candidateCount },
       },
       config.metricsFile,
-      getWorkspace()
+      getHost().context().workspace
     );
 
     if (!report.wouldHit && config.failOnCacheMiss) {
       throw new Error(`No cache would be restored for key "${config.primaryKey}".`);
     }
   } catch (err) {
-    core.setFailed(toError(err).message);
+    getHost().setFailed(toError(err).message);
   }
 }
 

@@ -1,4 +1,4 @@
-import * as core from '@actions/core';
+import { log } from '../ci/log';
 import {
   AbortMultipartUploadCommand,
   DeleteObjectCommand,
@@ -172,13 +172,13 @@ async function abortStaleUploads(
     stale = listed.stale;
     if (listed.withoutAge > 0) {
       // SeaweedFS lists uploads without an Initiated time, so this rule cannot work there.
-      core.warning(
+      log.warning(
         `Skipped ${listed.withoutAge} incomplete upload(s): the server lists them without an initiation time, so their age is unknown and they are not aborted. SeaweedFS is one such server.`
       );
     }
   } catch (err) {
     const error = toError(err);
-    core.warning(
+    log.warning(
       `Could not list incomplete multipart uploads, so none are aborted: ${error.name}: ${error.message}`
     );
     return 0;
@@ -201,7 +201,7 @@ async function abortStaleUploads(
         const error = toError(err);
         // The upload finished or was aborted between the listing and this call.
         if (error.name !== 'NoSuchUpload') {
-          core.warning(
+          log.warning(
             `Could not abort the incomplete upload of ${upload.key} (upload ${upload.uploadId}): ${error.name}: ${error.message}`
           );
         }
@@ -210,11 +210,11 @@ async function abortStaleUploads(
     }
     count += 1;
     if (count <= LOG_CAP) {
-      core.info(`${verb} ${upload.key} (upload ${upload.uploadId}, ${age})`);
+      log.info(`${verb} ${upload.key} (upload ${upload.uploadId}, ${age})`);
     }
   };
   await mapWithConcurrency(stale, options.concurrency, abortOne);
-  core.info(`${verb} ${count} incomplete upload(s).`);
+  log.info(`${verb} ${count} incomplete upload(s).`);
   return count;
 }
 
@@ -228,7 +228,7 @@ function logPruned(
     const ageDays = object.lastModified
       ? Math.floor((now.getTime() - object.lastModified.getTime()) / DAY_MS)
       : 0;
-    core.info(`${verb} ${object.key} (${formatSize(object.size)}, ${ageDays}d old, ${reason})`);
+    log.info(`${verb} ${object.key} (${formatSize(object.size)}, ${ageDays}d old, ${reason})`);
   }
   const totalBytes = selections.reduce((total, { object }) => total + object.size, 0);
   const counts = new Map<string, number>();
@@ -236,7 +236,7 @@ function logPruned(
     counts.set(reason, (counts.get(reason) ?? 0) + 1);
   }
   const reasons = [...counts].map(([reason, count]) => `${count} by ${reason}`).join(', ');
-  core.info(
+  log.info(
     `${verb} ${selections.length} cache object(s) totaling ${formatSize(totalBytes)}${reasons ? ` (${reasons})` : ''}.`
   );
 }
@@ -299,7 +299,7 @@ export async function pruneCaches(tier: PruneTier, options: PruneOptions): Promi
   });
   const { selected, overBudgetBytes } = selectForPrune(candidates, options, now);
   if (overBudgetBytes > 0) {
-    core.warning(
+    log.warning(
       `The remaining cache archives are still ${formatSize(overBudgetBytes)} over "max-total-size": the "keep-latest" archives and archives with no modification time are never pruned.`
     );
   }

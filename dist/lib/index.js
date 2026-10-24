@@ -60633,6 +60633,191 @@ module.exports = {
 
 /***/ }),
 
+/***/ 4543:
+/***/ ((__unused_webpack_module, __webpack_exports__, __nccwpck_require__) => {
+
+/* harmony export */ __nccwpck_require__.d(__webpack_exports__, {
+/* harmony export */   K: () => (/* binding */ getWorkspace),
+/* harmony export */   t: () => (/* binding */ runnerOs)
+/* harmony export */ });
+/** The workspace directory: GITHUB_WORKSPACE, or the current directory. */
+function getWorkspace(env = process.env) {
+    return env.GITHUB_WORKSPACE || process.cwd();
+}
+/** `runner.os` from RUNNER_OS, or from the platform when RUNNER_OS is not a known value. */
+function runnerOs(env = process.env, platform = process.platform) {
+    const fromEnv = env.RUNNER_OS;
+    if (fromEnv === 'Linux' || fromEnv === 'macOS' || fromEnv === 'Windows') {
+        return fromEnv;
+    }
+    if (platform === 'win32') {
+        return 'Windows';
+    }
+    return platform === 'darwin' ? 'macOS' : 'Linux';
+}
+
+
+/***/ }),
+
+/***/ 6418:
+/***/ ((__unused_webpack_module, __webpack_exports__, __nccwpck_require__) => {
+
+
+// EXPORTS
+__nccwpck_require__.d(__webpack_exports__, {
+  p: () => (/* binding */ GitHubActionsHost)
+});
+
+// EXTERNAL MODULE: external "node:os"
+var external_node_os_ = __nccwpck_require__(8161);
+// EXTERNAL MODULE: ./node_modules/@actions/core/lib/core.js + 7 modules
+var core = __nccwpck_require__(3838);
+// EXTERNAL MODULE: ./src/ci/env.ts
+var ci_env = __nccwpck_require__(4543);
+// EXTERNAL MODULE: external "node:fs"
+var external_node_fs_ = __nccwpck_require__(3024);
+;// CONCATENATED MODULE: ./src/core/refs.ts
+
+function readDefaultBranch(eventPath, readFile) {
+    if (!eventPath) {
+        return undefined;
+    }
+    try {
+        const payload = JSON.parse(readFile(eventPath));
+        const branch = payload.repository?.default_branch;
+        return typeof branch === 'string' && branch ? branch : undefined;
+    }
+    catch {
+        return undefined;
+    }
+}
+/** Mirrors actions/cache: a run may restore from its own ref, its PR base, and the default branch. */
+function resolveRefCandidates(env = process.env, readFile = (file) => (0,external_node_fs_.readFileSync)(file, 'utf8')) {
+    const current = env.GITHUB_REF?.trim() || undefined;
+    if (!current) {
+        return { current: undefined, restore: [] };
+    }
+    const candidates = [current];
+    const baseRef = env.GITHUB_BASE_REF?.trim();
+    if (baseRef) {
+        candidates.push(`refs/heads/${baseRef}`);
+    }
+    const defaultBranch = readDefaultBranch(env.GITHUB_EVENT_PATH, readFile);
+    if (defaultBranch) {
+        candidates.push(`refs/heads/${defaultBranch}`);
+    }
+    return { current, restore: [...new Set(candidates)] };
+}
+
+// EXTERNAL MODULE: ./src/state.ts
+var state = __nccwpck_require__(2462);
+;// CONCATENATED MODULE: ./src/ci/github.ts
+
+
+
+
+
+/** The home directory of the OS user, or '' when the user has no passwd entry. */
+function osHomeDir() {
+    try {
+        return external_node_os_.homedir();
+    }
+    catch {
+        return '';
+    }
+}
+/** The host for GitHub Actions. It calls `core` only when a method runs, never when it loads. */
+class GitHubActionsHost {
+    fixedEnv;
+    state = new state/* StateProvider */.v();
+    log = {
+        debug: (message) => core/* debug */.Yz(message),
+        info: (message) => core/* info */.pq(message),
+        warning: (message) => core/* warning */.$e(message),
+        error: (message) => core/* error */.z3(message),
+        startGroup: (title) => core/* startGroup */.Oh(title),
+        endGroup: () => core/* endGroup */.N4(),
+    };
+    constructor(fixedEnv) {
+        this.fixedEnv = fixedEnv;
+    }
+    get env() {
+        return this.fixedEnv ?? process.env;
+    }
+    context() {
+        const env = this.env;
+        return {
+            platform: 'github',
+            repository: env.GITHUB_REPOSITORY ?? '',
+            refs: resolveRefCandidates(env),
+            eventName: env.GITHUB_EVENT_NAME,
+            workspace: (0,ci_env/* getWorkspace */.K)(env),
+            homeDir: env.HOME || env.USERPROFILE || osHomeDir(),
+            runnerOs: (0,ci_env/* runnerOs */.t)(env),
+            env,
+        };
+    }
+    input(name, options) {
+        return core/* getInput */.V4(name, options);
+    }
+    setOutput(name, value) {
+        core/* setOutput */.uH(name, value);
+    }
+    setFailed(message) {
+        core/* setFailed */.C1(message);
+    }
+    get summary() {
+        return this.env.GITHUB_STEP_SUMMARY ? core/* summary */.z : undefined;
+    }
+}
+
+
+/***/ }),
+
+/***/ 6068:
+/***/ ((__unused_webpack_module, __webpack_exports__, __nccwpck_require__) => {
+
+/* harmony export */ __nccwpck_require__.d(__webpack_exports__, {
+/* harmony export */   L: () => (/* binding */ getHost)
+/* harmony export */ });
+/* unused harmony export setHost */
+/* harmony import */ var _github__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(6418);
+
+let current;
+/** The active host. The GitHub Actions host is created on first use. */
+function getHost() {
+    current ??= new _github__WEBPACK_IMPORTED_MODULE_0__/* .GitHubActionsHost */ .p();
+    return current;
+}
+/** Sets the active host. Pass undefined to go back to the default. */
+function setHost(host) {
+    current = host;
+}
+
+
+/***/ }),
+
+/***/ 9098:
+/***/ ((__unused_webpack_module, __webpack_exports__, __nccwpck_require__) => {
+
+/* harmony export */ __nccwpck_require__.d(__webpack_exports__, {
+/* harmony export */   R: () => (/* binding */ log)
+/* harmony export */ });
+/* harmony import */ var _host__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(6068);
+
+/** Logger that sends each call to the active host, so a host change takes effect at once. */
+const log = {
+    debug: (message) => (0,_host__WEBPACK_IMPORTED_MODULE_0__/* .getHost */ .L)().log.debug(message),
+    info: (message) => (0,_host__WEBPACK_IMPORTED_MODULE_0__/* .getHost */ .L)().log.info(message),
+    warning: (message) => (0,_host__WEBPACK_IMPORTED_MODULE_0__/* .getHost */ .L)().log.warning(message),
+    error: (message) => (0,_host__WEBPACK_IMPORTED_MODULE_0__/* .getHost */ .L)().log.error(message),
+    startGroup: (title) => (0,_host__WEBPACK_IMPORTED_MODULE_0__/* .getHost */ .L)().log.startGroup(title),
+    endGroup: () => (0,_host__WEBPACK_IMPORTED_MODULE_0__/* .getHost */ .L)().log.endGroup(),
+};
+
+
+/***/ }),
+
 /***/ 7242:
 /***/ ((__unused_webpack_module, __webpack_exports__, __nccwpck_require__) => {
 
@@ -60640,9 +60825,9 @@ module.exports = {
 /* harmony export */   G0: () => (/* binding */ Inputs),
 /* harmony export */   Hw: () => (/* binding */ Defaults),
 /* harmony export */   Uw: () => (/* binding */ State),
-/* harmony export */   sV: () => (/* binding */ Events),
 /* harmony export */   tY: () => (/* binding */ Outputs)
 /* harmony export */ });
+/* unused harmony export Events */
 var Inputs;
 (function (Inputs) {
     Inputs["Key"] = "key";
@@ -60810,6 +60995,44 @@ function toError(err) {
 
 /***/ }),
 
+/***/ 2462:
+/***/ ((__unused_webpack_module, __webpack_exports__, __nccwpck_require__) => {
+
+/* harmony export */ __nccwpck_require__.d(__webpack_exports__, {
+/* harmony export */   v: () => (/* binding */ StateProvider),
+/* harmony export */   w: () => (/* binding */ NullStateProvider)
+/* harmony export */ });
+/* harmony import */ var _actions_core__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(3838);
+/* harmony import */ var _constants__WEBPACK_IMPORTED_MODULE_1__ = __nccwpck_require__(7242);
+
+
+class StateProvider {
+    getState(key) {
+        return _actions_core__WEBPACK_IMPORTED_MODULE_0__/* .getState */ .Gu(key);
+    }
+    setState(key, value) {
+        _actions_core__WEBPACK_IMPORTED_MODULE_0__/* .saveState */ .LZ(key, value);
+    }
+    getCacheState() {
+        return this.getState(_constants__WEBPACK_IMPORTED_MODULE_1__/* .State */ .Uw.CacheMatchedKey);
+    }
+}
+class NullStateProvider {
+    state = new Map();
+    getState(key) {
+        return this.state.get(key) || '';
+    }
+    setState(key, value) {
+        this.state.set(key, value);
+    }
+    getCacheState() {
+        return this.getState(_constants__WEBPACK_IMPORTED_MODULE_1__/* .State */ .Uw.CacheMatchedKey);
+    }
+}
+
+
+/***/ }),
+
 /***/ 632:
 /***/ ((__unused_webpack_module, __webpack_exports__, __nccwpck_require__) => {
 
@@ -60826,12 +61049,13 @@ function toError(err) {
 /* harmony export */   q3: () => (/* binding */ getInputAsArray),
 /* harmony export */   q8: () => (/* binding */ getInputAsEnum)
 /* harmony export */ });
-/* harmony import */ var _actions_core__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(3838);
-/* harmony import */ var _constants__WEBPACK_IMPORTED_MODULE_1__ = __nccwpck_require__(7242);
+/* harmony import */ var _ci_host__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(6068);
+/* harmony import */ var _ci_log__WEBPACK_IMPORTED_MODULE_1__ = __nccwpck_require__(9098);
 
 
 function getInputAsArray(name, options) {
-    return _actions_core__WEBPACK_IMPORTED_MODULE_0__/* .getInput */ .V4(name, options)
+    return (0,_ci_host__WEBPACK_IMPORTED_MODULE_0__/* .getHost */ .L)()
+        .input(name, options)
         .split('\n')
         .map((s) => s.trim())
         .filter((x) => x !== '');
@@ -60839,7 +61063,7 @@ function getInputAsArray(name, options) {
 const TRUE_VALUES = ['true', 'True', 'TRUE'];
 const FALSE_VALUES = ['false', 'False', 'FALSE'];
 function getInputAsBool(name, defaultValue = false, options) {
-    const value = _actions_core__WEBPACK_IMPORTED_MODULE_0__/* .getInput */ .V4(name, options).trim();
+    const value = (0,_ci_host__WEBPACK_IMPORTED_MODULE_0__/* .getHost */ .L)().input(name, options).trim();
     if (!value) {
         return defaultValue;
     }
@@ -60849,22 +61073,22 @@ function getInputAsBool(name, defaultValue = false, options) {
     if (FALSE_VALUES.includes(value)) {
         return false;
     }
-    _actions_core__WEBPACK_IMPORTED_MODULE_0__/* .warning */ .$e(`Input "${name}" must be one of true, True, TRUE, false, False, FALSE; got "${value}". Using "${defaultValue}".`);
+    _ci_log__WEBPACK_IMPORTED_MODULE_1__/* .log */ .R.warning(`Input "${name}" must be one of true, True, TRUE, false, False, FALSE; got "${value}". Using "${defaultValue}".`);
     return defaultValue;
 }
 function getInputAsEnum(name, allowed, defaultValue) {
-    const value = _actions_core__WEBPACK_IMPORTED_MODULE_0__/* .getInput */ .V4(name).trim();
+    const value = (0,_ci_host__WEBPACK_IMPORTED_MODULE_0__/* .getHost */ .L)().input(name).trim();
     if (!value) {
         return defaultValue;
     }
     if (allowed.includes(value)) {
         return value;
     }
-    _actions_core__WEBPACK_IMPORTED_MODULE_0__/* .warning */ .$e(`Input "${name}" must be one of ${allowed.join(', ')}; got "${value}". Using "${defaultValue}".`);
+    _ci_log__WEBPACK_IMPORTED_MODULE_1__/* .log */ .R.warning(`Input "${name}" must be one of ${allowed.join(', ')}; got "${value}". Using "${defaultValue}".`);
     return defaultValue;
 }
 function getInputAsInt(name, defaultValue, options) {
-    const value = _actions_core__WEBPACK_IMPORTED_MODULE_0__/* .getInput */ .V4(name, options);
+    const value = (0,_ci_host__WEBPACK_IMPORTED_MODULE_0__/* .getHost */ .L)().input(name, options);
     if (!value) {
         return defaultValue;
     }
@@ -60876,20 +61100,20 @@ function getInputAsInt(name, defaultValue, options) {
 }
 function getInputWithEnv(inputName, envVarNames = [], camelCaseInputName) {
     // Check primary input
-    let value = _actions_core__WEBPACK_IMPORTED_MODULE_0__/* .getInput */ .V4(inputName);
+    let value = (0,_ci_host__WEBPACK_IMPORTED_MODULE_0__/* .getHost */ .L)().input(inputName);
     if (value) {
         return value;
     }
     // Check camelCase alias if provided
     if (camelCaseInputName) {
-        value = _actions_core__WEBPACK_IMPORTED_MODULE_0__/* .getInput */ .V4(camelCaseInputName);
+        value = (0,_ci_host__WEBPACK_IMPORTED_MODULE_0__/* .getHost */ .L)().input(camelCaseInputName);
         if (value) {
             return value;
         }
     }
     // Check environment variables
     for (const envVar of envVarNames) {
-        const envVal = process.env[envVar];
+        const envVal = (0,_ci_host__WEBPACK_IMPORTED_MODULE_0__/* .getHost */ .L)().context().env[envVar];
         if (envVal !== undefined && envVal !== '') {
             return envVal;
         }
@@ -60903,7 +61127,7 @@ function isExactKeyMatch(primaryKey, matchedKey) {
     return primaryKey.trim().toLowerCase() === matchedKey.trim().toLowerCase();
 }
 function isValidEvent() {
-    const event = process.env[_constants__WEBPACK_IMPORTED_MODULE_1__/* .Events */ .sV.Key];
+    const event = (0,_ci_host__WEBPACK_IMPORTED_MODULE_0__/* .getHost */ .L)().context().eventName;
     // GitHub Actions events that are not tied to a ref (e.g. issues, discussion) might not be appropriate for caching
     // actions/cache warns if event is not ref-based, but allows execution
     return Boolean(event);
@@ -68048,103 +68272,10 @@ __nccwpck_require__.d(__webpack_exports__, {
   h2: () => (/* reexport */ runSaveOnly)
 });
 
-// EXTERNAL MODULE: ./node_modules/@actions/core/lib/core.js + 7 modules
-var core = __nccwpck_require__(3838);
-// EXTERNAL MODULE: ./node_modules/@actions/glob/lib/glob.js + 17 modules
-var glob = __nccwpck_require__(2377);
-// EXTERNAL MODULE: external "node:os"
-var external_node_os_ = __nccwpck_require__(8161);
-// EXTERNAL MODULE: external "node:path"
-var external_node_path_ = __nccwpck_require__(6760);
-;// CONCATENATED MODULE: ./src/archive/paths.ts
-
-
-
-
-function getWorkspace(env = process.env) {
-    return env.GITHUB_WORKSPACE || process.cwd();
-}
-/**
- * Mirrors `os.homedir()`'s own documented resolution (`$HOME`/`%USERPROFILE%` first, native
- * lookup otherwise) but reads the environment variable directly rather than delegating to the
- * native binding. The native binding reads the process's real environment, which under Jest's
- * `node` test environment is a snapshot disconnected from the `process.env` object tests mutate;
- * reading the variable in plain JS keeps it overridable in tests while matching real behaviour.
- */
-function defaultHomedir(platform) {
-    const fromEnv = platform === 'win32' ? process.env.USERPROFILE : process.env.HOME;
-    return fromEnv || external_node_os_.homedir();
-}
-/** Escapes glob metacharacters in a literal path so it can prefix a pattern. */
-function globEscape(value, platform = process.platform) {
-    const escaped = platform === 'win32' ? value : value.replace(/\\/g, '\\\\');
-    return escaped.replace(/\[/g, '[[]').replace(/\?/g, '[?]').replace(/\*/g, '[*]');
-}
-/**
- * Makes one `path` line absolute and free of `.`/`..` segments, which @actions/glob rejects.
- * `~` expands to the home directory; relative patterns are anchored at the workspace.
- */
-function preparePattern(raw, workspace, platform = process.platform, homedir = defaultHomedir(platform)) {
-    const p = platform === 'win32' ? external_node_path_.win32 : external_node_path_.posix;
-    let pattern = raw.trim();
-    const negate = pattern.startsWith('!');
-    if (negate) {
-        pattern = pattern.slice(1).trim();
-    }
-    if (pattern === '~' || pattern.startsWith('~/') || pattern.startsWith('~\\')) {
-        pattern = p.join(globEscape(homedir, platform), pattern.slice(1));
-    }
-    else if (p.isAbsolute(pattern)) {
-        pattern = p.normalize(pattern);
-    }
-    else {
-        pattern = p.join(globEscape(workspace, platform), pattern);
-    }
-    return negate ? `!${pattern}` : pattern;
-}
-/** True when an ancestor of `entry` is itself an entry, so tar already archives it. */
-function isCovered(entry, entries) {
-    const insideWorkspace = entry !== '..' && !entry.startsWith('../') && !external_node_path_.isAbsolute(entry);
-    if (entry !== '.' && insideWorkspace && entries.has('.')) {
-        return true;
-    }
-    const segments = entry.split('/');
-    for (let length = 1; length < segments.length; length++) {
-        if (entries.has(segments.slice(0, length).join('/'))) {
-            return true;
-        }
-    }
-    return false;
-}
-/** Expands `path` patterns like actions/cache: globs, `~`, and ordered `!` exclusions. */
-async function resolveCachePaths(patterns, workspace = getWorkspace()) {
-    const prepared = patterns
-        .map((line) => line.trim())
-        .filter((line) => line !== '')
-        .map((line) => preparePattern(line, workspace));
-    if (prepared.length === 0) {
-        return { entries: [], skipped: [] };
-    }
-    const globber = await glob/* create */.v(prepared.join('\n'), {
-        implicitDescendants: false,
-        followSymbolicLinks: false,
-    });
-    const found = new Set();
-    const skipped = [];
-    for await (const match of globber.globGenerator()) {
-        const relative = external_node_path_.relative(workspace, match).split(external_node_path_.sep).join('/');
-        const entry = relative === '' ? '.' : relative;
-        if (/[\r\n]/.test(entry)) {
-            skipped.push(entry);
-            core/* warning */.$e(`Skipping ${JSON.stringify(entry)}: file names containing line breaks cannot be cached.`);
-            continue;
-        }
-        found.add(entry);
-    }
-    const entries = [...found].filter((entry) => !isCovered(entry, found)).sort();
-    return { entries, skipped };
-}
-
+// EXTERNAL MODULE: ./src/ci/host.ts
+var host = __nccwpck_require__(6068);
+// EXTERNAL MODULE: ./src/ci/log.ts
+var log = __nccwpck_require__(9098);
 // EXTERNAL MODULE: ./src/constants.ts
 var constants = __nccwpck_require__(7242);
 // EXTERNAL MODULE: ./src/utils/inputUtils.ts
@@ -68206,7 +68337,7 @@ function parseMetadata(raw, inputName = 'metadata') {
             throw new Error(`Invalid "${inputName}" value for "${key}": only printable ASCII is allowed.`);
         }
         if (key in metadata) {
-            core/* warning */.$e(`"${inputName}" sets "${key}" more than once; the last value wins.`);
+            log/* log */.R.warning(`"${inputName}" sets "${key}" more than once; the last value wins.`);
         }
         metadata[key] = value;
     }
@@ -68274,12 +68405,13 @@ function stripReservedMetadata(metadata) {
 
 
 
+
 const RESTORE_PRIORITIES = ['s3-first', 'github-first'];
 const DUAL_CACHE_STRATEGIES = ['backfill', 'skip-on-hit'];
 const TRANSFER_TUNINGS = ['fixed', 'auto'];
 function readDualCacheStrategy() {
-    if (core/* getInput */.V4(constants/* Inputs */.G0.DualCacheStrategy).trim() === 'independent') {
-        core/* warning */.$e('dual-cache-strategy "independent" was removed in v1.1; using "backfill", which now checks each tier before uploading.');
+    if ((0,host/* getHost */.L)().input(constants/* Inputs */.G0.DualCacheStrategy).trim() === 'independent') {
+        log/* log */.R.warning('dual-cache-strategy "independent" was removed in v1.1; using "backfill", which now checks each tier before uploading.');
         return 'backfill';
     }
     return (0,inputUtils/* getInputAsEnum */.q8)(constants/* Inputs */.G0.DualCacheStrategy, DUAL_CACHE_STRATEGIES, 'backfill');
@@ -68289,26 +68421,26 @@ function readDualCacheStrategy() {
  * warning names `effective`, what the default stands for. `set` is true only for a valid value.
  */
 function readBoundedInt(name, defaultValue, min, max, effective = defaultValue) {
-    const raw = core/* getInput */.V4(name).trim();
+    const raw = (0,host/* getHost */.L)().input(name).trim();
     if (raw === '') {
         return { value: defaultValue, set: false };
     }
     const value = /^[0-9]+$/.test(raw) ? Number(raw) : Number.NaN;
     if (Number.isNaN(value) || value < min || value > max) {
-        core/* warning */.$e(`Input "${name}" must be an integer between ${min} and ${max}; got "${raw}". Using ${effective}.`);
+        log/* log */.R.warning(`Input "${name}" must be an integer between ${min} and ${max}; got "${raw}". Using ${effective}.`);
         return { value: defaultValue, set: false };
     }
     return { value, set: true };
 }
 /** Reads `compression-level`; anything outside 1 to 19 warns and leaves the method's default. */
 function readOptionalLevel() {
-    const raw = core/* getInput */.V4(constants/* Inputs */.G0.CompressionLevel).trim();
+    const raw = (0,host/* getHost */.L)().input(constants/* Inputs */.G0.CompressionLevel).trim();
     if (raw === '') {
         return undefined;
     }
     const value = /^[0-9]+$/.test(raw) ? Number(raw) : Number.NaN;
     if (Number.isNaN(value) || value < 1 || value > constants/* Defaults */.Hw.MaxCompressionLevel) {
-        core/* warning */.$e(`Input "${constants/* Inputs */.G0.CompressionLevel}" must be an integer between 1 and ${constants/* Defaults */.Hw.MaxCompressionLevel}; got "${raw}". Using the default for the compression method.`);
+        log/* log */.R.warning(`Input "${constants/* Inputs */.G0.CompressionLevel}" must be an integer between 1 and ${constants/* Defaults */.Hw.MaxCompressionLevel}; got "${raw}". Using the default for the compression method.`);
         return undefined;
     }
     return value;
@@ -68338,7 +68470,7 @@ function readCacheConfig(state) {
     const downloadConcurrency = readBoundedInt(constants/* Inputs */.G0.DownloadConcurrency, constants/* Defaults */.Hw.DefaultDownloadConcurrency, 1, constants/* Defaults */.Hw.MaxDownloadConcurrency, tuned(constants/* Defaults */.Hw.DefaultDownloadConcurrency));
     const downloadChunkSize = readBoundedInt(constants/* Inputs */.G0.DownloadChunkSize, constants/* Defaults */.Hw.DefaultDownloadChunkSize, constants/* Defaults */.Hw.MinDownloadChunkSize, constants/* Defaults */.Hw.MaxDownloadChunkSize, tuned(constants/* Defaults */.Hw.DefaultDownloadChunkSize));
     return {
-        primaryKey: text(constants/* State */.Uw.CachePrimaryKey, () => core/* getInput */.V4(constants/* Inputs */.G0.Key).trim()),
+        primaryKey: text(constants/* State */.Uw.CachePrimaryKey, () => (0,host/* getHost */.L)().input(constants/* Inputs */.G0.Key).trim()),
         paths: json(constants/* State */.Uw.CachePaths, () => (0,inputUtils/* getInputAsArray */.q3)(constants/* Inputs */.G0.Path)),
         restoreKeys: (0,inputUtils/* getInputAsArray */.q3)(constants/* Inputs */.G0.RestoreKeys),
         lookupOnly: (0,inputUtils/* getInputAsBool */.$x)(constants/* Inputs */.G0.LookupOnly),
@@ -68348,8 +68480,8 @@ function readCacheConfig(state) {
         uploadChunkSize: uploadChunkSize.value,
         uploadConcurrency: uploadConcurrency.value,
         compressionLevel: readOptionalLevel(),
-        s3KeyPattern: text(constants/* State */.Uw.CacheS3KeyPattern, () => core/* getInput */.V4(constants/* Inputs */.G0.S3KeyPattern) || constants/* Defaults */.Hw.DefaultS3KeyPattern),
-        prefix: text(constants/* State */.Uw.CachePrefix, () => core/* getInput */.V4(constants/* Inputs */.G0.Prefix)),
+        s3KeyPattern: text(constants/* State */.Uw.CacheS3KeyPattern, () => (0,host/* getHost */.L)().input(constants/* Inputs */.G0.S3KeyPattern) || constants/* Defaults */.Hw.DefaultS3KeyPattern),
+        prefix: text(constants/* State */.Uw.CachePrefix, () => (0,host/* getHost */.L)().input(constants/* Inputs */.G0.Prefix)),
         scopedToRepository: bool(constants/* State */.Uw.CacheScopedToRepository, () => (0,inputUtils/* getInputAsBool */.$x)(constants/* Inputs */.G0.ScopedToRepository, true)),
         scopedToRef: bool(constants/* State */.Uw.CacheScopedToRef, () => (0,inputUtils/* getInputAsBool */.$x)(constants/* Inputs */.G0.ScopedToRef, true)),
         retryEnabled: bool(constants/* State */.Uw.CacheRetry, () => (0,inputUtils/* getInputAsBool */.$x)(constants/* Inputs */.G0.Retry, true)),
@@ -68372,10 +68504,10 @@ function readCacheConfig(state) {
             downloadChunkSize: downloadChunkSize.set,
         },
         jobSummary: bool(constants/* State */.Uw.CacheJobSummary, () => (0,inputUtils/* getInputAsBool */.$x)(constants/* Inputs */.G0.JobSummary, true)),
-        metadata: json(constants/* State */.Uw.CacheMetadata, () => parseMetadata(core/* getInput */.V4(constants/* Inputs */.G0.Metadata))),
-        tags: json(constants/* State */.Uw.CacheTags, () => parseTags(core/* getInput */.V4(constants/* Inputs */.G0.Tags), 'tags', streaming ? MAX_TAGS_WITH_CHECKSUM : undefined)),
+        metadata: json(constants/* State */.Uw.CacheMetadata, () => parseMetadata((0,host/* getHost */.L)().input(constants/* Inputs */.G0.Metadata))),
+        tags: json(constants/* State */.Uw.CacheTags, () => parseTags((0,host/* getHost */.L)().input(constants/* Inputs */.G0.Tags), 'tags', streaming ? MAX_TAGS_WITH_CHECKSUM : undefined)),
         explain: (0,inputUtils/* getInputAsBool */.$x)(constants/* Inputs */.G0.Explain),
-        metricsFile: text(constants/* State */.Uw.CacheMetricsFile, () => core/* getInput */.V4(constants/* Inputs */.G0.MetricsFile).trim()),
+        metricsFile: text(constants/* State */.Uw.CacheMetricsFile, () => (0,host/* getHost */.L)().input(constants/* Inputs */.G0.MetricsFile).trim()),
     };
 }
 /** Saves what the post step must agree on with the restore step. */
@@ -68424,10 +68556,16 @@ async function mapWithConcurrency(items, concurrency, fn) {
     return results;
 }
 
+// EXTERNAL MODULE: ./src/ci/github.ts + 1 modules
+var github = __nccwpck_require__(6418);
 // EXTERNAL MODULE: external "node:crypto"
 var external_node_crypto_ = __nccwpck_require__(7598);
 // EXTERNAL MODULE: external "node:fs"
 var external_node_fs_ = __nccwpck_require__(3024);
+// EXTERNAL MODULE: external "node:os"
+var external_node_os_ = __nccwpck_require__(8161);
+// EXTERNAL MODULE: external "node:path"
+var external_node_path_ = __nccwpck_require__(6760);
 ;// CONCATENATED MODULE: external "node:stream/promises"
 const promises_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("node:stream/promises");
 // EXTERNAL MODULE: ./node_modules/@actions/io/lib/io.js
@@ -68443,7 +68581,7 @@ async function getCompressionConfig() {
     try {
         const zstdPath = await io/* which */.K7('zstd', false);
         if (zstdPath) {
-            core/* debug */.Yz(`zstd binary found at: ${zstdPath}`);
+            log/* log */.R.debug(`zstd binary found at: ${zstdPath}`);
             cachedConfig = {
                 method: 'zstd',
                 archiveFilename: 'cache.tar.zst',
@@ -68452,9 +68590,9 @@ async function getCompressionConfig() {
         }
     }
     catch (err) {
-        core/* debug */.Yz(`zstd detection error: ${err}`);
+        log/* log */.R.debug(`zstd detection error: ${err}`);
     }
-    core/* debug */.Yz('zstd binary not found; falling back to gzip');
+    log/* log */.R.debug('zstd binary not found; falling back to gzip');
     cachedConfig = {
         method: 'gzip',
         archiveFilename: 'cache.tar.gz',
@@ -68492,6 +68630,98 @@ function createSha256Tap() {
         stream,
         digest: () => hash.digest('hex'),
     };
+}
+
+// EXTERNAL MODULE: ./src/ci/env.ts
+var env = __nccwpck_require__(4543);
+// EXTERNAL MODULE: ./node_modules/@actions/glob/lib/glob.js + 17 modules
+var glob = __nccwpck_require__(2377);
+;// CONCATENATED MODULE: ./src/archive/paths.ts
+
+
+
+
+
+
+/**
+ * Mirrors `os.homedir()`'s own documented resolution (`$HOME`/`%USERPROFILE%` first, native
+ * lookup otherwise) but reads the environment variable directly rather than delegating to the
+ * native binding. The native binding reads the process's real environment, which under Jest's
+ * `node` test environment is a snapshot disconnected from the `process.env` object tests mutate;
+ * reading the variable in plain JS keeps it overridable in tests while matching real behaviour.
+ */
+function defaultHomedir(platform) {
+    const fromEnv = platform === 'win32' ? process.env.USERPROFILE : process.env.HOME;
+    return fromEnv || external_node_os_.homedir();
+}
+/** Escapes glob metacharacters in a literal path so it can prefix a pattern. */
+function globEscape(value, platform = process.platform) {
+    const escaped = platform === 'win32' ? value : value.replace(/\\/g, '\\\\');
+    return escaped.replace(/\[/g, '[[]').replace(/\?/g, '[?]').replace(/\*/g, '[*]');
+}
+/**
+ * Makes one `path` line absolute and free of `.`/`..` segments, which @actions/glob rejects.
+ * `~` expands to the home directory; relative patterns are anchored at the workspace.
+ */
+function preparePattern(raw, workspace, platform = process.platform, homedir = defaultHomedir(platform)) {
+    const p = platform === 'win32' ? external_node_path_.win32 : external_node_path_.posix;
+    let pattern = raw.trim();
+    const negate = pattern.startsWith('!');
+    if (negate) {
+        pattern = pattern.slice(1).trim();
+    }
+    if (pattern === '~' || pattern.startsWith('~/') || pattern.startsWith('~\\')) {
+        pattern = p.join(globEscape(homedir, platform), pattern.slice(1));
+    }
+    else if (p.isAbsolute(pattern)) {
+        pattern = p.normalize(pattern);
+    }
+    else {
+        pattern = p.join(globEscape(workspace, platform), pattern);
+    }
+    return negate ? `!${pattern}` : pattern;
+}
+/** True when an ancestor of `entry` is itself an entry, so tar already archives it. */
+function isCovered(entry, entries) {
+    const insideWorkspace = entry !== '..' && !entry.startsWith('../') && !external_node_path_.isAbsolute(entry);
+    if (entry !== '.' && insideWorkspace && entries.has('.')) {
+        return true;
+    }
+    const segments = entry.split('/');
+    for (let length = 1; length < segments.length; length++) {
+        if (entries.has(segments.slice(0, length).join('/'))) {
+            return true;
+        }
+    }
+    return false;
+}
+/** Expands `path` patterns like actions/cache: globs, `~`, and ordered `!` exclusions. */
+async function resolveCachePaths(patterns, workspace = (0,env/* getWorkspace */.K)()) {
+    const prepared = patterns
+        .map((line) => line.trim())
+        .filter((line) => line !== '')
+        .map((line) => preparePattern(line, workspace));
+    if (prepared.length === 0) {
+        return { entries: [], skipped: [] };
+    }
+    const globber = await glob/* create */.v(prepared.join('\n'), {
+        implicitDescendants: false,
+        followSymbolicLinks: false,
+    });
+    const found = new Set();
+    const skipped = [];
+    for await (const match of globber.globGenerator()) {
+        const relative = external_node_path_.relative(workspace, match).split(external_node_path_.sep).join('/');
+        const entry = relative === '' ? '.' : relative;
+        if (/[\r\n]/.test(entry)) {
+            skipped.push(entry);
+            log/* log */.R.warning(`Skipping ${JSON.stringify(entry)}: file names containing line breaks cannot be cached.`);
+            continue;
+        }
+        found.add(entry);
+    }
+    const entries = [...found].filter((entry) => !isCovered(entry, found)).sort();
+    return { entries, skipped };
 }
 
 // EXTERNAL MODULE: ./node_modules/@actions/exec/lib/exec.js + 3 modules
@@ -68881,7 +69111,7 @@ async function runExtract(plan, env = process.env) {
         if (!detector.matches()) {
             throw err;
         }
-        core/* warning */.$e(SYMLINK_FALLBACK_WARNING);
+        log/* log */.R.warning(SYMLINK_FALLBACK_WARNING);
         await run(commands, archiveExecOptions(env, MSYS_COPY_SYMLINKS));
     }
 }
@@ -68892,7 +69122,7 @@ async function runExtract(plan, env = process.env) {
  */
 async function writeArchiveFromStdout(command, archivePath) {
     // exec printed the command line before it started a command. Print it at debug level here.
-    core/* debug */.Yz(`[command]${command.tool} ${command.args.join(' ')}`);
+    log/* log */.R.debug(`[command]${command.tool} ${command.args.join(' ')}`);
     const child = spawnArchiveCommand(command, ['ignore', 'pipe', 'pipe']);
     // exec writes tar's stderr to the log. Do the same, so that tar warnings stay visible.
     child.stderr?.on('data', (chunk) => process.stderr.write(chunk));
@@ -69328,6 +69558,7 @@ function isWriteAccessDeniedError(err) {
 
 
 
+
 const UNSIGNED_PAYLOAD = 'UNSIGNED-PAYLOAD';
 const CONTENT_SHA256_HEADER = 'x-amz-content-sha256';
 const UNSIGNED_PAYLOAD_MIDDLEWARE = 'cloudCacheUnsignedPayload';
@@ -69379,7 +69610,7 @@ function timeoutFromEnv(env, name, fallback) {
     if (/^\d+$/.test(raw.trim())) {
         return Number(raw.trim());
     }
-    core/* warning */.$e(`Ignoring ${name}="${raw}": it must be a whole number of milliseconds (0 turns the timeout off). Using ${fallback}.`);
+    log/* log */.R.warning(`Ignoring ${name}="${raw}": it must be a whole number of milliseconds (0 turns the timeout off). Using ${fallback}.`);
     return fallback;
 }
 /**
@@ -69440,7 +69671,7 @@ function addUnsignedPayloadMiddleware(client) {
             }
             if (enabled) {
                 enabled = false;
-                core/* info */.pq(`The server refused UNSIGNED-PAYLOAD (${code}). Uploads for this client now sign the payload hash.`);
+                log/* log */.R.info(`The server refused UNSIGNED-PAYLOAD (${code}). Uploads for this client now sign the payload hash.`);
             }
             delete request.headers[CONTENT_SHA256_HEADER];
             return next(args);
@@ -69577,7 +69808,7 @@ class LoggedRetryStrategy {
         const took = failure === undefined ? '' : ` after ${seconds(failure.durationMs)}`;
         const wait = next.$retryLog?.acquisitionDelay ??
             next.getRetryDelay();
-        core/* info */.pq(`${label}: attempt ${failed} of ${this.maxAttempts} failed${took}: ${s3ErrorReason(info.error).replace(/\.$/, '')}. Starting attempt ${failed + 1} after a wait of ${seconds(wait)}.`);
+        log/* log */.R.info(`${label}: attempt ${failed} of ${this.maxAttempts} failed${took}: ${s3ErrorReason(info.error).replace(/\.$/, '')}. Starting attempt ${failed + 1} after a wait of ${seconds(wait)}.`);
         return next;
     }
 }
@@ -69601,11 +69832,11 @@ function createStorageContext(options) {
         'AWS_ENDPOINT_URL_S3',
     ]);
     const regionInput = (0,inputUtils/* getInputWithEnv */.oh)(constants/* Inputs */.G0.Region, ['AWS_REGION', 'AWS_DEFAULT_REGION']);
-    const providerInput = core/* getInput */.V4(constants/* Inputs */.G0.Provider);
+    const providerInput = (0,host/* getHost */.L)().input(constants/* Inputs */.G0.Provider);
     if (providerInput && !isKnownProvider(providerInput)) {
-        core/* warning */.$e(`Unknown provider "${providerInput}"; using generic S3-compatible defaults.`);
+        log/* log */.R.warning(`Unknown provider "${providerInput}"; using generic S3-compatible defaults.`);
     }
-    const forcePathStyleRaw = core/* getInput */.V4(constants/* Inputs */.G0.ForcePathStyle);
+    const forcePathStyleRaw = (0,host/* getHost */.L)().input(constants/* Inputs */.G0.ForcePathStyle);
     const forcePathStyleInput = forcePathStyleRaw !== '' ? (0,inputUtils/* getInputAsBool */.$x)(constants/* Inputs */.G0.ForcePathStyle) : undefined;
     const providerConfig = resolveProviderDefaults(endpointInput, regionInput, forcePathStyleInput, providerInput);
     const accessKey = (0,inputUtils/* getInputWithEnv */.oh)(constants/* Inputs */.G0.AccessKey, ['AWS_ACCESS_KEY_ID'], constants/* Inputs */.G0.AccessKeyCamel);
@@ -69638,9 +69869,9 @@ function createStorageContext(options) {
         };
     }
     else if (accessKey || secretKey) {
-        core/* warning */.$e('Only one of access-key and secret-key is set; ignoring it and using the default AWS credential chain.');
+        log/* log */.R.warning('Only one of access-key and secret-key is set; ignoring it and using the default AWS credential chain.');
     }
-    core/* debug */.Yz(`Configuring S3 client for provider: ${providerConfig.provider} (endpoint: ${providerConfig.endpoint || 'AWS default'}, region: ${providerConfig.region}, forcePathStyle: ${providerConfig.forcePathStyle}, maxAttempts: ${maxAttempts}, connectionTimeout: ${timeouts.connectionTimeout} ms, socketTimeout: ${timeouts.socketTimeout} ms)`);
+    log/* log */.R.debug(`Configuring S3 client for provider: ${providerConfig.provider} (endpoint: ${providerConfig.endpoint || 'AWS default'}, region: ${providerConfig.region}, forcePathStyle: ${providerConfig.forcePathStyle}, maxAttempts: ${maxAttempts}, connectionTimeout: ${timeouts.connectionTimeout} ms, socketTimeout: ${timeouts.socketTimeout} ms)`);
     const client = new dist_cjs.S3Client(clientConfig);
     addErrorMiddleware(client);
     addBodyIdleTimeout(client, timeouts.socketTimeout);
@@ -69785,16 +70016,16 @@ async function completeOrAbort(client, bucket, key, upload) {
         if (uploadId) {
             try {
                 await client.send(new dist_cjs.AbortMultipartUploadCommand({ Bucket: bucket, Key: key, UploadId: uploadId }));
-                core/* debug */.Yz(`Aborted multipart upload ${uploadId} for s3://${bucket}/${key}.`);
+                log/* log */.R.debug(`Aborted multipart upload ${uploadId} for s3://${bucket}/${key}.`);
             }
             catch (abortErr) {
                 const error = abortErr;
                 const message = `Could not abort multipart upload ${uploadId} for s3://${bucket}/${key}: ${error.message ?? String(abortErr)}`;
                 if (error.name === 'NoSuchUpload' || error.$metadata?.httpStatusCode === 404) {
-                    core/* debug */.Yz(`${message} (it was already aborted).`);
+                    log/* log */.R.debug(`${message} (it was already aborted).`);
                 }
                 else {
-                    core/* warning */.$e(`${message}. Its parts stay stored until a bucket lifecycle rule (AbortIncompleteMultipartUpload) removes them.`);
+                    log/* log */.R.warning(`${message}. Its parts stay stored until a bucket lifecycle rule (AbortIncompleteMultipartUpload) removes them.`);
                 }
             }
         }
@@ -69861,7 +70092,7 @@ async function uploadFile(client, bucket, key, sourcePath, transfer, options) {
     parallelUpload.on('httpUploadProgress', (progress) => {
         if (progress.total && progress.loaded) {
             const pct = Math.round((progress.loaded / progress.total) * 100);
-            core/* debug */.Yz(`Upload progress: ${pct}% (${progress.loaded}/${progress.total} bytes)`);
+            log/* log */.R.debug(`Upload progress: ${pct}% (${progress.loaded}/${progress.total} bytes)`);
         }
     });
     const result = await completeOrAbort(client, bucket, key, parallelUpload);
@@ -69896,7 +70127,7 @@ function createStreamUpload(client, bucket, key, body, transfer, options) {
     upload.on('httpUploadProgress', (progress) => {
         if (progress.total && progress.loaded) {
             const pct = Math.round((progress.loaded / progress.total) * 100);
-            core/* debug */.Yz(`Upload progress: ${pct}% (${progress.loaded}/${progress.total} bytes)`);
+            log/* log */.R.debug(`Upload progress: ${pct}% (${progress.loaded}/${progress.total} bytes)`);
         }
     });
     return {
@@ -70120,7 +70351,7 @@ async function withRetry(operation, options) {
             }
             const delay = Math.round(minTimeout * factor ** (attempt - 1) + Math.random() * maxJitter);
             const message = err instanceof Error ? err.message : String(err);
-            core/* info */.pq(`${opName}: attempt ${attempt}/${retries + 1} failed: ${message}. Retrying in ${delay}ms...`);
+            log/* log */.R.info(`${opName}: attempt ${attempt}/${retries + 1} failed: ${message}. Retrying in ${delay}ms...`);
             await new Promise((resolve) => setTimeout(resolve, delay));
         }
     }
@@ -70350,7 +70581,7 @@ async function downloadFileInParts(client, bucket, key, destinationPath, options
             }
         }, () => source.abort());
         sha256 = await hasher?.finish(options.size).catch((err) => {
-            core/* debug */.Yz(`The download hash failed, so the result has no sha256: ${String(err)}`);
+            log/* log */.R.debug(`The download hash failed, so the result has no sha256: ${String(err)}`);
             return undefined;
         });
     }
@@ -70366,7 +70597,7 @@ function startHasher(filePath) {
         return createPrefixHasher(filePath);
     }
     catch (err) {
-        core/* debug */.Yz(`Could not start the download hash worker: ${String(err)}`);
+        log/* log */.R.debug(`Could not start the download hash worker: ${String(err)}`);
         return undefined;
     }
 }
@@ -70813,39 +71044,6 @@ function compileKeyTemplate(options) {
 
 // EXTERNAL MODULE: ./src/core/outcomes.ts
 var outcomes = __nccwpck_require__(9570);
-;// CONCATENATED MODULE: ./src/core/refs.ts
-
-function readDefaultBranch(eventPath, readFile) {
-    if (!eventPath) {
-        return undefined;
-    }
-    try {
-        const payload = JSON.parse(readFile(eventPath));
-        const branch = payload.repository?.default_branch;
-        return typeof branch === 'string' && branch ? branch : undefined;
-    }
-    catch {
-        return undefined;
-    }
-}
-/** Mirrors actions/cache: a run may restore from its own ref, its PR base, and the default branch. */
-function resolveRefCandidates(env = process.env, readFile = (file) => (0,external_node_fs_.readFileSync)(file, 'utf8')) {
-    const current = env.GITHUB_REF?.trim() || undefined;
-    if (!current) {
-        return { current: undefined, restore: [] };
-    }
-    const candidates = [current];
-    const baseRef = env.GITHUB_BASE_REF?.trim();
-    if (baseRef) {
-        candidates.push(`refs/heads/${baseRef}`);
-    }
-    const defaultBranch = readDefaultBranch(env.GITHUB_EVENT_PATH, readFile);
-    if (defaultBranch) {
-        candidates.push(`refs/heads/${defaultBranch}`);
-    }
-    return { current, restore: [...new Set(candidates)] };
-}
-
 ;// CONCATENATED MODULE: ./src/core/version.ts
 
 
@@ -70866,6 +71064,7 @@ function computeCacheVersion(paths, compression, enableCrossOsArchive, platform 
 }
 
 ;// CONCATENATED MODULE: ./src/core/s3Tier.ts
+
 
 
 
@@ -70945,7 +71144,7 @@ function taggingRejection(err) {
  */
 function noteObjectTaggingUnsupported(tier, bucket, err) {
     if (!tier.storage.objectTaggingUnsupported) {
-        core/* warning */.$e(`s3://${bucket} could not store object tags (${taggingRejection(err)}); saved without them.`);
+        log/* log */.R.warning(`s3://${bucket} could not store object tags (${taggingRejection(err)}); saved without them.`);
     }
     tier.storage.objectTaggingUnsupported = true;
 }
@@ -70967,33 +71166,38 @@ const COMPRESSION_CONFIGS = {
 };
 async function resolveCompression(persisted) {
     if (persisted === 'zstd' || persisted === 'gzip') {
-        core/* debug */.Yz(`Using the ${persisted} compression the restore step used.`);
+        log/* log */.R.debug(`Using the ${persisted} compression the restore step used.`);
         return COMPRESSION_CONFIGS[persisted];
     }
     return getCompressionConfig();
 }
-async function buildS3Tier(config, env = process.env, options = {}) {
+async function buildS3Tier(config, env, options = {}) {
+    // process.env is the live environment, so it means "the CI host of this run". Any other env
+    // object is a test or caller fixture, read as GitHub variables.
+    const ctx = env === undefined || env === process.env
+        ? (0,host/* getHost */.L)().context()
+        : new github/* GitHubActionsHost */.p(env).context();
     const storage = createStorageContext({
         maxAttempts: config.retryEnabled ? config.retryCount + 1 : 1,
     });
     const compression = await resolveCompression(options.compression);
-    const refs = resolveRefCandidates(env);
+    const refs = ctx.refs;
     const scopedToRef = config.scopedToRef && refs.current !== undefined;
     if (config.scopedToRef && !scopedToRef) {
-        core/* debug */.Yz('GITHUB_REF is not set, so caches are not scoped to a ref.');
+        log/* log */.R.debug('GITHUB_REF is not set, so caches are not scoped to a ref.');
     }
     const template = compileKeyTemplate({
         pattern: config.s3KeyPattern,
-        repository: env.GITHUB_REPOSITORY ?? '',
+        repository: ctx.repository,
         prefix: config.prefix,
         scopedToRepository: config.scopedToRepository,
         scopedToRef,
         version: computeCacheVersion(config.paths, compression.method, config.enableCrossOsArchive),
         archiveFilename: compression.archiveFilename,
-        env,
+        env: ctx.env,
     });
     for (const warning of template.warnings) {
-        core/* warning */.$e(warning);
+        log/* log */.R.warning(warning);
     }
     // A pattern without ${ref} gives every ref the same object keys; search them only once.
     const usesRef = scopedToRef && template.objectKey('a', '') !== template.objectKey('b', '');
@@ -71004,7 +71208,7 @@ async function buildS3Tier(config, env = process.env, options = {}) {
         restoreRefs: usesRef ? refs.restore : [''],
         saveRef: usesRef ? refs.current : '',
         compression,
-        workspace: getWorkspace(env),
+        workspace: ctx.workspace,
         streamRetries: config.retryEnabled ? config.retryCount : 0,
         streaming: config.streaming,
         download: { concurrency: config.downloadConcurrency, partSize: config.downloadChunkSize },
@@ -71054,7 +71258,7 @@ function settingsFor(tier, direction, sizeBytes) {
         freeMemoryBytes: (tier.memory ?? usableMemory)(),
         fixed,
     });
-    core/* info */.pq(formatTuning(direction, settings, sizeBytes, fixed));
+    log/* log */.R.info(formatTuning(direction, settings, sizeBytes, fixed));
     return settings;
 }
 /** gzip stops at 9, so a higher level warns once and uses 9. */
@@ -71062,7 +71266,7 @@ function clampCompressionLevel(level, method) {
     if (level === undefined || method !== 'gzip' || level <= constants/* Defaults */.Hw.MaxGzipCompressionLevel) {
         return level;
     }
-    core/* warning */.$e(`Input "compression-level" is ${level}, above gzip's maximum of ${constants/* Defaults */.Hw.MaxGzipCompressionLevel}; using ${constants/* Defaults */.Hw.MaxGzipCompressionLevel}.`);
+    log/* log */.R.warning(`Input "compression-level" is ${level}, above gzip's maximum of ${constants/* Defaults */.Hw.MaxGzipCompressionLevel}; using ${constants/* Defaults */.Hw.MaxGzipCompressionLevel}.`);
     return constants/* Defaults */.Hw.MaxGzipCompressionLevel;
 }
 /**
@@ -71073,7 +71277,7 @@ function clampCompressionLevel(level, method) {
 async function listCandidates(tier, ref, keyPrefix) {
     const { client, bucket } = tier.storage;
     const prefix = tier.template.searchPrefix(ref, keyPrefix);
-    core/* debug */.Yz(`Listing s3://${bucket}/${prefix}`);
+    log/* log */.R.debug(`Listing s3://${bucket}/${prefix}`);
     const objects = await listObjects(client, bucket, prefix);
     return objects.map((object) => {
         const key = tier.template.extractKey(ref, object.key);
@@ -71099,7 +71303,7 @@ async function findS3Match(tier, primaryKey, restoreKeys) {
     // so a later ref may only be searched once this one has produced nothing.
     for (const ref of tier.restoreRefs) {
         const exactKey = tier.template.objectKey(ref, primaryKey);
-        core/* debug */.Yz(`Checking s3://${bucket}/${exactKey}`);
+        log/* log */.R.debug(`Checking s3://${bucket}/${exactKey}`);
         const exact = await checkObjectExists(client, bucket, exactKey);
         if (exact) {
             return {
@@ -71112,7 +71316,7 @@ async function findS3Match(tier, primaryKey, restoreKeys) {
             };
         }
         for (const keyPrefix of keyPrefixes) {
-            core/* debug */.Yz(`Listing s3://${bucket}/${tier.template.searchPrefix(ref, keyPrefix)}`);
+            log/* log */.R.debug(`Listing s3://${bucket}/${tier.template.searchPrefix(ref, keyPrefix)}`);
         }
         const listed = await mapWithConcurrency(keyPrefixes, LOOKUP_CONCURRENCY, (keyPrefix) => findNewestObject(client, bucket, tier.template.searchPrefix(ref, keyPrefix), (objectKey) => tier.template.extractKey(ref, objectKey) !== undefined));
         // Resolved in key order, never in the order the responses arrived.
@@ -71155,7 +71359,7 @@ async function resolveExpectedSha256(tier, objectKey, metadata, tagCount) {
         // A warning, not a debug line: the usual cause is an IAM policy without
         // `s3:GetObjectTagging`, and the only visible effect is an integrity check that silently
         // stops happening. The restore still proceeds — the cache itself is fine.
-        core/* warning */.$e(`Could not read the tags of s3://${tier.storage.bucket}/${objectKey}, so this restore skips the integrity check: ${(0,outcomes/* toError */.i)(err).message}`);
+        log/* log */.R.warning(`Could not read the tags of s3://${tier.storage.bucket}/${objectKey}, so this restore skips the integrity check: ${(0,outcomes/* toError */.i)(err).message}`);
         return undefined;
     }
 }
@@ -71187,7 +71391,7 @@ async function restoreFromS3(tier, primaryKey, restoreKeys, lookupOnly) {
         hit.downloadParts = parts;
     };
     const where = found.ref ? ` on ${found.ref}` : '';
-    core/* info */.pq(`S3 cache ${found.exact ? 'hit' : 'partial hit'} for key "${found.matchedKey}"${where} (${(0,inputUtils/* formatSize */.Xq)(found.size)})`);
+    log/* log */.R.info(`S3 cache ${found.exact ? 'hit' : 'partial hit'} for key "${found.matchedKey}"${where} (${(0,inputUtils/* formatSize */.Xq)(found.size)})`);
     if (tier.streaming) {
         try {
             const tar = await findTar();
@@ -71198,7 +71402,7 @@ async function restoreFromS3(tier, primaryKey, restoreKeys, lookupOnly) {
             })) {
                 return await restoreFromS3Streaming(tier, found, tar, hit);
             }
-            core/* info */.pq(STREAMING_FALLBACK_MESSAGE);
+            log/* log */.R.info(STREAMING_FALLBACK_MESSAGE);
         }
         catch (err) {
             return { kind: 'error', error: (0,outcomes/* toError */.i)(err) };
@@ -71223,7 +71427,7 @@ async function restoreFromS3(tier, primaryKey, restoreKeys, lookupOnly) {
             }
         }
         else {
-            core/* debug */.Yz(`s3://${bucket}/${found.objectKey} has no ${SHA256_METADATA_KEY} metadata; skipping integrity check.`);
+            log/* log */.R.debug(`s3://${bucket}/${found.objectKey} has no ${SHA256_METADATA_KEY} metadata; skipping integrity check.`);
         }
         const extractStart = Date.now();
         await extractArchive(archivePath, tier.compression, tier.workspace);
@@ -71248,12 +71452,12 @@ async function saveToS3(tier, primaryKey, patterns) {
     try {
         const existing = await checkObjectExists(client, bucket, objectKey);
         if (existing) {
-            core/* info */.pq(`Cache already exists at s3://${bucket}/${objectKey}; not uploading it again.`);
+            log/* log */.R.info(`Cache already exists at s3://${bucket}/${objectKey}; not uploading it again.`);
             return { kind: 'exists', s3: { objectKey, size: existing.size, etag: existing.etag } };
         }
         const { entries } = await resolveCachePaths(patterns, tier.workspace);
         if (entries.length === 0) {
-            core/* warning */.$e('Path Validation Error: Path(s) specified in the action for caching do(es) not exist, hence no cache is being saved.');
+            log/* log */.R.warning('Path Validation Error: Path(s) specified in the action for caching do(es) not exist, hence no cache is being saved.');
             return { kind: 'skipped', reason: 'no paths matched' };
         }
         if (tier.streaming) {
@@ -71261,7 +71465,7 @@ async function saveToS3(tier, primaryKey, patterns) {
             if (!usesSeparateZstd({ tar, platform: process.platform, compression: tier.compression.method })) {
                 return await saveToS3Streaming(tier, objectKey, entries, tar, primaryKey);
             }
-            core/* info */.pq(STREAMING_FALLBACK_MESSAGE);
+            log/* log */.R.info(STREAMING_FALLBACK_MESSAGE);
         }
         return await saveToS3FileMode(tier, objectKey, entries, primaryKey);
     }
@@ -71289,7 +71493,7 @@ async function saveToS3FileMode(tier, objectKey, entries, primaryKey, retryConfl
         const { sha256: checksum } = await createArchive(archivePath, entries, tier.compression, tier.workspace, tier.compressionLevel);
         const archiveMs = Date.now() - archiveStart;
         const archiveSize = getArchiveSize(archivePath);
-        core/* info */.pq(`Uploading ${(0,inputUtils/* formatSize */.Xq)(archiveSize)} to s3://${bucket}/${objectKey}...`);
+        log/* log */.R.info(`Uploading ${(0,inputUtils/* formatSize */.Xq)(archiveSize)} to s3://${bucket}/${objectKey}...`);
         const metadata = { ...tier.metadata, [SHA256_METADATA_KEY]: checksum };
         const uploadSettings = settingsFor(tier, 'upload', archiveSize);
         const attemptUpload = (ifNoneMatch, tagging) => withRetry(() => uploadFile(client, bucket, objectKey, archivePath, uploadSettings, {
@@ -71312,7 +71516,7 @@ async function saveToS3FileMode(tier, objectKey, entries, primaryKey, retryConfl
                 if (!retryConflict || !isConditionalConflict(err)) {
                     throw err;
                 }
-                core/* info */.pq(`A concurrent write to s3://${bucket}/${objectKey} conflicted with this upload; retrying it once.`);
+                log/* log */.R.info(`A concurrent write to s3://${bucket}/${objectKey} conflicted with this upload; retrying it once.`);
                 return await attemptUpload('*', tagging);
             }
         };
@@ -71338,7 +71542,7 @@ async function saveToS3FileMode(tier, objectKey, entries, primaryKey, retryConfl
                 uploaded = await uploadWith(undefined);
                 noteObjectTaggingUnsupported(tier, bucket, err);
             }
-            core/* info */.pq(`Cache saved to S3 with key: ${primaryKey}`);
+            log/* log */.R.info(`Cache saved to S3 with key: ${primaryKey}`);
             return {
                 kind: 'saved',
                 s3: { objectKey, size: uploaded.size, etag: uploaded.etag },
@@ -71348,7 +71552,7 @@ async function saveToS3FileMode(tier, objectKey, entries, primaryKey, retryConfl
         }
         catch (err) {
             if (sendCondition && isPreconditionFailed(err)) {
-                core/* info */.pq(`Another job saved s3://${bucket}/${objectKey} first; keeping its cache.`);
+                log/* log */.R.info(`Another job saved s3://${bucket}/${objectKey} first; keeping its cache.`);
                 return {
                     kind: 'exists',
                     s3: { objectKey, size: archiveSize, etag: undefined },
@@ -71357,10 +71561,10 @@ async function saveToS3FileMode(tier, objectKey, entries, primaryKey, retryConfl
                 };
             }
             if (sendCondition && isConditionUnsupported(err)) {
-                core/* debug */.Yz(`s3://${bucket} rejected the If-None-Match condition; retrying the upload of ${objectKey} without it.`);
+                log/* log */.R.debug(`s3://${bucket} rejected the If-None-Match condition; retrying the upload of ${objectKey} without it.`);
                 tier.storage.conditionalWriteUnsupported = true;
                 const uploaded = await attemptUpload(undefined, tier.storage.objectTaggingUnsupported ? undefined : tagging);
-                core/* info */.pq(`Cache saved to S3 with key: ${primaryKey}`);
+                log/* log */.R.info(`Cache saved to S3 with key: ${primaryKey}`);
                 return {
                     kind: 'saved',
                     s3: { objectKey, size: uploaded.size, etag: uploaded.etag },
@@ -71416,12 +71620,12 @@ async function attachStreamedMetadataByCopy(tier, objectKey, sha256, size, uploa
     const { client, bucket } = tier.storage;
     const uploadedEtag = uploaded.etag;
     if (size > MAX_COPY_SIZE) {
-        core/* warning */.$e(`Saved s3://${bucket}/${objectKey} but could not attach metadata: archives over 5 GiB cannot be copied in one request.`);
+        log/* log */.R.warning(`Saved s3://${bucket}/${objectKey} but could not attach metadata: archives over 5 GiB cannot be copied in one request.`);
         return uploadedEtag;
     }
     const guard = copyGuard(tier, uploaded);
     if (guard === undefined) {
-        core/* warning */.$e(`Saved s3://${bucket}/${objectKey} without a checksum: GCS reported no generation for this multipart upload, so this save cannot prove that it still owns the object, and that cache is kept without an integrity check.`);
+        log/* log */.R.warning(`Saved s3://${bucket}/${objectKey} without a checksum: GCS reported no generation for this multipart upload, so this save cannot prove that it still owns the object, and that cache is kept without an integrity check.`);
         return uploadedEtag;
     }
     try {
@@ -71437,11 +71641,11 @@ async function attachStreamedMetadataByCopy(tier, objectKey, sha256, size, uploa
         return copied.etag ?? uploadedEtag;
     }
     catch (err) {
-        core/* warning */.$e(`Saved s3://${bucket}/${objectKey} but could not attach metadata: ${(0,outcomes/* toError */.i)(err).message}`);
+        log/* log */.R.warning(`Saved s3://${bucket}/${objectKey} but could not attach metadata: ${(0,outcomes/* toError */.i)(err).message}`);
         if (checksumTagLeft && isPreconditionFailed(err)) {
             // The 412 says another writer replaced the object, and the tag removal before this copy
             // failed. The checksum tag of this save can now be a false checksum on that object.
-            core/* warning */.$e(`This save's checksum tag may remain on s3://${bucket}/${objectKey}, which another job replaced; a restore of that cache can reject it as corrupt.`);
+            log/* log */.R.warning(`This save's checksum tag may remain on s3://${bucket}/${objectKey}, which another job replaced; a restore of that cache can reject it as corrupt.`);
         }
         return uploadedEtag;
     }
@@ -71479,7 +71683,7 @@ async function confirmTaggedObject(tier, objectKey, uploadedEtag, writerId) {
         head = await checkObjectExists(client, bucket, objectKey);
     }
     catch (err) {
-        core/* debug */.Yz(`Could not read s3://${bucket}/${objectKey} after the tag: ${(0,outcomes/* toError */.i)(err).message}`);
+        log/* log */.R.debug(`Could not read s3://${bucket}/${objectKey} after the tag: ${(0,outcomes/* toError */.i)(err).message}`);
         return 'unconfirmed';
     }
     if (head === null) {
@@ -71505,7 +71709,7 @@ async function removeChecksumTag(tier, objectKey) {
         return true;
     }
     catch (err) {
-        core/* warning */.$e(`Could not remove this save's checksum tag from s3://${bucket}/${objectKey}: ${(0,outcomes/* toError */.i)(err).message}`);
+        log/* log */.R.warning(`Could not remove this save's checksum tag from s3://${bucket}/${objectKey}: ${(0,outcomes/* toError */.i)(err).message}`);
         return false;
     }
 }
@@ -71543,15 +71747,15 @@ async function attachStreamedChecksum(tier, objectKey, sha256, size, uploaded, w
         catch (err) {
             if (isTagPutUnsupported(err)) {
                 tier.storage.objectTaggingUnsupported = true;
-                core/* debug */.Yz(`s3://${bucket} has no object tagging API; the checksum cannot go on as a tag.`);
+                log/* log */.R.debug(`s3://${bucket} has no object tagging API; the checksum cannot go on as a tag.`);
             }
             else if (isAccessDeniedError(err)) {
                 // Visible on purpose: the copy below rewrites the whole object, which costs seconds per
                 // GiB, and the only fix is a permission the user can grant.
-                core/* info */.pq(`The credentials may not tag s3://${bucket}/${objectKey}, so the checksum goes on by a copy of the whole object, which is slow for a large cache. Grant s3:PutObjectTagging to skip the copy.`);
+                log/* log */.R.info(`The credentials may not tag s3://${bucket}/${objectKey}, so the checksum goes on by a copy of the whole object, which is slow for a large cache. Grant s3:PutObjectTagging to skip the copy.`);
             }
             else {
-                core/* debug */.Yz(`Could not tag s3://${bucket}/${objectKey}: ${(0,outcomes/* toError */.i)(err).message}`);
+                log/* log */.R.debug(`Could not tag s3://${bucket}/${objectKey}: ${(0,outcomes/* toError */.i)(err).message}`);
             }
         }
         if (tagged) {
@@ -71565,19 +71769,19 @@ async function attachStreamedChecksum(tier, objectKey, sha256, size, uploaded, w
             if (ownership === 'replaced') {
                 // Another job wrote this key between the upload and the tag. Stop here: the copy would
                 // rewrite an object that is not ours.
-                core/* warning */.$e(`Another job replaced s3://${bucket}/${objectKey} while this save was finishing, so its checksum was not attached; that cache is kept without an integrity check.`);
+                log/* log */.R.warning(`Another job replaced s3://${bucket}/${objectKey} while this save was finishing, so its checksum was not attached; that cache is kept without an integrity check.`);
                 return uploadedEtag;
             }
             // `unconfirmed`: the same as a tag failure below.
-            core/* debug */.Yz(`Could not confirm that s3://${bucket}/${objectKey} still holds this upload.`);
+            log/* log */.R.debug(`Could not confirm that s3://${bucket}/${objectKey} still holds this upload.`);
         }
         if (uploadedEtag === undefined) {
             // No ETag, so no `CopySourceIfMatch`: the copy could put this save's checksum on the
             // bytes of another job. Keep no checksum instead.
-            core/* warning */.$e(`Saved s3://${bucket}/${objectKey} without a checksum: the upload reported no ETag, so this save cannot prove that it still owns the object, and that cache is kept without an integrity check.`);
+            log/* log */.R.warning(`Saved s3://${bucket}/${objectKey} without a checksum: the upload reported no ETag, so this save cannot prove that it still owns the object, and that cache is kept without an integrity check.`);
             return uploadedEtag;
         }
-        core/* debug */.Yz(`Attaching the checksum to s3://${bucket}/${objectKey} by a guarded copy.`);
+        log/* log */.R.debug(`Attaching the checksum to s3://${bucket}/${objectKey} by a guarded copy.`);
     }
     return await attachStreamedMetadataByCopy(tier, objectKey, sha256, size, uploaded, checksumTagLeft);
 }
@@ -71667,7 +71871,7 @@ async function saveToS3Streaming(tier, objectKey, entries, tar, primaryKey) {
         finalized.catch(() => undefined);
         const sendCondition = !tier.storage.conditionalWriteUnsupported;
         const transferStart = Date.now();
-        core/* info */.pq(`Streaming upload to s3://${bucket}/${objectKey}...`);
+        log/* log */.R.info(`Streaming upload to s3://${bucket}/${objectKey}...`);
         const tagging = tier.storage.objectTaggingUnsupported ? undefined : encodeTagging(tier.tags);
         // A random id for this save, sent only when the checksum can go on as a tag. The ownership
         // check after the tag compares it when the ETags cannot be compared.
@@ -71681,7 +71885,7 @@ async function saveToS3Streaming(tier, objectKey, entries, tar, primaryKey) {
         const uploadDone = upload.done();
         try {
             const [uploaded] = await Promise.all([uploadDone, finalized]);
-            core/* info */.pq(`Cache saved to S3 with key: ${primaryKey}`);
+            log/* log */.R.info(`Cache saved to S3 with key: ${primaryKey}`);
             const size = counter.count();
             const transferMs = Date.now() - transferStart;
             const etag = await attachStreamedChecksum(tier, objectKey, tap.digest(), size, { etag: uploaded.ETag, versionId: uploaded.VersionId }, writerId);
@@ -71721,7 +71925,7 @@ async function saveToS3Streaming(tier, objectKey, entries, tar, primaryKey) {
                 return outcome;
             }
             if (sendCondition && isPreconditionFailed(err)) {
-                core/* info */.pq(`Another job saved s3://${bucket}/${objectKey} first; keeping its cache.`);
+                log/* log */.R.info(`Another job saved s3://${bucket}/${objectKey} first; keeping its cache.`);
                 return {
                     kind: 'exists',
                     s3: { objectKey, size: counter.count(), etag: undefined },
@@ -71729,14 +71933,14 @@ async function saveToS3Streaming(tier, objectKey, entries, tar, primaryKey) {
                 };
             }
             if (sendCondition && isConditionUnsupported(err)) {
-                core/* debug */.Yz(`s3://${bucket} rejected the If-None-Match condition; retrying the upload of ${objectKey} without it.`);
+                log/* log */.R.debug(`s3://${bucket} rejected the If-None-Match condition; retrying the upload of ${objectKey} without it.`);
                 tier.storage.conditionalWriteUnsupported = true;
                 return await saveToS3FileMode(tier, objectKey, entries, primaryKey);
             }
             if (sendCondition && isConditionalConflict(err)) {
                 // A streamed body cannot be replayed, so the one retry is a file-mode save, which keeps
                 // the condition.
-                core/* info */.pq(`A concurrent write to s3://${bucket}/${objectKey} conflicted with this upload; retrying it once from a temporary archive file.`);
+                log/* log */.R.info(`A concurrent write to s3://${bucket}/${objectKey} conflicted with this upload; retrying it once from a temporary archive file.`);
                 return await saveToS3FileMode(tier, objectKey, entries, primaryKey, false);
             }
             throw withStderrTail(err, stderrTail.lines());
@@ -71769,12 +71973,12 @@ function partPlan(tier, found) {
         return undefined;
     }
     const parts = Math.ceil(found.size / partSize);
-    core/* info */.pq(`Downloading ${(0,inputUtils/* formatSize */.Xq)(found.size)} in ${parts} parts of ${(0,inputUtils/* formatSize */.Xq)(partSize)}, ${Math.min(concurrency, parts)} at a time`);
+    log/* log */.R.info(`Downloading ${(0,inputUtils/* formatSize */.Xq)(found.size)} in ${parts} parts of ${(0,inputUtils/* formatSize */.Xq)(partSize)}, ${Math.min(concurrency, parts)} at a time`);
     return { size: found.size, partSize, concurrency, retries: tier.streamRetries };
 }
 /** Logged once when a provider answers a ranged GET with the whole object. */
 function logRangeFallback(tier, found) {
-    core/* info */.pq(`s3://${tier.storage.bucket}/${found.objectKey} does not support ranged GET requests; downloading it in one request.`);
+    log/* log */.R.info(`s3://${tier.storage.bucket}/${found.objectKey} does not support ranged GET requests; downloading it in one request.`);
 }
 /**
  * Downloads the archive to `archivePath`: in concurrent ranged parts when the object is large
@@ -71886,7 +72090,7 @@ async function restoreFromS3Streaming(tier, found, tar, hit) {
             }
         }
         else {
-            core/* debug */.Yz(`s3://${bucket}/${found.objectKey} has no ${SHA256_METADATA_KEY} metadata; skipping integrity check.`);
+            log/* log */.R.debug(`s3://${bucket}/${found.objectKey} has no ${SHA256_METADATA_KEY} metadata; skipping integrity check.`);
         }
         if (hit.kind === 'hit' && hit.s3) {
             hit.s3.metadata = stripReservedMetadata(metadata);
@@ -71918,20 +72122,21 @@ async function restoreFromS3Streaming(tier, found, tar, hit) {
 
 
 
+
 /** One line that names the preset and the paths it resolved, under the table. */
 function addPresetLine(preset, paths) {
     if (!preset) {
         return;
     }
     const list = (paths ?? []).map((p) => `<code>${escapeHtml(p)}</code>`).join(', ');
-    core/* summary */.z.addRaw(`<p>Preset <code>${escapeHtml(preset)}</code>, path ${list}</p>`, true);
+    writer().addRaw(`<p>Preset <code>${escapeHtml(preset)}</code>, path ${list}</p>`, true);
 }
 /** One line that tells why the step did not ask any tier, under the table. */
 function addSkippedLine(reason) {
     if (reason === undefined) {
         return;
     }
-    core/* summary */.z.addRaw(`<p>Skipped: ${escapeHtml(reason)}</p>`, true);
+    writer().addRaw(`<p>Skipped: ${escapeHtml(reason)}</p>`, true);
 }
 function formatSavedTo(data) {
     if (data.savedTo.length > 0) {
@@ -71946,7 +72151,7 @@ function formatOptionalSize(size) {
     return size === undefined ? '—' : (0,inputUtils/* formatSize */.Xq)(size);
 }
 /**
- * core.summary writes the text it is given into the HTML as is, so a key containing `<` or `&`
+ * The job summary writes the text it is given into the HTML as is, so a key containing `<` or `&`
  * would break the markup. Every table cell and every `<pre>` line built from user data — here
  * and in the explain report's summary section — goes through this.
  */
@@ -71959,23 +72164,36 @@ function escapeHtml(text) {
 }
 /** Only write when the job-summary input is on and GitHub gave us a summary file to write to. */
 function canWrite(jobSummary) {
-    return jobSummary && Boolean(process.env.GITHUB_STEP_SUMMARY);
+    return jobSummary && (0,host/* getHost */.L)().summary !== undefined;
+}
+/** The host summary writer. Callers pass `canWrite` first, so it exists here. */
+function writer() {
+    const summary = (0,host/* getHost */.L)().summary;
+    if (summary === undefined) {
+        throw new Error('The CI host has no job summary writer.');
+    }
+    return summary;
 }
 /** A write failure (missing/unwritable summary file) is logged at debug level and never thrown. */
 async function flush() {
+    if ((0,host/* getHost */.L)().summary === undefined) {
+        return;
+    }
     try {
-        await core/* summary */.z.write();
+        await writer().write();
     }
     catch (err) {
-        core/* debug */.Yz(`Failed to write the job summary: ${(0,outcomes/* toError */.i)(err).message}`);
-        core/* summary */.z.emptyBuffer();
+        log/* log */.R.debug(`Failed to write the job summary: ${(0,outcomes/* toError */.i)(err).message}`);
+        writer().emptyBuffer();
     }
 }
 async function writeRestoreSummary(data) {
     if (!canWrite(data.jobSummary)) {
         return;
     }
-    core/* summary */.z.addHeading('Cloud cache restore').addTable([
+    writer()
+        .addHeading('Cloud cache restore')
+        .addTable([
         [
             { data: 'Primary key', header: true },
             { data: 'Matched key', header: true },
@@ -71996,7 +72214,7 @@ async function writeRestoreSummary(data) {
     addSkippedLine(data.skipped);
     addPresetLine(data.preset, data.paths);
     if (data.metadata && Object.keys(data.metadata).length > 0) {
-        core/* summary */.z.addDetails('Object metadata', `<ul>${Object.entries(data.metadata)
+        writer().addDetails('Object metadata', `<ul>${Object.entries(data.metadata)
             .map(([k, v]) => `<li><code>${escapeHtml(k)}</code>: ${escapeHtml(v)}</li>`)
             .join('')}</ul>`);
     }
@@ -72006,7 +72224,9 @@ async function writeSaveSummary(data) {
     if (!canWrite(data.jobSummary)) {
         return;
     }
-    core/* summary */.z.addHeading('Cloud cache save').addTable([
+    writer()
+        .addHeading('Cloud cache save')
+        .addTable([
         [
             { data: 'Key', header: true },
             { data: 'Saved to', header: true },
@@ -72207,8 +72427,8 @@ async function writeExplainSummary(report, jobSummary) {
     if (!canWrite(jobSummary)) {
         return;
     }
-    core/* summary */.z
-        .addHeading('Cache lookup explained')
+    (0,host/* getHost */.L)()
+        .summary?.addHeading('Cache lookup explained')
         .addRaw(`<pre>${renderExplain(report).map(escapeHtml).join('\n')}</pre>`, true);
     await flush();
 }
@@ -72226,7 +72446,7 @@ async function writeExplainSummary(report, jobSummary) {
 /** Debug-logs the metrics and, when `metricsFile` is set, appends them as one JSON line. */
 function emitMetrics(metrics, metricsFile, workspace) {
     const line = JSON.stringify(metrics);
-    core/* debug */.Yz(`cloud-cache-metrics ${line}`);
+    log/* log */.R.debug(`cloud-cache-metrics ${line}`);
     if (metricsFile === '') {
         return;
     }
@@ -72236,7 +72456,7 @@ function emitMetrics(metrics, metricsFile, workspace) {
         external_node_fs_.appendFileSync(resolved, `${line}\n`);
     }
     catch (err) {
-        core/* warning */.$e(`Could not write metrics to ${resolved}: ${(0,outcomes/* toError */.i)(err).message}`);
+        log/* log */.R.warning(`Could not write metrics to ${resolved}: ${(0,outcomes/* toError */.i)(err).message}`);
     }
 }
 
@@ -72282,26 +72502,26 @@ async function inspectImpl() {
         if (config.paths.length === 0) {
             throw new Error('Input required and not supplied: path');
         }
-        const maxCandidates = (0,inputUtils/* parsePositiveInt */.EJ)(core/* getInput */.V4(constants/* Inputs */.G0.MaxCandidates) || '20', 'max-candidates');
+        const maxCandidates = (0,inputUtils/* parsePositiveInt */.EJ)((0,host/* getHost */.L)().input(constants/* Inputs */.G0.MaxCandidates) || '20', 'max-candidates');
         const tier = await buildS3Tier(config);
-        core/* setOutput */.uH(constants/* Outputs */.tY.CacheStorageProvider, tier.storage.providerConfig.provider);
+        (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheStorageProvider, tier.storage.providerConfig.provider);
         const report = await buildExplainReport(tier, config, { maxCandidates });
-        core/* startGroup */.Oh('Cache lookup explained');
+        log/* log */.R.startGroup('Cache lookup explained');
         try {
             for (const line of renderExplain(report)) {
-                core/* info */.pq(line);
+                log/* log */.R.info(line);
             }
         }
         finally {
-            core/* endGroup */.N4();
+            log/* log */.R.endGroup();
         }
         await writeExplainSummary(report, config.jobSummary);
         const candidateCount = report.searches.reduce((total, searched) => total + searched.candidates.length + searched.truncated, 0);
-        core/* setOutput */.uH(constants/* Outputs */.tY.WouldHit, String(Boolean(report.wouldHit)));
-        core/* setOutput */.uH(constants/* Outputs */.tY.WouldMatchKey, report.wouldHit?.matchedKey ?? '');
-        core/* setOutput */.uH(constants/* Outputs */.tY.WouldMatchObject, report.wouldHit?.objectKey ?? '');
-        core/* setOutput */.uH(constants/* Outputs */.tY.CandidateCount, String(candidateCount));
-        core/* setOutput */.uH(constants/* Outputs */.tY.Report, reportJson(report, candidateCount));
+        (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.WouldHit, String(Boolean(report.wouldHit)));
+        (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.WouldMatchKey, report.wouldHit?.matchedKey ?? '');
+        (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.WouldMatchObject, report.wouldHit?.objectKey ?? '');
+        (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CandidateCount, String(candidateCount));
+        (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.Report, reportJson(report, candidateCount));
         emitMetrics({
             step: 'inspect',
             timestamp: new Date().toISOString(),
@@ -72313,13 +72533,13 @@ async function inspectImpl() {
             durationMs: Date.now() - start,
             outcome: report.wouldHit ? 'would-hit' : 'would-miss',
             extra: { candidateCount },
-        }, config.metricsFile, getWorkspace());
+        }, config.metricsFile, (0,host/* getHost */.L)().context().workspace);
         if (!report.wouldHit && config.failOnCacheMiss) {
             throw new Error(`No cache would be restored for key "${config.primaryKey}".`);
         }
     }
     catch (err) {
-        core/* setFailed */.C1((0,outcomes/* toError */.i)(err).message);
+        (0,host/* getHost */.L)().setFailed((0,outcomes/* toError */.i)(err).message);
     }
 }
 async function runInspect(earlyExit = true) {
@@ -72504,12 +72724,12 @@ async function abortStaleUploads(client, bucket, prefix, isCandidate, options) {
         stale = listed.stale;
         if (listed.withoutAge > 0) {
             // SeaweedFS lists uploads without an Initiated time, so this rule cannot work there.
-            core/* warning */.$e(`Skipped ${listed.withoutAge} incomplete upload(s): the server lists them without an initiation time, so their age is unknown and they are not aborted. SeaweedFS is one such server.`);
+            log/* log */.R.warning(`Skipped ${listed.withoutAge} incomplete upload(s): the server lists them without an initiation time, so their age is unknown and they are not aborted. SeaweedFS is one such server.`);
         }
     }
     catch (err) {
         const error = (0,outcomes/* toError */.i)(err);
-        core/* warning */.$e(`Could not list incomplete multipart uploads, so none are aborted: ${error.name}: ${error.message}`);
+        log/* log */.R.warning(`Could not list incomplete multipart uploads, so none are aborted: ${error.name}: ${error.message}`);
         return 0;
     }
     const verb = dryRun ? 'Would abort' : 'Aborted';
@@ -72528,18 +72748,18 @@ async function abortStaleUploads(client, bucket, prefix, isCandidate, options) {
                 const error = (0,outcomes/* toError */.i)(err);
                 // The upload finished or was aborted between the listing and this call.
                 if (error.name !== 'NoSuchUpload') {
-                    core/* warning */.$e(`Could not abort the incomplete upload of ${upload.key} (upload ${upload.uploadId}): ${error.name}: ${error.message}`);
+                    log/* log */.R.warning(`Could not abort the incomplete upload of ${upload.key} (upload ${upload.uploadId}): ${error.name}: ${error.message}`);
                 }
                 return;
             }
         }
         count += 1;
         if (count <= LOG_CAP) {
-            core/* info */.pq(`${verb} ${upload.key} (upload ${upload.uploadId}, ${age})`);
+            log/* log */.R.info(`${verb} ${upload.key} (upload ${upload.uploadId}, ${age})`);
         }
     };
     await mapWithConcurrency(stale, options.concurrency, abortOne);
-    core/* info */.pq(`${verb} ${count} incomplete upload(s).`);
+    log/* log */.R.info(`${verb} ${count} incomplete upload(s).`);
     return count;
 }
 function logPruned(selections, now, dryRun) {
@@ -72548,7 +72768,7 @@ function logPruned(selections, now, dryRun) {
         const ageDays = object.lastModified
             ? Math.floor((now.getTime() - object.lastModified.getTime()) / prune_DAY_MS)
             : 0;
-        core/* info */.pq(`${verb} ${object.key} (${(0,inputUtils/* formatSize */.Xq)(object.size)}, ${ageDays}d old, ${reason})`);
+        log/* log */.R.info(`${verb} ${object.key} (${(0,inputUtils/* formatSize */.Xq)(object.size)}, ${ageDays}d old, ${reason})`);
     }
     const totalBytes = selections.reduce((total, { object }) => total + object.size, 0);
     const counts = new Map();
@@ -72556,7 +72776,7 @@ function logPruned(selections, now, dryRun) {
         counts.set(reason, (counts.get(reason) ?? 0) + 1);
     }
     const reasons = [...counts].map(([reason, count]) => `${count} by ${reason}`).join(', ');
-    core/* info */.pq(`${verb} ${selections.length} cache object(s) totaling ${(0,inputUtils/* formatSize */.Xq)(totalBytes)}${reasons ? ` (${reasons})` : ''}.`);
+    log/* log */.R.info(`${verb} ${selections.length} cache object(s) totaling ${(0,inputUtils/* formatSize */.Xq)(totalBytes)}${reasons ? ` (${reasons})` : ''}.`);
 }
 function refusal(problem, ref) {
     switch (problem) {
@@ -72609,7 +72829,7 @@ async function pruneCaches(tier, options) {
     });
     const { selected, overBudgetBytes } = selectForPrune(candidates, options, now);
     if (overBudgetBytes > 0) {
-        core/* warning */.$e(`The remaining cache archives are still ${(0,inputUtils/* formatSize */.Xq)(overBudgetBytes)} over "max-total-size": the "keep-latest" archives and archives with no modification time are never pruned.`);
+        log/* log */.R.warning(`The remaining cache archives are still ${(0,inputUtils/* formatSize */.Xq)(overBudgetBytes)} over "max-total-size": the "keep-latest" archives and archives with no modification time are never pruned.`);
     }
     const keptCount = candidates.length - selected.length;
     const stale = selected.map(({ object }) => object);
@@ -72656,6 +72876,7 @@ async function pruneCaches(tier, options) {
 
 
 
+
 const TRUE_VALUES = ['true', 'True', 'TRUE'];
 const FALSE_VALUES = ['false', 'False', 'FALSE'];
 /**
@@ -72681,10 +72902,10 @@ function parseDryRun(raw) {
  */
 function readPruneRules() {
     const rules = {
-        olderThanDays: (0,inputUtils/* parseOptionalPositiveInt */.or)(core/* getInput */.V4(constants/* Inputs */.G0.OlderThanDays), constants/* Inputs */.G0.OlderThanDays),
-        keepLatest: (0,inputUtils/* parseOptionalPositiveInt */.or)(core/* getInput */.V4(constants/* Inputs */.G0.KeepLatest), constants/* Inputs */.G0.KeepLatest),
-        maxTotalSize: (0,inputUtils/* parseOptionalNonNegativeInt */.Js)(core/* getInput */.V4(constants/* Inputs */.G0.MaxTotalSize), constants/* Inputs */.G0.MaxTotalSize),
-        abortUploadsOlderThanHours: (0,inputUtils/* parseOptionalPositiveInt */.or)(core/* getInput */.V4(constants/* Inputs */.G0.AbortUploadsOlderThanHours), constants/* Inputs */.G0.AbortUploadsOlderThanHours),
+        olderThanDays: (0,inputUtils/* parseOptionalPositiveInt */.or)((0,host/* getHost */.L)().input(constants/* Inputs */.G0.OlderThanDays), constants/* Inputs */.G0.OlderThanDays),
+        keepLatest: (0,inputUtils/* parseOptionalPositiveInt */.or)((0,host/* getHost */.L)().input(constants/* Inputs */.G0.KeepLatest), constants/* Inputs */.G0.KeepLatest),
+        maxTotalSize: (0,inputUtils/* parseOptionalNonNegativeInt */.Js)((0,host/* getHost */.L)().input(constants/* Inputs */.G0.MaxTotalSize), constants/* Inputs */.G0.MaxTotalSize),
+        abortUploadsOlderThanHours: (0,inputUtils/* parseOptionalPositiveInt */.or)((0,host/* getHost */.L)().input(constants/* Inputs */.G0.AbortUploadsOlderThanHours), constants/* Inputs */.G0.AbortUploadsOlderThanHours),
     };
     if (!hasPruneRule(rules)) {
         throw new Error(NO_RULE_MESSAGE);
@@ -72694,15 +72915,15 @@ function readPruneRules() {
 function readPruneConfig() {
     return {
         rules: readPruneRules(),
-        ref: core/* getInput */.V4(constants/* Inputs */.G0.Ref).trim(),
-        dryRun: parseDryRun(core/* getInput */.V4(constants/* Inputs */.G0.DryRun)),
-        prefix: core/* getInput */.V4(constants/* Inputs */.G0.Prefix),
-        s3KeyPattern: core/* getInput */.V4(constants/* Inputs */.G0.S3KeyPattern) || constants/* Defaults */.Hw.DefaultS3KeyPattern,
+        ref: (0,host/* getHost */.L)().input(constants/* Inputs */.G0.Ref).trim(),
+        dryRun: parseDryRun((0,host/* getHost */.L)().input(constants/* Inputs */.G0.DryRun)),
+        prefix: (0,host/* getHost */.L)().input(constants/* Inputs */.G0.Prefix),
+        s3KeyPattern: (0,host/* getHost */.L)().input(constants/* Inputs */.G0.S3KeyPattern) || constants/* Defaults */.Hw.DefaultS3KeyPattern,
         scopedToRepository: (0,inputUtils/* getInputAsBool */.$x)(constants/* Inputs */.G0.ScopedToRepository, true),
         scopedToRef: (0,inputUtils/* getInputAsBool */.$x)(constants/* Inputs */.G0.ScopedToRef, true),
         retryEnabled: (0,inputUtils/* getInputAsBool */.$x)(constants/* Inputs */.G0.Retry, true),
         retryCount: (0,inputUtils/* getInputAsInt */.Gd)(constants/* Inputs */.G0.RetryCount) ?? constants/* Defaults */.Hw.DefaultRetryCount,
-        metricsFile: core/* getInput */.V4(constants/* Inputs */.G0.MetricsFile).trim(),
+        metricsFile: (0,host/* getHost */.L)().input(constants/* Inputs */.G0.MetricsFile).trim(),
     };
 }
 /**
@@ -72711,22 +72932,27 @@ function readPruneConfig() {
  * matches saved objects through `KeyTemplate.scopeMatcher`, which accepts any version and both
  * known archive filenames.
  */
-function buildPruneTier(config, env = process.env) {
+function buildPruneTier(config, env) {
+    // process.env is the live environment, so it means "the CI host of this run". Any other env
+    // object is a test or caller fixture, read as GitHub variables.
+    const ctx = env === undefined || env === process.env
+        ? (0,host/* getHost */.L)().context()
+        : new github/* GitHubActionsHost */.p(env).context();
     const storage = createStorageContext({
         maxAttempts: config.retryEnabled ? config.retryCount + 1 : 1,
     });
     const template = compileKeyTemplate({
         pattern: config.s3KeyPattern,
-        repository: env.GITHUB_REPOSITORY ?? '',
+        repository: ctx.repository,
         prefix: config.prefix,
         scopedToRepository: config.scopedToRepository,
         scopedToRef: config.scopedToRef,
         version: '',
         archiveFilename: constants/* Defaults */.Hw.DefaultArchiveFilenameZstd,
-        env,
+        env: ctx.env,
     });
     for (const warning of template.warnings) {
-        core/* warning */.$e(warning);
+        log/* log */.R.warning(warning);
     }
     return { storage, template };
 }
@@ -72738,7 +72964,7 @@ async function pruneImpl() {
             throw new Error('Refusing to prune: "ref" is set but "scoped-to-ref" is false, so cache keys contain no ref.');
         }
         if (config.ref && !config.ref.startsWith('refs/')) {
-            core/* warning */.$e(`The "ref" input "${config.ref}" is not a full Git ref. Prune expects a full ref such as refs/heads/main, so it may match no caches.`);
+            log/* log */.R.warning(`The "ref" input "${config.ref}" is not a full Git ref. Prune expects a full ref such as refs/heads/main, so it may match no caches.`);
         }
         const tier = buildPruneTier(config);
         const result = await pruneCaches(tier, {
@@ -72746,10 +72972,10 @@ async function pruneImpl() {
             ref: config.ref || undefined,
             dryRun: config.dryRun,
         });
-        core/* setOutput */.uH(constants/* Outputs */.tY.PrunedCount, String(result.pruned.length));
-        core/* setOutput */.uH(constants/* Outputs */.tY.PrunedBytes, String(result.prunedBytes));
-        core/* setOutput */.uH(constants/* Outputs */.tY.KeptCount, String(result.keptCount));
-        core/* setOutput */.uH(constants/* Outputs */.tY.AbortedUploads, String(result.abortedUploads));
+        (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.PrunedCount, String(result.pruned.length));
+        (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.PrunedBytes, String(result.prunedBytes));
+        (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.KeptCount, String(result.keptCount));
+        (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.AbortedUploads, String(result.abortedUploads));
         emitMetrics({
             step: 'prune',
             timestamp: new Date().toISOString(),
@@ -72764,10 +72990,10 @@ async function pruneImpl() {
                 abortedUploads: result.abortedUploads,
                 dryRun: result.dryRun,
             },
-        }, config.metricsFile, getWorkspace());
+        }, config.metricsFile, (0,host/* getHost */.L)().context().workspace);
     }
     catch (err) {
-        core/* setFailed */.C1((0,outcomes/* toError */.i)(err).message);
+        (0,host/* getHost */.L)().setFailed((0,outcomes/* toError */.i)(err).message);
     }
 }
 async function runPrune(earlyExit = true) {
@@ -72778,33 +73004,8 @@ async function runPrune(earlyExit = true) {
     }
 }
 
-;// CONCATENATED MODULE: ./src/state.ts
-
-
-class StateProvider {
-    getState(key) {
-        return core/* getState */.Gu(key);
-    }
-    setState(key, value) {
-        core/* saveState */.LZ(key, value);
-    }
-    getCacheState() {
-        return this.getState(constants/* State */.Uw.CacheMatchedKey);
-    }
-}
-class NullStateProvider {
-    state = new Map();
-    getState(key) {
-        return this.state.get(key) || '';
-    }
-    setState(key, value) {
-        this.state.set(key, value);
-    }
-    getCacheState() {
-        return this.getState(constants/* State */.Uw.CacheMatchedKey);
-    }
-}
-
+// EXTERNAL MODULE: ./src/state.ts
+var state = __nccwpck_require__(2462);
 ;// CONCATENATED MODULE: ./src/core/cacheMode.ts
 /**
  * The runner exports ACTIONS_CACHE_MODE to tell a job what it may do with a cache. @actions/cache
@@ -72879,6 +73080,8 @@ function formatTimings(metrics) {
  * defaults; the action never runs the package manager to find them. docs/guide/presets.md
  * cites the source of every value.
  */
+
+
 
 
 
@@ -73018,19 +73221,8 @@ const PRESETS = {
         lockfiles: ['**/go.sum'],
     },
 };
-/** `runner.os` from RUNNER_OS, or from the platform when RUNNER_OS is not a known value. */
-function runnerOs(env = process.env, platform = process.platform) {
-    const fromEnv = env.RUNNER_OS;
-    if (fromEnv === 'Linux' || fromEnv === 'macOS' || fromEnv === 'Windows') {
-        return fromEnv;
-    }
-    if (platform === 'win32') {
-        return 'Windows';
-    }
-    return platform === 'darwin' ? 'macOS' : 'Linux';
-}
 /** Reads the `preset` input; an unknown value fails the step, because a typo caches nothing. */
-function readPreset(raw = core/* getInput */.V4(constants/* Inputs */.G0.Preset)) {
+function readPreset(raw = (0,host/* getHost */.L)().input(constants/* Inputs */.G0.Preset)) {
     const value = raw.trim();
     if (value === '') {
         return undefined;
@@ -73051,8 +73243,8 @@ async function applyPreset(config, name, options = {}) {
         return config;
     }
     const preset = PRESETS[name];
-    const os = options.os ?? runnerOs();
-    const workspace = options.workspace ?? getWorkspace();
+    const os = options.os ?? (0,host/* getHost */.L)().context().runnerOs;
+    const workspace = options.workspace ?? (0,host/* getHost */.L)().context().workspace;
     const hash = options.hash ?? ((patterns, ws) => glob/* hashFiles */.y(patterns, ws));
     const paths = config.paths.length > 0 ? config.paths : [...preset.paths[os]];
     let primaryKey = config.primaryKey;
@@ -73070,7 +73262,7 @@ async function applyPreset(config, name, options = {}) {
             restoreKeys = [`${os}-${name}-`];
         }
     }
-    core/* info */.pq(`Preset ${name}: path ${paths.join(', ')}; key ${primaryKey}`);
+    log/* log */.R.info(`Preset ${name}: path ${paths.join(', ')}; key ${primaryKey}`);
     return { ...config, preset: name, paths, primaryKey, restoreKeys };
 }
 
@@ -73100,7 +73292,7 @@ function restoreOrder(config) {
 async function setUpS3(config, state) {
     try {
         const tier = await buildS3Tier(config);
-        core/* setOutput */.uH(constants/* Outputs */.tY.CacheStorageProvider, tier.storage.providerConfig.provider);
+        (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheStorageProvider, tier.storage.providerConfig.provider);
         state.setState(constants/* State */.Uw.CacheStorageProvider, tier.storage.providerConfig.provider);
         // The post step reuses this method, so zstd appearing mid-job cannot change the keys.
         state.setState(constants/* State */.Uw.CacheCompression, tier.compression.method);
@@ -73111,13 +73303,13 @@ async function setUpS3(config, state) {
         if (!otherTierMayServe) {
             throw err;
         }
-        core/* warning */.$e(`S3 client initialization failed: ${(0,outcomes/* toError */.i)(err).message}`);
+        log/* log */.R.warning(`S3 client initialization failed: ${(0,outcomes/* toError */.i)(err).message}`);
         return undefined;
     }
 }
 async function attempt(source, config, s3) {
     if (source === 'github') {
-        core/* info */.pq('Querying GitHub Actions Cache...');
+        log/* log */.R.info('Querying GitHub Actions Cache...');
         // Load the GitHub tier only when a run uses it. S3-only runs skip its start-up cost.
         const { restoreFromGitHub } = await Promise.all(/* import() */[__nccwpck_require__.e(80), __nccwpck_require__.e(699)]).then(__nccwpck_require__.bind(__nccwpck_require__, 5080));
         return restoreFromGitHub(config.paths, config.primaryKey, config.restoreKeys, config.lookupOnly, config.enableCrossOsArchive);
@@ -73135,17 +73327,17 @@ function reportHit(state, config, source, hit) {
     }
     if (hit.s3) {
         state.setState(constants/* State */.Uw.CacheS3Key, hit.s3.objectKey);
-        core/* setOutput */.uH(constants/* Outputs */.tY.CacheS3Key, hit.s3.objectKey);
-        core/* setOutput */.uH(constants/* Outputs */.tY.CacheSize, String(hit.s3.size));
+        (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheS3Key, hit.s3.objectKey);
+        (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheSize, String(hit.s3.size));
         if (hit.s3.etag) {
-            core/* setOutput */.uH(constants/* Outputs */.tY.CacheETag, hit.s3.etag);
+            (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheETag, hit.s3.etag);
         }
     }
-    core/* setOutput */.uH(constants/* Outputs */.tY.CacheMetadata, JSON.stringify(hit.s3?.metadata ?? {}));
-    core/* setOutput */.uH(constants/* Outputs */.tY.CacheHit, String(hit.exact));
-    core/* setOutput */.uH(constants/* Outputs */.tY.CacheMatchedKey, hit.matchedKey);
-    core/* setOutput */.uH(constants/* Outputs */.tY.CacheHitSource, source);
-    core/* info */.pq(config.lookupOnly
+    (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheMetadata, JSON.stringify(hit.s3?.metadata ?? {}));
+    (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheHit, String(hit.exact));
+    (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheMatchedKey, hit.matchedKey);
+    (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheHitSource, source);
+    log/* log */.R.info(config.lookupOnly
         ? `Cache found in ${source} and can be restored from key: ${hit.matchedKey}`
         : `Cache restored from ${source} with key: ${hit.matchedKey}`);
     return hit.matchedKey;
@@ -73168,13 +73360,13 @@ async function restoreImpl(stateProvider, earlyExit) {
         };
         const timings = formatTimings(full);
         if (timings) {
-            core/* info */.pq(timings);
+            log/* log */.R.info(timings);
         }
-        emitMetrics(full, config?.metricsFile ?? '', getWorkspace());
+        emitMetrics(full, config?.metricsFile ?? '', (0,host/* getHost */.L)().context().workspace);
     };
     try {
         if (!(0,inputUtils/* isValidEvent */.FR)()) {
-            core/* warning */.$e(`Event Validation Warning: The event type ${process.env.GITHUB_EVENT_NAME} may not be tied to a branch or tag ref.`);
+            log/* log */.R.warning(`Event Validation Warning: The event type ${(0,host/* getHost */.L)().context().eventName} may not be tied to a branch or tag ref.`);
         }
         config = await applyPreset(readCacheConfig(), readPreset());
         if (!config.primaryKey) {
@@ -73184,22 +73376,22 @@ async function restoreImpl(stateProvider, earlyExit) {
             throw new Error('Input required and not supplied: path. Set key and path, or set preset.');
         }
         persistCacheConfig(stateProvider, config);
-        core/* setOutput */.uH(constants/* Outputs */.tY.CachePrimaryKey, config.primaryKey);
-        core/* setOutput */.uH(constants/* Outputs */.tY.CacheHit, 'false');
-        core/* setOutput */.uH(constants/* Outputs */.tY.CacheHitSource, 'none');
-        core/* setOutput */.uH(constants/* Outputs */.tY.CacheMetadata, '{}');
+        (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CachePrimaryKey, config.primaryKey);
+        (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheHit, 'false');
+        (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheHitSource, 'none');
+        (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheMetadata, '{}');
         // Set up front and overwritten on success, so every path — including an error handled as a
         // warning — leaves the timing and size outputs defined.
-        core/* setOutput */.uH(constants/* Outputs */.tY.CacheRestoreDurationMs, '0');
-        core/* setOutput */.uH(constants/* Outputs */.tY.CacheTransferDurationMs, '0');
-        core/* setOutput */.uH(constants/* Outputs */.tY.CacheBytes, '0');
+        (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheRestoreDurationMs, '0');
+        (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheTransferDurationMs, '0');
+        (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheBytes, '0');
         // @actions/cache skips the GitHub tier itself in these modes. Skip both tiers here, so the
         // S3 tier obeys the same mode and the step reports one skip.
         const cacheMode = getCacheMode();
         if (!isCacheReadable(cacheMode)) {
-            core/* info */.pq(`Cache restore skipped: ACTIONS_CACHE_MODE is '${cacheMode}', which does not permit reads.`);
+            log/* log */.R.info(`Cache restore skipped: ACTIONS_CACHE_MODE is '${cacheMode}', which does not permit reads.`);
             stateProvider.setState(constants/* State */.Uw.CacheHitSource, 'none');
-            core/* setOutput */.uH(constants/* Outputs */.tY.CacheRestoreDurationMs, String(Date.now() - start));
+            (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheRestoreDurationMs, String(Date.now() - start));
             report({
                 step: 'restore',
                 key: config.primaryKey,
@@ -73233,22 +73425,22 @@ async function restoreImpl(stateProvider, earlyExit) {
         if (config.explain && s3) {
             try {
                 const report = await buildExplainReport(s3, config);
-                core/* startGroup */.Oh('Cache lookup explained');
+                log/* log */.R.startGroup('Cache lookup explained');
                 try {
                     for (const line of renderExplain(report))
-                        core/* info */.pq(line);
+                        log/* log */.R.info(line);
                 }
                 finally {
-                    core/* endGroup */.N4();
+                    log/* log */.R.endGroup();
                 }
                 await writeExplainSummary(report, config.jobSummary);
             }
             catch (err) {
-                core/* warning */.$e(`Could not explain the cache lookup: ${(0,outcomes/* toError */.i)(err).message}`);
+                log/* log */.R.warning(`Could not explain the cache lookup: ${(0,outcomes/* toError */.i)(err).message}`);
             }
         }
         if (config.dualCache) {
-            core/* info */.pq(`Dual-cache enabled (priority: ${config.restorePriority}, strategy: ${config.dualCacheStrategy})`);
+            log/* log */.R.info(`Dual-cache enabled (priority: ${config.restorePriority}, strategy: ${config.dualCacheStrategy})`);
         }
         const failedTiers = [];
         for (const source of restoreOrder(config)) {
@@ -73257,9 +73449,9 @@ async function restoreImpl(stateProvider, earlyExit) {
                 case 'hit': {
                     const matchedKey = reportHit(stateProvider, config, source, outcome);
                     const bytes = outcome.s3?.size ?? 0;
-                    core/* setOutput */.uH(constants/* Outputs */.tY.CacheRestoreDurationMs, String(Date.now() - start));
-                    core/* setOutput */.uH(constants/* Outputs */.tY.CacheTransferDurationMs, String(outcome.transferMs ?? 0));
-                    core/* setOutput */.uH(constants/* Outputs */.tY.CacheBytes, String(bytes));
+                    (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheRestoreDurationMs, String(Date.now() - start));
+                    (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheTransferDurationMs, String(outcome.transferMs ?? 0));
+                    (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheBytes, String(bytes));
                     report({
                         step: 'restore',
                         provider,
@@ -73297,7 +73489,7 @@ async function restoreImpl(stateProvider, earlyExit) {
                             cause: outcome.error,
                         });
                     }
-                    core/* warning */.$e(`Restoring from ${source} failed, so it counts as a cache miss: ${outcome.error.message}`);
+                    log/* log */.R.warning(`Restoring from ${source} failed, so it counts as a cache miss: ${outcome.error.message}`);
                     failedTiers.push(source);
                     break;
                 default: {
@@ -73307,7 +73499,7 @@ async function restoreImpl(stateProvider, earlyExit) {
             }
         }
         stateProvider.setState(constants/* State */.Uw.CacheHitSource, 'none');
-        core/* setOutput */.uH(constants/* Outputs */.tY.CacheRestoreDurationMs, String(Date.now() - start));
+        (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheRestoreDurationMs, String(Date.now() - start));
         report({
             step: 'restore',
             provider,
@@ -73339,15 +73531,15 @@ async function restoreImpl(stateProvider, earlyExit) {
             const tiers = failedTiers.length === 1
                 ? `the ${failedTiers[0]} tier failed (see the warning above)`
                 : `the ${failedTiers.join(' and ')} tiers failed (see the warnings above)`;
-            core/* info */.pq(`No cache restored: ${tiers}. Keys searched: ${keys}`);
+            log/* log */.R.info(`No cache restored: ${tiers}. Keys searched: ${keys}`);
         }
         else {
-            core/* info */.pq(`Cache not found for input keys: ${keys}`);
+            log/* log */.R.info(`Cache not found for input keys: ${keys}`);
         }
         return undefined;
     }
     catch (err) {
-        core/* setFailed */.C1((0,outcomes/* toError */.i)(err).message);
+        (0,host/* getHost */.L)().setFailed((0,outcomes/* toError */.i)(err).message);
         report({
             step: 'restore',
             provider,
@@ -73363,14 +73555,14 @@ async function restoreImpl(stateProvider, earlyExit) {
     }
 }
 async function runRestore(earlyExit = true) {
-    await restoreImpl(new StateProvider(), earlyExit);
+    await restoreImpl((0,host/* getHost */.L)().state, earlyExit);
     if (earlyExit) {
         // An explicit exit code overrides process.exitCode, so keep the one core.setFailed set.
         process.exit(process.exitCode ?? 0);
     }
 }
 async function runRestoreOnly(earlyExit = true) {
-    await restoreImpl(new NullStateProvider(), earlyExit);
+    await restoreImpl(new state/* NullStateProvider */.w(), earlyExit);
     if (earlyExit) {
         // An explicit exit code overrides process.exitCode, so keep the one core.setFailed set.
         process.exit(process.exitCode ?? 0);
@@ -73409,10 +73601,10 @@ function reportS3(info) {
     if (!info) {
         return;
     }
-    core/* setOutput */.uH(constants/* Outputs */.tY.CacheS3Key, info.objectKey);
-    core/* setOutput */.uH(constants/* Outputs */.tY.CacheSize, String(info.size));
+    (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheS3Key, info.objectKey);
+    (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheSize, String(info.size));
     if (info.etag) {
-        core/* setOutput */.uH(constants/* Outputs */.tY.CacheETag, info.etag);
+        (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheETag, info.etag);
     }
 }
 async function saveImpl_setUpS3(config, stateProvider) {
@@ -73420,7 +73612,7 @@ async function saveImpl_setUpS3(config, stateProvider) {
         const tier = await buildS3Tier(config, process.env, {
             compression: stateProvider.getState(constants/* State */.Uw.CacheCompression),
         });
-        core/* setOutput */.uH(constants/* Outputs */.tY.CacheStorageProvider, tier.storage.providerConfig.provider);
+        (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheStorageProvider, tier.storage.providerConfig.provider);
         return tier;
     }
     catch (err) {
@@ -73428,14 +73620,14 @@ async function saveImpl_setUpS3(config, stateProvider) {
         if (!otherTierMayServe) {
             throw err;
         }
-        core/* warning */.$e(`S3 client initialization failed during save: ${(0,outcomes/* toError */.i)(err).message}`);
+        log/* log */.R.warning(`S3 client initialization failed during save: ${(0,outcomes/* toError */.i)(err).message}`);
         return undefined;
     }
 }
 async function saveSingleTier(config, s3, s3ExactHit) {
     if (s3ExactHit) {
-        core/* info */.pq(`Cache hit occurred on the primary key ${config.primaryKey}, not saving cache.`);
-        core/* setOutput */.uH(constants/* Outputs */.tY.CacheSavedSources, 'none');
+        log/* log */.R.info(`Cache hit occurred on the primary key ${config.primaryKey}, not saving cache.`);
+        (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheSavedSources, 'none');
         return { sources: [], outcome: 'exists' };
     }
     // A tier error the step only warned about still makes the outcome an error, not a plain skip.
@@ -73446,7 +73638,7 @@ async function saveSingleTier(config, s3, s3ExactHit) {
             case 'saved':
             case 'exists':
                 reportS3(outcome.s3);
-                core/* setOutput */.uH(constants/* Outputs */.tY.CacheSavedSources, 's3');
+                (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheSavedSources, 's3');
                 return {
                     size: outcome.s3?.size,
                     sources: ['s3'],
@@ -73456,11 +73648,11 @@ async function saveSingleTier(config, s3, s3ExactHit) {
                     outcome: outcome.kind,
                 };
             case 'skipped':
-                core/* setOutput */.uH(constants/* Outputs */.tY.CacheSavedSources, 'none');
+                (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheSavedSources, 'none');
                 return { sources: [], outcome: 'skipped' };
             case 'error': {
                 const error = s3SaveError(outcome.error);
-                core/* warning */.$e(`Failed to save cache to S3: ${error.message}`);
+                log/* log */.R.warning(`Failed to save cache to S3: ${error.message}`);
                 warnedError = error.message;
                 break;
             }
@@ -73471,16 +73663,16 @@ async function saveSingleTier(config, s3, s3ExactHit) {
         }
     }
     if (config.useFallback) {
-        core/* info */.pq('Saving to GitHub Actions Cache instead (use-fallback).');
+        log/* log */.R.info('Saving to GitHub Actions Cache instead (use-fallback).');
         // Load the GitHub tier only when a run uses it. S3-only runs skip its start-up cost.
         const { saveToGitHub } = await Promise.all(/* import() */[__nccwpck_require__.e(80), __nccwpck_require__.e(699)]).then(__nccwpck_require__.bind(__nccwpck_require__, 5080));
         const outcome = await saveToGitHub(config.paths, config.primaryKey, config.uploadChunkSize, config.enableCrossOsArchive);
         switch (outcome.kind) {
             case 'saved':
-                core/* setOutput */.uH(constants/* Outputs */.tY.CacheSavedSources, 'github');
+                (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheSavedSources, 'github');
                 return { sources: ['github'], outcome: 'saved' };
             case 'error':
-                core/* warning */.$e(`Failed to save cache to GitHub Actions Cache: ${outcome.error.message}`);
+                log/* log */.R.warning(`Failed to save cache to GitHub Actions Cache: ${outcome.error.message}`);
                 warnedError = outcome.error.message;
                 break;
             case 'exists':
@@ -73492,7 +73684,7 @@ async function saveSingleTier(config, s3, s3ExactHit) {
             }
         }
     }
-    core/* setOutput */.uH(constants/* Outputs */.tY.CacheSavedSources, 'none');
+    (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheSavedSources, 'none');
     return warnedError
         ? { sources: [], outcome: 'error', error: warnedError }
         : { sources: [], outcome: 'skipped' };
@@ -73512,13 +73704,13 @@ async function saveBothTiers(config, s3, s3ExactHit, githubExactHit) {
         if (config.dualCacheStrict) {
             throw new Error(`Saving to ${tier} failed: ${error.message}`, { cause: error });
         }
-        core/* warning */.$e(`Dual-cache ${tier} save error: ${error.message}`);
+        log/* log */.R.warning(`Dual-cache ${tier} save error: ${error.message}`);
         warnedError = error.message;
     };
-    core/* info */.pq(`Dual-cache save (strategy: ${config.dualCacheStrategy})`);
+    log/* log */.R.info(`Dual-cache save (strategy: ${config.dualCacheStrategy})`);
     const skipBoth = config.dualCacheStrategy === 'skip-on-hit' && (s3ExactHit || githubExactHit);
     if (skipBoth) {
-        core/* info */.pq('An exact hit occurred on one tier and dual-cache-strategy is skip-on-hit; not saving.');
+        log/* log */.R.info('An exact hit occurred on one tier and dual-cache-strategy is skip-on-hit; not saving.');
     }
     if (s3ExactHit) {
         present.add('s3');
@@ -73566,7 +73758,7 @@ async function saveBothTiers(config, s3, s3ExactHit, githubExactHit) {
             // The tier did not load, and tierFailed has warned. There is nothing to save with.
         }
         else if (alreadyThere) {
-            core/* info */.pq(`GitHub Actions Cache already has key "${config.primaryKey}"; not uploading it again.`);
+            log/* log */.R.info(`GitHub Actions Cache already has key "${config.primaryKey}"; not uploading it again.`);
             present.add('github');
         }
         else {
@@ -73590,8 +73782,8 @@ async function saveBothTiers(config, s3, s3ExactHit, githubExactHit) {
         }
     }
     const sources = ['s3', 'github'].filter((source) => present.has(source));
-    core/* setOutput */.uH(constants/* Outputs */.tY.CacheSavedSources, sources.join(',') || 'none');
-    core/* info */.pq(`Dual-cache save complete. Cache present in: ${sources.join(', ') || 'none'}`);
+    (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheSavedSources, sources.join(',') || 'none');
+    log/* log */.R.info(`Dual-cache save complete. Cache present in: ${sources.join(', ') || 'none'}`);
     if (sources.length === 0) {
         return warnedError
             ? { sources: [], objectKey, transferMs, outcome: 'error', error: warnedError }
@@ -73625,22 +73817,22 @@ async function saveImpl(stateProvider) {
         };
         const timings = formatTimings(full);
         if (timings) {
-            core/* info */.pq(timings);
+            log/* log */.R.info(timings);
         }
-        emitMetrics(full, config?.metricsFile ?? '', getWorkspace());
+        emitMetrics(full, config?.metricsFile ?? '', (0,host/* getHost */.L)().context().workspace);
     };
     try {
         if (!(0,inputUtils/* isValidEvent */.FR)()) {
-            core/* warning */.$e(`Event Validation Warning: The event type ${process.env.GITHUB_EVENT_NAME} may not be tied to a branch or tag ref.`);
+            log/* log */.R.warning(`Event Validation Warning: The event type ${(0,host/* getHost */.L)().context().eventName} may not be tied to a branch or tag ref.`);
         }
         // In the post step the key and the paths come from state, so the preset does not hash again.
         config = await applyPreset(readCacheConfig(stateProvider), readPreset());
         strict = config.dualCache && config.dualCacheStrict;
         // Set up front and overwritten on success, so every path — an early skip or an error
         // handled as a warning included — leaves the timing and size outputs defined.
-        core/* setOutput */.uH(constants/* Outputs */.tY.CacheSaveDurationMs, '0');
-        core/* setOutput */.uH(constants/* Outputs */.tY.CacheTransferDurationMs, '0');
-        core/* setOutput */.uH(constants/* Outputs */.tY.CacheBytes, '0');
+        (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheSaveDurationMs, '0');
+        (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheTransferDurationMs, '0');
+        (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheBytes, '0');
         /** Records a save that never reached the tiers, so the metrics file still gets its line. */
         const skip = (reason) => {
             report({
@@ -73653,17 +73845,17 @@ async function saveImpl(stateProvider) {
             });
         };
         if (config.readOnly) {
-            core/* info */.pq('Read-only mode enabled. Skipping cache save.');
+            log/* log */.R.info('Read-only mode enabled. Skipping cache save.');
             skip('read-only');
             return;
         }
         if (!config.primaryKey) {
-            core/* warning */.$e('Key is not specified. Set key and path, or set preset. Skipping cache save.');
+            log/* log */.R.warning('Key is not specified. Set key and path, or set preset. Skipping cache save.');
             skip('no key');
             return;
         }
         if (config.paths.length === 0) {
-            core/* warning */.$e('No paths specified to cache. Set path, or set preset. Skipping save.');
+            log/* log */.R.warning('No paths specified to cache. Set path, or set preset. Skipping save.');
             skip('no paths');
             return;
         }
@@ -73671,9 +73863,9 @@ async function saveImpl(stateProvider) {
         // S3 tier obeys the same mode and the step reports one skip. A skip never fails the step.
         const cacheMode = getCacheMode();
         if (!isCacheWritable(cacheMode)) {
-            core/* info */.pq(`Cache save skipped: ACTIONS_CACHE_MODE is '${cacheMode}', which does not permit writes.`);
-            core/* setOutput */.uH(constants/* Outputs */.tY.CacheSavedSources, 'none');
-            core/* setOutput */.uH(constants/* Outputs */.tY.CacheSaveDurationMs, String(Date.now() - start));
+            log/* log */.R.info(`Cache save skipped: ACTIONS_CACHE_MODE is '${cacheMode}', which does not permit writes.`);
+            (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheSavedSources, 'none');
+            (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheSaveDurationMs, String(Date.now() - start));
             skip(`ACTIONS_CACHE_MODE=${cacheMode}`);
             await writeSaveSummary({
                 jobSummary: config.jobSummary,
@@ -73693,9 +73885,9 @@ async function saveImpl(stateProvider) {
         const result = config.dualCache
             ? await saveBothTiers(config, s3, s3ExactHit, githubExactHit)
             : await saveSingleTier(config, s3, s3ExactHit);
-        core/* setOutput */.uH(constants/* Outputs */.tY.CacheSaveDurationMs, String(Date.now() - start));
-        core/* setOutput */.uH(constants/* Outputs */.tY.CacheTransferDurationMs, String(result.transferMs ?? 0));
-        core/* setOutput */.uH(constants/* Outputs */.tY.CacheBytes, String(result.size ?? 0));
+        (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheSaveDurationMs, String(Date.now() - start));
+        (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheTransferDurationMs, String(result.transferMs ?? 0));
+        (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheBytes, String(result.size ?? 0));
         report({
             step: 'save',
             provider,
@@ -73732,22 +73924,22 @@ async function saveImpl(stateProvider) {
             extra: { error: message },
         });
         if (strict) {
-            core/* setFailed */.C1(message);
+            (0,host/* getHost */.L)().setFailed(message);
         }
         else {
-            core/* warning */.$e(`Save cache encountered error: ${message}`);
+            log/* log */.R.warning(`Save cache encountered error: ${message}`);
         }
     }
 }
 async function runSave(earlyExit = true) {
-    await saveImpl(new StateProvider());
+    await saveImpl((0,host/* getHost */.L)().state);
     if (earlyExit) {
         // An explicit exit code overrides process.exitCode, so keep the one core.setFailed set.
         process.exit(process.exitCode ?? 0);
     }
 }
 async function runSaveOnly(earlyExit = true) {
-    await saveImpl(new NullStateProvider());
+    await saveImpl(new state/* NullStateProvider */.w());
     if (earlyExit) {
         // An explicit exit code overrides process.exitCode, so keep the one core.setFailed set.
         process.exit(process.exitCode ?? 0);

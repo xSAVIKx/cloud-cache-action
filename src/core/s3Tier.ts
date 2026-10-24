@@ -1,4 +1,6 @@
-import * as core from '@actions/core';
+import { GitHubActionsHost } from '../ci/github';
+import { getHost } from '../ci/host';
+import { log } from '../ci/log';
 import type { ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
@@ -12,7 +14,7 @@ import {
   type CompressionMethod,
 } from '../archive/compression';
 import { createSha256Tap, sha256File } from '../archive/checksum';
-import { getWorkspace, resolveCachePaths } from '../archive/paths';
+import { resolveCachePaths } from '../archive/paths';
 import {
   buildCreateCommands,
   buildExtractCommands,
@@ -71,7 +73,6 @@ import {
 } from './objectAttributes';
 import { compileKeyTemplate, type KeyTemplate } from './keyTemplate';
 import { toError, type RestoreOutcome, type SaveOutcome } from './outcomes';
-import { resolveRefCandidates } from './refs';
 import { computeCacheVersion } from './version';
 
 /** Logged when streaming is requested but the plan needs the BSD-tar-plus-zstd two-step on Windows. */
@@ -198,7 +199,7 @@ function taggingRejection(err: unknown): string {
  */
 function noteObjectTaggingUnsupported(tier: S3Tier, bucket: string, err: unknown): void {
   if (!tier.storage.objectTaggingUnsupported) {
-    core.warning(
+    log.warning(
       `s3://${bucket} could not store object tags (${taggingRejection(err)}); saved without them.`
     );
   }
@@ -227,7 +228,7 @@ const COMPRESSION_CONFIGS: Record<CompressionMethod, CompressionConfig> = {
 
 async function resolveCompression(persisted: string | undefined): Promise<CompressionConfig> {
   if (persisted === 'zstd' || persisted === 'gzip') {
-    core.debug(`Using the ${persisted} compression the restore step used.`);
+    log.debug(`Using the ${persisted} compression the restore step used.`);
     return COMPRESSION_CONFIGS[persisted];
   }
   return getCompressionConfig();
@@ -235,31 +236,37 @@ async function resolveCompression(persisted: string | undefined): Promise<Compre
 
 export async function buildS3Tier(
   config: CacheConfig,
-  env: NodeJS.ProcessEnv = process.env,
+  env?: NodeJS.ProcessEnv,
   options: BuildS3TierOptions = {}
 ): Promise<S3Tier> {
+  // process.env is the live environment, so it means "the CI host of this run". Any other env
+  // object is a test or caller fixture, read as GitHub variables.
+  const ctx =
+    env === undefined || env === process.env
+      ? getHost().context()
+      : new GitHubActionsHost(env).context();
   const storage = createStorageContext({
     maxAttempts: config.retryEnabled ? config.retryCount + 1 : 1,
   });
   const compression = await resolveCompression(options.compression);
-  const refs = resolveRefCandidates(env);
+  const refs = ctx.refs;
   const scopedToRef = config.scopedToRef && refs.current !== undefined;
   if (config.scopedToRef && !scopedToRef) {
-    core.debug('GITHUB_REF is not set, so caches are not scoped to a ref.');
+    log.debug('GITHUB_REF is not set, so caches are not scoped to a ref.');
   }
 
   const template = compileKeyTemplate({
     pattern: config.s3KeyPattern,
-    repository: env.GITHUB_REPOSITORY ?? '',
+    repository: ctx.repository,
     prefix: config.prefix,
     scopedToRepository: config.scopedToRepository,
     scopedToRef,
     version: computeCacheVersion(config.paths, compression.method, config.enableCrossOsArchive),
     archiveFilename: compression.archiveFilename,
-    env,
+    env: ctx.env,
   });
   for (const warning of template.warnings) {
-    core.warning(warning);
+    log.warning(warning);
   }
   // A pattern without ${ref} gives every ref the same object keys; search them only once.
   const usesRef = scopedToRef && template.objectKey('a', '') !== template.objectKey('b', '');
@@ -271,7 +278,7 @@ export async function buildS3Tier(
     restoreRefs: usesRef ? refs.restore : [''],
     saveRef: usesRef ? (refs.current as string) : '',
     compression,
-    workspace: getWorkspace(env),
+    workspace: ctx.workspace,
     streamRetries: config.retryEnabled ? config.retryCount : 0,
     streaming: config.streaming,
     download: { concurrency: config.downloadConcurrency, partSize: config.downloadChunkSize },
@@ -332,7 +339,7 @@ function settingsFor(
     freeMemoryBytes: (tier.memory ?? usableMemory)(),
     fixed,
   });
-  core.info(formatTuning(direction, settings, sizeBytes, fixed));
+  log.info(formatTuning(direction, settings, sizeBytes, fixed));
   return settings;
 }
 
@@ -344,7 +351,7 @@ function clampCompressionLevel(
   if (level === undefined || method !== 'gzip' || level <= Defaults.MaxGzipCompressionLevel) {
     return level;
   }
-  core.warning(
+  log.warning(
     `Input "compression-level" is ${level}, above gzip's maximum of ${Defaults.MaxGzipCompressionLevel}; using ${Defaults.MaxGzipCompressionLevel}.`
   );
   return Defaults.MaxGzipCompressionLevel;
@@ -375,7 +382,7 @@ export async function listCandidates(
 ): Promise<Candidate[]> {
   const { client, bucket } = tier.storage;
   const prefix = tier.template.searchPrefix(ref, keyPrefix);
-  core.debug(`Listing s3://${bucket}/${prefix}`);
+  log.debug(`Listing s3://${bucket}/${prefix}`);
   const objects = await listObjects(client, bucket, prefix);
   return objects.map((object) => {
     const key = tier.template.extractKey(ref, object.key);
@@ -407,7 +414,7 @@ export async function findS3Match(
   // so a later ref may only be searched once this one has produced nothing.
   for (const ref of tier.restoreRefs) {
     const exactKey = tier.template.objectKey(ref, primaryKey);
-    core.debug(`Checking s3://${bucket}/${exactKey}`);
+    log.debug(`Checking s3://${bucket}/${exactKey}`);
     const exact = await checkObjectExists(client, bucket, exactKey);
     if (exact) {
       return {
@@ -421,7 +428,7 @@ export async function findS3Match(
     }
 
     for (const keyPrefix of keyPrefixes) {
-      core.debug(`Listing s3://${bucket}/${tier.template.searchPrefix(ref, keyPrefix)}`);
+      log.debug(`Listing s3://${bucket}/${tier.template.searchPrefix(ref, keyPrefix)}`);
     }
     const listed = await mapWithConcurrency(keyPrefixes, LOOKUP_CONCURRENCY, (keyPrefix) =>
       findNewestObject(
@@ -477,7 +484,7 @@ async function resolveExpectedSha256(
     // A warning, not a debug line: the usual cause is an IAM policy without
     // `s3:GetObjectTagging`, and the only visible effect is an integrity check that silently
     // stops happening. The restore still proceeds — the cache itself is fine.
-    core.warning(
+    log.warning(
       `Could not read the tags of s3://${tier.storage.bucket}/${objectKey}, so this restore skips the integrity check: ${toError(err).message}`
     );
     return undefined;
@@ -517,7 +524,7 @@ export async function restoreFromS3(
     hit.downloadParts = parts;
   };
   const where = found.ref ? ` on ${found.ref}` : '';
-  core.info(
+  log.info(
     `S3 cache ${found.exact ? 'hit' : 'partial hit'} for key "${found.matchedKey}"${where} (${formatSize(found.size)})`
   );
 
@@ -533,7 +540,7 @@ export async function restoreFromS3(
       ) {
         return await restoreFromS3Streaming(tier, found, tar, hit);
       }
-      core.info(STREAMING_FALLBACK_MESSAGE);
+      log.info(STREAMING_FALLBACK_MESSAGE);
     } catch (err) {
       return { kind: 'error', error: toError(err) };
     }
@@ -559,7 +566,7 @@ export async function restoreFromS3(
         };
       }
     } else {
-      core.debug(
+      log.debug(
         `s3://${bucket}/${found.objectKey} has no ${SHA256_METADATA_KEY} metadata; skipping integrity check.`
       );
     }
@@ -589,13 +596,13 @@ export async function saveToS3(
   try {
     const existing = await checkObjectExists(client, bucket, objectKey);
     if (existing) {
-      core.info(`Cache already exists at s3://${bucket}/${objectKey}; not uploading it again.`);
+      log.info(`Cache already exists at s3://${bucket}/${objectKey}; not uploading it again.`);
       return { kind: 'exists', s3: { objectKey, size: existing.size, etag: existing.etag } };
     }
 
     const { entries } = await resolveCachePaths(patterns, tier.workspace);
     if (entries.length === 0) {
-      core.warning(
+      log.warning(
         'Path Validation Error: Path(s) specified in the action for caching do(es) not exist, hence no cache is being saved.'
       );
       return { kind: 'skipped', reason: 'no paths matched' };
@@ -608,7 +615,7 @@ export async function saveToS3(
       ) {
         return await saveToS3Streaming(tier, objectKey, entries, tar, primaryKey);
       }
-      core.info(STREAMING_FALLBACK_MESSAGE);
+      log.info(STREAMING_FALLBACK_MESSAGE);
     }
 
     return await saveToS3FileMode(tier, objectKey, entries, primaryKey);
@@ -650,7 +657,7 @@ async function saveToS3FileMode(
     );
     const archiveMs = Date.now() - archiveStart;
     const archiveSize = getArchiveSize(archivePath);
-    core.info(`Uploading ${formatSize(archiveSize)} to s3://${bucket}/${objectKey}...`);
+    log.info(`Uploading ${formatSize(archiveSize)} to s3://${bucket}/${objectKey}...`);
     const metadata = { ...tier.metadata, [SHA256_METADATA_KEY]: checksum };
     const uploadSettings = settingsFor(tier, 'upload', archiveSize);
     const attemptUpload = (ifNoneMatch: string | undefined, tagging: string | undefined) =>
@@ -678,7 +685,7 @@ async function saveToS3FileMode(
         if (!retryConflict || !isConditionalConflict(err)) {
           throw err;
         }
-        core.info(
+        log.info(
           `A concurrent write to s3://${bucket}/${objectKey} conflicted with this upload; retrying it once.`
         );
         return await attemptUpload('*', tagging);
@@ -707,7 +714,7 @@ async function saveToS3FileMode(
         uploaded = await uploadWith(undefined);
         noteObjectTaggingUnsupported(tier, bucket, err);
       }
-      core.info(`Cache saved to S3 with key: ${primaryKey}`);
+      log.info(`Cache saved to S3 with key: ${primaryKey}`);
       return {
         kind: 'saved',
         s3: { objectKey, size: uploaded.size, etag: uploaded.etag },
@@ -716,7 +723,7 @@ async function saveToS3FileMode(
       };
     } catch (err) {
       if (sendCondition && isPreconditionFailed(err)) {
-        core.info(`Another job saved s3://${bucket}/${objectKey} first; keeping its cache.`);
+        log.info(`Another job saved s3://${bucket}/${objectKey} first; keeping its cache.`);
         return {
           kind: 'exists',
           s3: { objectKey, size: archiveSize, etag: undefined },
@@ -725,7 +732,7 @@ async function saveToS3FileMode(
         };
       }
       if (sendCondition && isConditionUnsupported(err)) {
-        core.debug(
+        log.debug(
           `s3://${bucket} rejected the If-None-Match condition; retrying the upload of ${objectKey} without it.`
         );
         tier.storage.conditionalWriteUnsupported = true;
@@ -733,7 +740,7 @@ async function saveToS3FileMode(
           undefined,
           tier.storage.objectTaggingUnsupported ? undefined : tagging
         );
-        core.info(`Cache saved to S3 with key: ${primaryKey}`);
+        log.info(`Cache saved to S3 with key: ${primaryKey}`);
         return {
           kind: 'saved',
           s3: { objectKey, size: uploaded.size, etag: uploaded.etag },
@@ -805,14 +812,14 @@ async function attachStreamedMetadataByCopy(
   const { client, bucket } = tier.storage;
   const uploadedEtag = uploaded.etag;
   if (size > MAX_COPY_SIZE) {
-    core.warning(
+    log.warning(
       `Saved s3://${bucket}/${objectKey} but could not attach metadata: archives over 5 GiB cannot be copied in one request.`
     );
     return uploadedEtag;
   }
   const guard = copyGuard(tier, uploaded);
   if (guard === undefined) {
-    core.warning(
+    log.warning(
       `Saved s3://${bucket}/${objectKey} without a checksum: GCS reported no generation for this multipart upload, so this save cannot prove that it still owns the object, and that cache is kept without an integrity check.`
     );
     return uploadedEtag;
@@ -832,13 +839,13 @@ async function attachStreamedMetadataByCopy(
     );
     return copied.etag ?? uploadedEtag;
   } catch (err) {
-    core.warning(
+    log.warning(
       `Saved s3://${bucket}/${objectKey} but could not attach metadata: ${toError(err).message}`
     );
     if (checksumTagLeft && isPreconditionFailed(err)) {
       // The 412 says another writer replaced the object, and the tag removal before this copy
       // failed. The checksum tag of this save can now be a false checksum on that object.
-      core.warning(
+      log.warning(
         `This save's checksum tag may remain on s3://${bucket}/${objectKey}, which another job replaced; a restore of that cache can reject it as corrupt.`
       );
     }
@@ -887,7 +894,7 @@ async function confirmTaggedObject(
   try {
     head = await checkObjectExists(client, bucket, objectKey);
   } catch (err) {
-    core.debug(`Could not read s3://${bucket}/${objectKey} after the tag: ${toError(err).message}`);
+    log.debug(`Could not read s3://${bucket}/${objectKey} after the tag: ${toError(err).message}`);
     return 'unconfirmed';
   }
   if (head === null) {
@@ -913,7 +920,7 @@ async function removeChecksumTag(tier: S3Tier, objectKey: string): Promise<boole
     await putObjectTags(client, bucket, objectKey, [...tier.tags]);
     return true;
   } catch (err) {
-    core.warning(
+    log.warning(
       `Could not remove this save's checksum tag from s3://${bucket}/${objectKey}: ${toError(err).message}`
     );
     return false;
@@ -964,15 +971,15 @@ async function attachStreamedChecksum(
     } catch (err) {
       if (isTagPutUnsupported(err)) {
         tier.storage.objectTaggingUnsupported = true;
-        core.debug(`s3://${bucket} has no object tagging API; the checksum cannot go on as a tag.`);
+        log.debug(`s3://${bucket} has no object tagging API; the checksum cannot go on as a tag.`);
       } else if (isAccessDeniedError(err)) {
         // Visible on purpose: the copy below rewrites the whole object, which costs seconds per
         // GiB, and the only fix is a permission the user can grant.
-        core.info(
+        log.info(
           `The credentials may not tag s3://${bucket}/${objectKey}, so the checksum goes on by a copy of the whole object, which is slow for a large cache. Grant s3:PutObjectTagging to skip the copy.`
         );
       } else {
-        core.debug(`Could not tag s3://${bucket}/${objectKey}: ${toError(err).message}`);
+        log.debug(`Could not tag s3://${bucket}/${objectKey}: ${toError(err).message}`);
       }
     }
     if (tagged) {
@@ -986,23 +993,23 @@ async function attachStreamedChecksum(
       if (ownership === 'replaced') {
         // Another job wrote this key between the upload and the tag. Stop here: the copy would
         // rewrite an object that is not ours.
-        core.warning(
+        log.warning(
           `Another job replaced s3://${bucket}/${objectKey} while this save was finishing, so its checksum was not attached; that cache is kept without an integrity check.`
         );
         return uploadedEtag;
       }
       // `unconfirmed`: the same as a tag failure below.
-      core.debug(`Could not confirm that s3://${bucket}/${objectKey} still holds this upload.`);
+      log.debug(`Could not confirm that s3://${bucket}/${objectKey} still holds this upload.`);
     }
     if (uploadedEtag === undefined) {
       // No ETag, so no `CopySourceIfMatch`: the copy could put this save's checksum on the
       // bytes of another job. Keep no checksum instead.
-      core.warning(
+      log.warning(
         `Saved s3://${bucket}/${objectKey} without a checksum: the upload reported no ETag, so this save cannot prove that it still owns the object, and that cache is kept without an integrity check.`
       );
       return uploadedEtag;
     }
-    core.debug(`Attaching the checksum to s3://${bucket}/${objectKey} by a guarded copy.`);
+    log.debug(`Attaching the checksum to s3://${bucket}/${objectKey} by a guarded copy.`);
   }
 
   return await attachStreamedMetadataByCopy(
@@ -1110,7 +1117,7 @@ async function saveToS3Streaming(
 
     const sendCondition = !tier.storage.conditionalWriteUnsupported;
     const transferStart = Date.now();
-    core.info(`Streaming upload to s3://${bucket}/${objectKey}...`);
+    log.info(`Streaming upload to s3://${bucket}/${objectKey}...`);
     const tagging = tier.storage.objectTaggingUnsupported ? undefined : encodeTagging(tier.tags);
     // A random id for this save, sent only when the checksum can go on as a tag. The ownership
     // check after the tag compares it when the ETags cannot be compared.
@@ -1125,7 +1132,7 @@ async function saveToS3Streaming(
     const uploadDone = upload.done();
     try {
       const [uploaded] = await Promise.all([uploadDone, finalized]);
-      core.info(`Cache saved to S3 with key: ${primaryKey}`);
+      log.info(`Cache saved to S3 with key: ${primaryKey}`);
       const size = counter.count();
       const transferMs = Date.now() - transferStart;
       const etag = await attachStreamedChecksum(
@@ -1171,7 +1178,7 @@ async function saveToS3Streaming(
         return outcome;
       }
       if (sendCondition && isPreconditionFailed(err)) {
-        core.info(`Another job saved s3://${bucket}/${objectKey} first; keeping its cache.`);
+        log.info(`Another job saved s3://${bucket}/${objectKey} first; keeping its cache.`);
         return {
           kind: 'exists',
           s3: { objectKey, size: counter.count(), etag: undefined },
@@ -1179,7 +1186,7 @@ async function saveToS3Streaming(
         };
       }
       if (sendCondition && isConditionUnsupported(err)) {
-        core.debug(
+        log.debug(
           `s3://${bucket} rejected the If-None-Match condition; retrying the upload of ${objectKey} without it.`
         );
         tier.storage.conditionalWriteUnsupported = true;
@@ -1188,7 +1195,7 @@ async function saveToS3Streaming(
       if (sendCondition && isConditionalConflict(err)) {
         // A streamed body cannot be replayed, so the one retry is a file-mode save, which keeps
         // the condition.
-        core.info(
+        log.info(
           `A concurrent write to s3://${bucket}/${objectKey} conflicted with this upload; retrying it once from a temporary archive file.`
         );
         return await saveToS3FileMode(tier, objectKey, entries, primaryKey, false);
@@ -1221,7 +1228,7 @@ function partPlan(tier: S3Tier, found: S3Match): PartDownloadOptions | undefined
     return undefined;
   }
   const parts = Math.ceil(found.size / partSize);
-  core.info(
+  log.info(
     `Downloading ${formatSize(found.size)} in ${parts} parts of ${formatSize(partSize)}, ${Math.min(concurrency, parts)} at a time`
   );
   return { size: found.size, partSize, concurrency, retries: tier.streamRetries };
@@ -1229,7 +1236,7 @@ function partPlan(tier: S3Tier, found: S3Match): PartDownloadOptions | undefined
 
 /** Logged once when a provider answers a ranged GET with the whole object. */
 function logRangeFallback(tier: S3Tier, found: S3Match): void {
-  core.info(
+  log.info(
     `s3://${tier.storage.bucket}/${found.objectKey} does not support ranged GET requests; downloading it in one request.`
   );
 }
@@ -1371,7 +1378,7 @@ async function restoreFromS3Streaming(
         };
       }
     } else {
-      core.debug(
+      log.debug(
         `s3://${bucket}/${found.objectKey} has no ${SHA256_METADATA_KEY} metadata; skipping integrity check.`
       );
     }

@@ -4,7 +4,7 @@
  * or writes anything, so it is safe to run before (or instead of) a restore.
  */
 
-import * as core from '@actions/core';
+import { getHost } from '../ci/host';
 import { formatSize, isExactKeyMatch } from '../utils/inputUtils';
 import { mapWithConcurrency } from '../utils/concurrency';
 import type { CacheConfig } from './config';
@@ -287,8 +287,8 @@ export async function writeExplainSummary(
   if (!canWrite(jobSummary)) {
     return;
   }
-  core.summary
-    .addHeading('Cache lookup explained')
+  getHost()
+    .summary?.addHeading('Cache lookup explained')
     .addRaw(`<pre>${renderExplain(report).map(escapeHtml).join('\n')}</pre>`, true);
   await flush();
 }

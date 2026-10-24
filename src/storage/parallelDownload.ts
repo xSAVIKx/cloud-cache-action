@@ -8,7 +8,7 @@ import { GetObjectCommand, type S3Client } from '@aws-sdk/client-s3';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Readable } from 'node:stream';
-import * as core from '@actions/core';
+import { log } from '../ci/log';
 import { createPrefixHasher, type PrefixHasher } from '../archive/prefixHasher';
 import { isRetryableStreamError, withRetry } from './retry';
 
@@ -319,7 +319,7 @@ export async function downloadFileInParts(
       () => source.abort()
     );
     sha256 = await hasher?.finish(options.size).catch((err: unknown) => {
-      core.debug(`The download hash failed, so the result has no sha256: ${String(err)}`);
+      log.debug(`The download hash failed, so the result has no sha256: ${String(err)}`);
       return undefined;
     });
   } finally {
@@ -334,7 +334,7 @@ function startHasher(filePath: string): PrefixHasher | undefined {
   try {
     return createPrefixHasher(filePath);
   } catch (err) {
-    core.debug(`Could not start the download hash worker: ${String(err)}`);
+    log.debug(`Could not start the download hash worker: ${String(err)}`);
     return undefined;
   }
 }

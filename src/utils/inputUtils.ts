@@ -1,9 +1,10 @@
-import * as core from '@actions/core';
-import { Events } from '../constants';
+import { getHost } from '../ci/host';
+import type { InputOptions } from '../ci/host';
+import { log } from '../ci/log';
 
-export function getInputAsArray(name: string, options?: core.InputOptions): string[] {
-  return core
-    .getInput(name, options)
+export function getInputAsArray(name: string, options?: InputOptions): string[] {
+  return getHost()
+    .input(name, options)
     .split('\n')
     .map((s) => s.trim())
     .filter((x) => x !== '');
@@ -15,9 +16,9 @@ const FALSE_VALUES = ['false', 'False', 'FALSE'];
 export function getInputAsBool(
   name: string,
   defaultValue = false,
-  options?: core.InputOptions
+  options?: InputOptions
 ): boolean {
-  const value = core.getInput(name, options).trim();
+  const value = getHost().input(name, options).trim();
   if (!value) {
     return defaultValue;
   }
@@ -27,7 +28,7 @@ export function getInputAsBool(
   if (FALSE_VALUES.includes(value)) {
     return false;
   }
-  core.warning(
+  log.warning(
     `Input "${name}" must be one of true, True, TRUE, false, False, FALSE; got "${value}". Using "${defaultValue}".`
   );
   return defaultValue;
@@ -38,14 +39,14 @@ export function getInputAsEnum<T extends string>(
   allowed: readonly T[],
   defaultValue: T
 ): T {
-  const value = core.getInput(name).trim();
+  const value = getHost().input(name).trim();
   if (!value) {
     return defaultValue;
   }
   if ((allowed as readonly string[]).includes(value)) {
     return value as T;
   }
-  core.warning(
+  log.warning(
     `Input "${name}" must be one of ${allowed.join(', ')}; got "${value}". Using "${defaultValue}".`
   );
   return defaultValue;
@@ -54,9 +55,9 @@ export function getInputAsEnum<T extends string>(
 export function getInputAsInt(
   name: string,
   defaultValue?: number,
-  options?: core.InputOptions
+  options?: InputOptions
 ): number | undefined {
-  const value = core.getInput(name, options);
+  const value = getHost().input(name, options);
   if (!value) {
     return defaultValue;
   }
@@ -73,14 +74,14 @@ export function getInputWithEnv(
   camelCaseInputName?: string
 ): string {
   // Check primary input
-  let value = core.getInput(inputName);
+  let value = getHost().input(inputName);
   if (value) {
     return value;
   }
 
   // Check camelCase alias if provided
   if (camelCaseInputName) {
-    value = core.getInput(camelCaseInputName);
+    value = getHost().input(camelCaseInputName);
     if (value) {
       return value;
     }
@@ -88,7 +89,7 @@ export function getInputWithEnv(
 
   // Check environment variables
   for (const envVar of envVarNames) {
-    const envVal = process.env[envVar];
+    const envVal = getHost().context().env[envVar];
     if (envVal !== undefined && envVal !== '') {
       return envVal;
     }
@@ -105,7 +106,7 @@ export function isExactKeyMatch(primaryKey: string, matchedKey?: string): boolea
 }
 
 export function isValidEvent(): boolean {
-  const event = process.env[Events.Key];
+  const event = getHost().context().eventName;
   // GitHub Actions events that are not tied to a ref (e.g. issues, discussion) might not be appropriate for caching
   // actions/cache warns if event is not ref-based, but allows execution
   return Boolean(event);

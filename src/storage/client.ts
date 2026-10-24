@@ -1,5 +1,6 @@
 import { S3Client, S3ClientConfig } from '@aws-sdk/client-s3';
-import * as core from '@actions/core';
+import { getHost } from '../ci/host';
+import { log } from '../ci/log';
 import { ProviderConfig, isKnownProvider, resolveProviderDefaults } from './providers';
 import { getInputWithEnv, getInputAsBool } from '../utils/inputUtils';
 import { Inputs } from '../constants';
@@ -77,7 +78,7 @@ function timeoutFromEnv(env: NodeJS.ProcessEnv, name: string, fallback: number):
   if (/^\d+$/.test(raw.trim())) {
     return Number(raw.trim());
   }
-  core.warning(
+  log.warning(
     `Ignoring ${name}="${raw}": it must be a whole number of milliseconds (0 turns the timeout off). Using ${fallback}.`
   );
   return fallback;
@@ -152,7 +153,7 @@ function addUnsignedPayloadMiddleware(client: S3Client): void {
         }
         if (enabled) {
           enabled = false;
-          core.info(
+          log.info(
             `The server refused UNSIGNED-PAYLOAD (${code}). Uploads for this client now sign the payload hash.`
           );
         }
@@ -334,7 +335,7 @@ class LoggedRetryStrategy {
     const wait =
       (next as { $retryLog?: { acquisitionDelay?: number } }).$retryLog?.acquisitionDelay ??
       next.getRetryDelay();
-    core.info(
+    log.info(
       `${label}: attempt ${failed} of ${this.maxAttempts} failed${took}: ${s3ErrorReason(info.error).replace(/\.$/, '')}. Starting attempt ${failed + 1} after a wait of ${seconds(wait)}.`
     );
     return next;
@@ -372,12 +373,12 @@ export function createStorageContext(options: StorageClientOptions): StorageCont
     'AWS_ENDPOINT_URL_S3',
   ]);
   const regionInput = getInputWithEnv(Inputs.Region, ['AWS_REGION', 'AWS_DEFAULT_REGION']);
-  const providerInput = core.getInput(Inputs.Provider);
+  const providerInput = getHost().input(Inputs.Provider);
   if (providerInput && !isKnownProvider(providerInput)) {
-    core.warning(`Unknown provider "${providerInput}"; using generic S3-compatible defaults.`);
+    log.warning(`Unknown provider "${providerInput}"; using generic S3-compatible defaults.`);
   }
 
-  const forcePathStyleRaw = core.getInput(Inputs.ForcePathStyle);
+  const forcePathStyleRaw = getHost().input(Inputs.ForcePathStyle);
   const forcePathStyleInput =
     forcePathStyleRaw !== '' ? getInputAsBool(Inputs.ForcePathStyle) : undefined;
 
@@ -429,12 +430,12 @@ export function createStorageContext(options: StorageClientOptions): StorageCont
       sessionToken: sessionToken || undefined,
     };
   } else if (accessKey || secretKey) {
-    core.warning(
+    log.warning(
       'Only one of access-key and secret-key is set; ignoring it and using the default AWS credential chain.'
     );
   }
 
-  core.debug(
+  log.debug(
     `Configuring S3 client for provider: ${providerConfig.provider} (endpoint: ${
       providerConfig.endpoint || 'AWS default'
     }, region: ${providerConfig.region}, forcePathStyle: ${providerConfig.forcePathStyle}, maxAttempts: ${maxAttempts}, connectionTimeout: ${timeouts.connectionTimeout} ms, socketTimeout: ${timeouts.socketTimeout} ms)`

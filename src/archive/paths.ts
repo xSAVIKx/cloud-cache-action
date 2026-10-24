@@ -1,17 +1,16 @@
-import * as core from '@actions/core';
+import { getWorkspace } from '../ci/env';
+import { log } from '../ci/log';
 import * as glob from '@actions/glob';
 import * as os from 'node:os';
 import * as path from 'node:path';
+
+export { getWorkspace } from '../ci/env';
 
 export interface ResolvedCachePaths {
   /** Tar manifest entries: relative to the workspace, `/`-separated, sorted, no overlaps. */
   entries: string[];
   /** Matches that cannot be written to a tar manifest. */
   skipped: string[];
-}
-
-export function getWorkspace(env: NodeJS.ProcessEnv = process.env): string {
-  return env.GITHUB_WORKSPACE || process.cwd();
 }
 
 /**
@@ -99,7 +98,7 @@ export async function resolveCachePaths(
     const entry = relative === '' ? '.' : relative;
     if (/[\r\n]/.test(entry)) {
       skipped.push(entry);
-      core.warning(
+      log.warning(
         `Skipping ${JSON.stringify(entry)}: file names containing line breaks cannot be cached.`
       );
       continue;

@@ -1,5 +1,5 @@
 import * as io from '@actions/io';
-import * as core from '@actions/core';
+import { log } from '../ci/log';
 
 export type CompressionMethod = 'zstd' | 'gzip';
 
@@ -18,7 +18,7 @@ export async function getCompressionConfig(): Promise<CompressionConfig> {
   try {
     const zstdPath = await io.which('zstd', false);
     if (zstdPath) {
-      core.debug(`zstd binary found at: ${zstdPath}`);
+      log.debug(`zstd binary found at: ${zstdPath}`);
       cachedConfig = {
         method: 'zstd',
         archiveFilename: 'cache.tar.zst',
@@ -26,10 +26,10 @@ export async function getCompressionConfig(): Promise<CompressionConfig> {
       return cachedConfig;
     }
   } catch (err) {
-    core.debug(`zstd detection error: ${err}`);
+    log.debug(`zstd detection error: ${err}`);
   }
 
-  core.debug('zstd binary not found; falling back to gzip');
+  log.debug('zstd binary not found; falling back to gzip');
   cachedConfig = {
     method: 'gzip',
     archiveFilename: 'cache.tar.gz',

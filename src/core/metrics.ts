@@ -4,7 +4,7 @@
  * file is best-effort by design: a machine-readable timing record must never fail a cache step.
  */
 
-import * as core from '@actions/core';
+import { log } from '../ci/log';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { toError } from './outcomes';
@@ -50,7 +50,7 @@ export interface StepMetrics {
 /** Debug-logs the metrics and, when `metricsFile` is set, appends them as one JSON line. */
 export function emitMetrics(metrics: StepMetrics, metricsFile: string, workspace: string): void {
   const line = JSON.stringify(metrics);
-  core.debug(`cloud-cache-metrics ${line}`);
+  log.debug(`cloud-cache-metrics ${line}`);
   if (metricsFile === '') {
     return;
   }
@@ -59,6 +59,6 @@ export function emitMetrics(metrics: StepMetrics, metricsFile: string, workspace
     fs.mkdirSync(path.dirname(resolved), { recursive: true });
     fs.appendFileSync(resolved, `${line}\n`);
   } catch (err) {
-    core.warning(`Could not write metrics to ${resolved}: ${toError(err).message}`);
+    log.warning(`Could not write metrics to ${resolved}: ${toError(err).message}`);
   }
 }

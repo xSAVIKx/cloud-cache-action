@@ -1,4 +1,4 @@
-import * as core from '@actions/core';
+import { log } from '../ci/log';
 
 /** User metadata keys starting with this are set by the action and never by the user. */
 export const USER_METADATA_RESERVED_PREFIX = 'cloud-cache-';
@@ -71,7 +71,7 @@ export function parseMetadata(raw: string, inputName = 'metadata'): Record<strin
       );
     }
     if (key in metadata) {
-      core.warning(`"${inputName}" sets "${key}" more than once; the last value wins.`);
+      log.warning(`"${inputName}" sets "${key}" more than once; the last value wins.`);
     }
     metadata[key] = value;
   }

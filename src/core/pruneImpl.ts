@@ -1,5 +1,6 @@
-import * as core from '@actions/core';
-import { getWorkspace } from '../archive/paths';
+import { GitHubActionsHost } from '../ci/github';
+import { getHost } from '../ci/host';
+import { log } from '../ci/log';
 import { Defaults, Inputs, Outputs } from '../constants';
 import { createStorageContext } from '../storage/client';
 import {
@@ -58,16 +59,16 @@ function parseDryRun(raw: string): boolean {
 export function readPruneRules(): PruneRules {
   const rules: PruneRules = {
     olderThanDays: parseOptionalPositiveInt(
-      core.getInput(Inputs.OlderThanDays),
+      getHost().input(Inputs.OlderThanDays),
       Inputs.OlderThanDays
     ),
-    keepLatest: parseOptionalPositiveInt(core.getInput(Inputs.KeepLatest), Inputs.KeepLatest),
+    keepLatest: parseOptionalPositiveInt(getHost().input(Inputs.KeepLatest), Inputs.KeepLatest),
     maxTotalSize: parseOptionalNonNegativeInt(
-      core.getInput(Inputs.MaxTotalSize),
+      getHost().input(Inputs.MaxTotalSize),
       Inputs.MaxTotalSize
     ),
     abortUploadsOlderThanHours: parseOptionalPositiveInt(
-      core.getInput(Inputs.AbortUploadsOlderThanHours),
+      getHost().input(Inputs.AbortUploadsOlderThanHours),
       Inputs.AbortUploadsOlderThanHours
     ),
   };
@@ -80,15 +81,15 @@ export function readPruneRules(): PruneRules {
 export function readPruneConfig(): PruneConfig {
   return {
     rules: readPruneRules(),
-    ref: core.getInput(Inputs.Ref).trim(),
-    dryRun: parseDryRun(core.getInput(Inputs.DryRun)),
-    prefix: core.getInput(Inputs.Prefix),
-    s3KeyPattern: core.getInput(Inputs.S3KeyPattern) || Defaults.DefaultS3KeyPattern,
+    ref: getHost().input(Inputs.Ref).trim(),
+    dryRun: parseDryRun(getHost().input(Inputs.DryRun)),
+    prefix: getHost().input(Inputs.Prefix),
+    s3KeyPattern: getHost().input(Inputs.S3KeyPattern) || Defaults.DefaultS3KeyPattern,
     scopedToRepository: getInputAsBool(Inputs.ScopedToRepository, true),
     scopedToRef: getInputAsBool(Inputs.ScopedToRef, true),
     retryEnabled: getInputAsBool(Inputs.Retry, true),
     retryCount: getInputAsInt(Inputs.RetryCount) ?? Defaults.DefaultRetryCount,
-    metricsFile: core.getInput(Inputs.MetricsFile).trim(),
+    metricsFile: getHost().input(Inputs.MetricsFile).trim(),
   };
 }
 
@@ -98,25 +99,28 @@ export function readPruneConfig(): PruneConfig {
  * matches saved objects through `KeyTemplate.scopeMatcher`, which accepts any version and both
  * known archive filenames.
  */
-export function buildPruneTier(
-  config: PruneConfig,
-  env: NodeJS.ProcessEnv = process.env
-): PruneTier {
+export function buildPruneTier(config: PruneConfig, env?: NodeJS.ProcessEnv): PruneTier {
+  // process.env is the live environment, so it means "the CI host of this run". Any other env
+  // object is a test or caller fixture, read as GitHub variables.
+  const ctx =
+    env === undefined || env === process.env
+      ? getHost().context()
+      : new GitHubActionsHost(env).context();
   const storage = createStorageContext({
     maxAttempts: config.retryEnabled ? config.retryCount + 1 : 1,
   });
   const template = compileKeyTemplate({
     pattern: config.s3KeyPattern,
-    repository: env.GITHUB_REPOSITORY ?? '',
+    repository: ctx.repository,
     prefix: config.prefix,
     scopedToRepository: config.scopedToRepository,
     scopedToRef: config.scopedToRef,
     version: '',
     archiveFilename: Defaults.DefaultArchiveFilenameZstd,
-    env,
+    env: ctx.env,
   });
   for (const warning of template.warnings) {
-    core.warning(warning);
+    log.warning(warning);
   }
   return { storage, template };
 }
@@ -131,7 +135,7 @@ export async function pruneImpl(): Promise<void> {
       );
     }
     if (config.ref && !config.ref.startsWith('refs/')) {
-      core.warning(
+      log.warning(
         `The "ref" input "${config.ref}" is not a full Git ref. Prune expects a full ref such as refs/heads/main, so it may match no caches.`
       );
     }
@@ -143,10 +147,10 @@ export async function pruneImpl(): Promise<void> {
       dryRun: config.dryRun,
     });
 
-    core.setOutput(Outputs.PrunedCount, String(result.pruned.length));
-    core.setOutput(Outputs.PrunedBytes, String(result.prunedBytes));
-    core.setOutput(Outputs.KeptCount, String(result.keptCount));
-    core.setOutput(Outputs.AbortedUploads, String(result.abortedUploads));
+    getHost().setOutput(Outputs.PrunedCount, String(result.pruned.length));
+    getHost().setOutput(Outputs.PrunedBytes, String(result.prunedBytes));
+    getHost().setOutput(Outputs.KeptCount, String(result.keptCount));
+    getHost().setOutput(Outputs.AbortedUploads, String(result.abortedUploads));
     emitMetrics(
       {
         step: 'prune',
@@ -164,10 +168,10 @@ export async function pruneImpl(): Promise<void> {
         },
       },
       config.metricsFile,
-      getWorkspace()
+      getHost().context().workspace
     );
   } catch (err) {
-    core.setFailed(toError(err).message);
+    getHost().setFailed(toError(err).message);
   }
 }
 

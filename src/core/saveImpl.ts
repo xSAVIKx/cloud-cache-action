@@ -1,7 +1,7 @@
-import * as core from '@actions/core';
-import { getWorkspace } from '../archive/paths';
+import { getHost } from '../ci/host';
+import { log } from '../ci/log';
 import { Outputs, State } from '../constants';
-import { NullStateProvider, StateProvider, type IStateProvider } from '../state';
+import { NullStateProvider, type IStateProvider } from '../state';
 import { isWriteAccessDeniedError } from '../storage/errors';
 import { isValidEvent } from '../utils/inputUtils';
 import { getCacheMode, isCacheWritable } from './cacheMode';
@@ -49,10 +49,10 @@ function reportS3(info: S3ObjectInfo | undefined): void {
   if (!info) {
     return;
   }
-  core.setOutput(Outputs.CacheS3Key, info.objectKey);
-  core.setOutput(Outputs.CacheSize, String(info.size));
+  getHost().setOutput(Outputs.CacheS3Key, info.objectKey);
+  getHost().setOutput(Outputs.CacheSize, String(info.size));
   if (info.etag) {
-    core.setOutput(Outputs.CacheETag, info.etag);
+    getHost().setOutput(Outputs.CacheETag, info.etag);
   }
 }
 
@@ -64,14 +64,14 @@ async function setUpS3(
     const tier = await buildS3Tier(config, process.env, {
       compression: stateProvider.getState(State.CacheCompression),
     });
-    core.setOutput(Outputs.CacheStorageProvider, tier.storage.providerConfig.provider);
+    getHost().setOutput(Outputs.CacheStorageProvider, tier.storage.providerConfig.provider);
     return tier;
   } catch (err) {
     const otherTierMayServe = config.dualCache ? !config.dualCacheStrict : config.useFallback;
     if (!otherTierMayServe) {
       throw err;
     }
-    core.warning(`S3 client initialization failed during save: ${toError(err).message}`);
+    log.warning(`S3 client initialization failed during save: ${toError(err).message}`);
     return undefined;
   }
 }
@@ -82,8 +82,8 @@ async function saveSingleTier(
   s3ExactHit: boolean
 ): Promise<SaveResult> {
   if (s3ExactHit) {
-    core.info(`Cache hit occurred on the primary key ${config.primaryKey}, not saving cache.`);
-    core.setOutput(Outputs.CacheSavedSources, 'none');
+    log.info(`Cache hit occurred on the primary key ${config.primaryKey}, not saving cache.`);
+    getHost().setOutput(Outputs.CacheSavedSources, 'none');
     return { sources: [], outcome: 'exists' };
   }
 
@@ -95,7 +95,7 @@ async function saveSingleTier(
       case 'saved':
       case 'exists':
         reportS3(outcome.s3);
-        core.setOutput(Outputs.CacheSavedSources, 's3');
+        getHost().setOutput(Outputs.CacheSavedSources, 's3');
         return {
           size: outcome.s3?.size,
           sources: ['s3'],
@@ -105,11 +105,11 @@ async function saveSingleTier(
           outcome: outcome.kind,
         };
       case 'skipped':
-        core.setOutput(Outputs.CacheSavedSources, 'none');
+        getHost().setOutput(Outputs.CacheSavedSources, 'none');
         return { sources: [], outcome: 'skipped' };
       case 'error': {
         const error = s3SaveError(outcome.error);
-        core.warning(`Failed to save cache to S3: ${error.message}`);
+        log.warning(`Failed to save cache to S3: ${error.message}`);
         warnedError = error.message;
         break;
       }
@@ -121,7 +121,7 @@ async function saveSingleTier(
   }
 
   if (config.useFallback) {
-    core.info('Saving to GitHub Actions Cache instead (use-fallback).');
+    log.info('Saving to GitHub Actions Cache instead (use-fallback).');
     // Load the GitHub tier only when a run uses it. S3-only runs skip its start-up cost.
     const { saveToGitHub } = await import('./githubTier');
     const outcome = await saveToGitHub(
@@ -132,10 +132,10 @@ async function saveSingleTier(
     );
     switch (outcome.kind) {
       case 'saved':
-        core.setOutput(Outputs.CacheSavedSources, 'github');
+        getHost().setOutput(Outputs.CacheSavedSources, 'github');
         return { sources: ['github'], outcome: 'saved' };
       case 'error':
-        core.warning(`Failed to save cache to GitHub Actions Cache: ${outcome.error.message}`);
+        log.warning(`Failed to save cache to GitHub Actions Cache: ${outcome.error.message}`);
         warnedError = outcome.error.message;
         break;
       case 'exists':
@@ -147,7 +147,7 @@ async function saveSingleTier(
       }
     }
   }
-  core.setOutput(Outputs.CacheSavedSources, 'none');
+  getHost().setOutput(Outputs.CacheSavedSources, 'none');
   return warnedError
     ? { sources: [], outcome: 'error', error: warnedError }
     : { sources: [], outcome: 'skipped' };
@@ -173,14 +173,14 @@ async function saveBothTiers(
     if (config.dualCacheStrict) {
       throw new Error(`Saving to ${tier} failed: ${error.message}`, { cause: error });
     }
-    core.warning(`Dual-cache ${tier} save error: ${error.message}`);
+    log.warning(`Dual-cache ${tier} save error: ${error.message}`);
     warnedError = error.message;
   };
 
-  core.info(`Dual-cache save (strategy: ${config.dualCacheStrategy})`);
+  log.info(`Dual-cache save (strategy: ${config.dualCacheStrategy})`);
   const skipBoth = config.dualCacheStrategy === 'skip-on-hit' && (s3ExactHit || githubExactHit);
   if (skipBoth) {
-    core.info(
+    log.info(
       'An exact hit occurred on one tier and dual-cache-strategy is skip-on-hit; not saving.'
     );
   }
@@ -232,7 +232,7 @@ async function saveBothTiers(
     if (githubTier === undefined) {
       // The tier did not load, and tierFailed has warned. There is nothing to save with.
     } else if (alreadyThere) {
-      core.info(
+      log.info(
         `GitHub Actions Cache already has key "${config.primaryKey}"; not uploading it again.`
       );
       present.add('github');
@@ -263,8 +263,8 @@ async function saveBothTiers(
   }
 
   const sources = (['s3', 'github'] as const).filter((source) => present.has(source));
-  core.setOutput(Outputs.CacheSavedSources, sources.join(',') || 'none');
-  core.info(`Dual-cache save complete. Cache present in: ${sources.join(', ') || 'none'}`);
+  getHost().setOutput(Outputs.CacheSavedSources, sources.join(',') || 'none');
+  log.info(`Dual-cache save complete. Cache present in: ${sources.join(', ') || 'none'}`);
   if (sources.length === 0) {
     return warnedError
       ? { sources: [], objectKey, transferMs, outcome: 'error', error: warnedError }
@@ -299,14 +299,14 @@ export async function saveImpl(stateProvider: IStateProvider): Promise<number | 
     };
     const timings = formatTimings(full);
     if (timings) {
-      core.info(timings);
+      log.info(timings);
     }
-    emitMetrics(full, config?.metricsFile ?? '', getWorkspace());
+    emitMetrics(full, config?.metricsFile ?? '', getHost().context().workspace);
   };
   try {
     if (!isValidEvent()) {
-      core.warning(
-        `Event Validation Warning: The event type ${process.env.GITHUB_EVENT_NAME} may not be tied to a branch or tag ref.`
+      log.warning(
+        `Event Validation Warning: The event type ${getHost().context().eventName} may not be tied to a branch or tag ref.`
       );
     }
 
@@ -315,9 +315,9 @@ export async function saveImpl(stateProvider: IStateProvider): Promise<number | 
     strict = config.dualCache && config.dualCacheStrict;
     // Set up front and overwritten on success, so every path — an early skip or an error
     // handled as a warning included — leaves the timing and size outputs defined.
-    core.setOutput(Outputs.CacheSaveDurationMs, '0');
-    core.setOutput(Outputs.CacheTransferDurationMs, '0');
-    core.setOutput(Outputs.CacheBytes, '0');
+    getHost().setOutput(Outputs.CacheSaveDurationMs, '0');
+    getHost().setOutput(Outputs.CacheTransferDurationMs, '0');
+    getHost().setOutput(Outputs.CacheBytes, '0');
     /** Records a save that never reached the tiers, so the metrics file still gets its line. */
     const skip = (reason: string): void => {
       report({
@@ -330,17 +330,17 @@ export async function saveImpl(stateProvider: IStateProvider): Promise<number | 
       });
     };
     if (config.readOnly) {
-      core.info('Read-only mode enabled. Skipping cache save.');
+      log.info('Read-only mode enabled. Skipping cache save.');
       skip('read-only');
       return;
     }
     if (!config.primaryKey) {
-      core.warning('Key is not specified. Set key and path, or set preset. Skipping cache save.');
+      log.warning('Key is not specified. Set key and path, or set preset. Skipping cache save.');
       skip('no key');
       return;
     }
     if (config.paths.length === 0) {
-      core.warning('No paths specified to cache. Set path, or set preset. Skipping save.');
+      log.warning('No paths specified to cache. Set path, or set preset. Skipping save.');
       skip('no paths');
       return;
     }
@@ -348,11 +348,11 @@ export async function saveImpl(stateProvider: IStateProvider): Promise<number | 
     // S3 tier obeys the same mode and the step reports one skip. A skip never fails the step.
     const cacheMode = getCacheMode();
     if (!isCacheWritable(cacheMode)) {
-      core.info(
+      log.info(
         `Cache save skipped: ACTIONS_CACHE_MODE is '${cacheMode}', which does not permit writes.`
       );
-      core.setOutput(Outputs.CacheSavedSources, 'none');
-      core.setOutput(Outputs.CacheSaveDurationMs, String(Date.now() - start));
+      getHost().setOutput(Outputs.CacheSavedSources, 'none');
+      getHost().setOutput(Outputs.CacheSaveDurationMs, String(Date.now() - start));
       skip(`ACTIONS_CACHE_MODE=${cacheMode}`);
       await writeSaveSummary({
         jobSummary: config.jobSummary,
@@ -374,9 +374,9 @@ export async function saveImpl(stateProvider: IStateProvider): Promise<number | 
     const result = config.dualCache
       ? await saveBothTiers(config, s3, s3ExactHit, githubExactHit)
       : await saveSingleTier(config, s3, s3ExactHit);
-    core.setOutput(Outputs.CacheSaveDurationMs, String(Date.now() - start));
-    core.setOutput(Outputs.CacheTransferDurationMs, String(result.transferMs ?? 0));
-    core.setOutput(Outputs.CacheBytes, String(result.size ?? 0));
+    getHost().setOutput(Outputs.CacheSaveDurationMs, String(Date.now() - start));
+    getHost().setOutput(Outputs.CacheTransferDurationMs, String(result.transferMs ?? 0));
+    getHost().setOutput(Outputs.CacheBytes, String(result.size ?? 0));
     report({
       step: 'save',
       provider,
@@ -412,15 +412,15 @@ export async function saveImpl(stateProvider: IStateProvider): Promise<number | 
       extra: { error: message },
     });
     if (strict) {
-      core.setFailed(message);
+      getHost().setFailed(message);
     } else {
-      core.warning(`Save cache encountered error: ${message}`);
+      log.warning(`Save cache encountered error: ${message}`);
     }
   }
 }
 
 export async function runSave(earlyExit = true): Promise<void> {
-  await saveImpl(new StateProvider());
+  await saveImpl(getHost().state);
   if (earlyExit) {
     // An explicit exit code overrides process.exitCode, so keep the one core.setFailed set.
     process.exit(process.exitCode ?? 0);

@@ -6,11 +6,15 @@
  * cites the source of every value.
  */
 
-import * as core from '@actions/core';
+import { getHost } from '../ci/host';
+import type { RunnerOs } from '../ci/env';
+import { log } from '../ci/log';
 import * as glob from '@actions/glob';
-import { getWorkspace, preparePattern } from '../archive/paths';
+import { preparePattern } from '../archive/paths';
 import { Inputs } from '../constants';
 import type { CacheConfig } from './config';
+
+export { type RunnerOs, runnerOs } from '../ci/env';
 
 export const PRESET_NAMES = [
   'npm',
@@ -26,9 +30,6 @@ export const PRESET_NAMES = [
   'go',
 ] as const;
 export type PresetName = (typeof PRESET_NAMES)[number];
-
-/** The values of `runner.os` on GitHub-hosted and self-hosted runners. */
-export type RunnerOs = 'Linux' | 'macOS' | 'Windows';
 
 export interface PresetDefinition {
   /** The default `path` lines per operating system. */
@@ -162,23 +163,8 @@ export const PRESETS: Record<PresetName, PresetDefinition> = {
   },
 };
 
-/** `runner.os` from RUNNER_OS, or from the platform when RUNNER_OS is not a known value. */
-export function runnerOs(
-  env: NodeJS.ProcessEnv = process.env,
-  platform: NodeJS.Platform = process.platform
-): RunnerOs {
-  const fromEnv = env.RUNNER_OS;
-  if (fromEnv === 'Linux' || fromEnv === 'macOS' || fromEnv === 'Windows') {
-    return fromEnv;
-  }
-  if (platform === 'win32') {
-    return 'Windows';
-  }
-  return platform === 'darwin' ? 'macOS' : 'Linux';
-}
-
 /** Reads the `preset` input; an unknown value fails the step, because a typo caches nothing. */
-export function readPreset(raw: string = core.getInput(Inputs.Preset)): PresetName | undefined {
+export function readPreset(raw: string = getHost().input(Inputs.Preset)): PresetName | undefined {
   const value = raw.trim();
   if (value === '') {
     return undefined;
@@ -213,8 +199,8 @@ export async function applyPreset(
     return config;
   }
   const preset = PRESETS[name];
-  const os = options.os ?? runnerOs();
-  const workspace = options.workspace ?? getWorkspace();
+  const os = options.os ?? getHost().context().runnerOs;
+  const workspace = options.workspace ?? getHost().context().workspace;
   const hash = options.hash ?? ((patterns, ws) => glob.hashFiles(patterns, ws));
 
   const paths = config.paths.length > 0 ? config.paths : [...preset.paths[os]];
@@ -236,6 +222,6 @@ export async function applyPreset(
     }
   }
 
-  core.info(`Preset ${name}: path ${paths.join(', ')}; key ${primaryKey}`);
+  log.info(`Preset ${name}: path ${paths.join(', ')}; key ${primaryKey}`);
   return { ...config, preset: name, paths, primaryKey, restoreKeys };
 }

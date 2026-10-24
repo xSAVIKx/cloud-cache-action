@@ -1,7 +1,7 @@
-import * as core from '@actions/core';
-import { getWorkspace } from '../archive/paths';
+import { getHost } from '../ci/host';
+import { log } from '../ci/log';
 import { Outputs, State } from '../constants';
-import { NullStateProvider, StateProvider, type IStateProvider } from '../state';
+import { NullStateProvider, type IStateProvider } from '../state';
 import { isValidEvent } from '../utils/inputUtils';
 import { getCacheMode, isCacheReadable } from './cacheMode';
 import { persistCacheConfig, readCacheConfig, type CacheConfig } from './config';
@@ -28,7 +28,7 @@ function restoreOrder(config: CacheConfig): Source[] {
 async function setUpS3(config: CacheConfig, state: IStateProvider): Promise<S3Tier | undefined> {
   try {
     const tier = await buildS3Tier(config);
-    core.setOutput(Outputs.CacheStorageProvider, tier.storage.providerConfig.provider);
+    getHost().setOutput(Outputs.CacheStorageProvider, tier.storage.providerConfig.provider);
     state.setState(State.CacheStorageProvider, tier.storage.providerConfig.provider);
     // The post step reuses this method, so zstd appearing mid-job cannot change the keys.
     state.setState(State.CacheCompression, tier.compression.method);
@@ -38,7 +38,7 @@ async function setUpS3(config: CacheConfig, state: IStateProvider): Promise<S3Ti
     if (!otherTierMayServe) {
       throw err;
     }
-    core.warning(`S3 client initialization failed: ${toError(err).message}`);
+    log.warning(`S3 client initialization failed: ${toError(err).message}`);
     return undefined;
   }
 }
@@ -49,7 +49,7 @@ async function attempt(
   s3: S3Tier | undefined
 ): Promise<RestoreOutcome> {
   if (source === 'github') {
-    core.info('Querying GitHub Actions Cache...');
+    log.info('Querying GitHub Actions Cache...');
     // Load the GitHub tier only when a run uses it. S3-only runs skip its start-up cost.
     const { restoreFromGitHub } = await import('./githubTier');
     return restoreFromGitHub(
@@ -74,17 +74,17 @@ function reportHit(state: IStateProvider, config: CacheConfig, source: Source, h
   }
   if (hit.s3) {
     state.setState(State.CacheS3Key, hit.s3.objectKey);
-    core.setOutput(Outputs.CacheS3Key, hit.s3.objectKey);
-    core.setOutput(Outputs.CacheSize, String(hit.s3.size));
+    getHost().setOutput(Outputs.CacheS3Key, hit.s3.objectKey);
+    getHost().setOutput(Outputs.CacheSize, String(hit.s3.size));
     if (hit.s3.etag) {
-      core.setOutput(Outputs.CacheETag, hit.s3.etag);
+      getHost().setOutput(Outputs.CacheETag, hit.s3.etag);
     }
   }
-  core.setOutput(Outputs.CacheMetadata, JSON.stringify(hit.s3?.metadata ?? {}));
-  core.setOutput(Outputs.CacheHit, String(hit.exact));
-  core.setOutput(Outputs.CacheMatchedKey, hit.matchedKey);
-  core.setOutput(Outputs.CacheHitSource, source);
-  core.info(
+  getHost().setOutput(Outputs.CacheMetadata, JSON.stringify(hit.s3?.metadata ?? {}));
+  getHost().setOutput(Outputs.CacheHit, String(hit.exact));
+  getHost().setOutput(Outputs.CacheMatchedKey, hit.matchedKey);
+  getHost().setOutput(Outputs.CacheHitSource, source);
+  log.info(
     config.lookupOnly
       ? `Cache found in ${source} and can be restored from key: ${hit.matchedKey}`
       : `Cache restored from ${source} with key: ${hit.matchedKey}`
@@ -113,14 +113,14 @@ export async function restoreImpl(
     };
     const timings = formatTimings(full);
     if (timings) {
-      core.info(timings);
+      log.info(timings);
     }
-    emitMetrics(full, config?.metricsFile ?? '', getWorkspace());
+    emitMetrics(full, config?.metricsFile ?? '', getHost().context().workspace);
   };
   try {
     if (!isValidEvent()) {
-      core.warning(
-        `Event Validation Warning: The event type ${process.env.GITHUB_EVENT_NAME} may not be tied to a branch or tag ref.`
+      log.warning(
+        `Event Validation Warning: The event type ${getHost().context().eventName} may not be tied to a branch or tag ref.`
       );
     }
 
@@ -133,25 +133,25 @@ export async function restoreImpl(
     }
 
     persistCacheConfig(stateProvider, config);
-    core.setOutput(Outputs.CachePrimaryKey, config.primaryKey);
-    core.setOutput(Outputs.CacheHit, 'false');
-    core.setOutput(Outputs.CacheHitSource, 'none');
-    core.setOutput(Outputs.CacheMetadata, '{}');
+    getHost().setOutput(Outputs.CachePrimaryKey, config.primaryKey);
+    getHost().setOutput(Outputs.CacheHit, 'false');
+    getHost().setOutput(Outputs.CacheHitSource, 'none');
+    getHost().setOutput(Outputs.CacheMetadata, '{}');
     // Set up front and overwritten on success, so every path — including an error handled as a
     // warning — leaves the timing and size outputs defined.
-    core.setOutput(Outputs.CacheRestoreDurationMs, '0');
-    core.setOutput(Outputs.CacheTransferDurationMs, '0');
-    core.setOutput(Outputs.CacheBytes, '0');
+    getHost().setOutput(Outputs.CacheRestoreDurationMs, '0');
+    getHost().setOutput(Outputs.CacheTransferDurationMs, '0');
+    getHost().setOutput(Outputs.CacheBytes, '0');
 
     // @actions/cache skips the GitHub tier itself in these modes. Skip both tiers here, so the
     // S3 tier obeys the same mode and the step reports one skip.
     const cacheMode = getCacheMode();
     if (!isCacheReadable(cacheMode)) {
-      core.info(
+      log.info(
         `Cache restore skipped: ACTIONS_CACHE_MODE is '${cacheMode}', which does not permit reads.`
       );
       stateProvider.setState(State.CacheHitSource, 'none');
-      core.setOutput(Outputs.CacheRestoreDurationMs, String(Date.now() - start));
+      getHost().setOutput(Outputs.CacheRestoreDurationMs, String(Date.now() - start));
       report({
         step: 'restore',
         key: config.primaryKey,
@@ -188,19 +188,19 @@ export async function restoreImpl(
     if (config.explain && s3) {
       try {
         const report = await buildExplainReport(s3, config);
-        core.startGroup('Cache lookup explained');
+        log.startGroup('Cache lookup explained');
         try {
-          for (const line of renderExplain(report)) core.info(line);
+          for (const line of renderExplain(report)) log.info(line);
         } finally {
-          core.endGroup();
+          log.endGroup();
         }
         await writeExplainSummary(report, config.jobSummary);
       } catch (err) {
-        core.warning(`Could not explain the cache lookup: ${toError(err).message}`);
+        log.warning(`Could not explain the cache lookup: ${toError(err).message}`);
       }
     }
     if (config.dualCache) {
-      core.info(
+      log.info(
         `Dual-cache enabled (priority: ${config.restorePriority}, strategy: ${config.dualCacheStrategy})`
       );
     }
@@ -212,9 +212,9 @@ export async function restoreImpl(
         case 'hit': {
           const matchedKey = reportHit(stateProvider, config, source, outcome);
           const bytes = outcome.s3?.size ?? 0;
-          core.setOutput(Outputs.CacheRestoreDurationMs, String(Date.now() - start));
-          core.setOutput(Outputs.CacheTransferDurationMs, String(outcome.transferMs ?? 0));
-          core.setOutput(Outputs.CacheBytes, String(bytes));
+          getHost().setOutput(Outputs.CacheRestoreDurationMs, String(Date.now() - start));
+          getHost().setOutput(Outputs.CacheTransferDurationMs, String(outcome.transferMs ?? 0));
+          getHost().setOutput(Outputs.CacheBytes, String(bytes));
           report({
             step: 'restore',
             provider,
@@ -252,7 +252,7 @@ export async function restoreImpl(
               cause: outcome.error,
             });
           }
-          core.warning(
+          log.warning(
             `Restoring from ${source} failed, so it counts as a cache miss: ${outcome.error.message}`
           );
           failedTiers.push(source);
@@ -265,7 +265,7 @@ export async function restoreImpl(
     }
 
     stateProvider.setState(State.CacheHitSource, 'none');
-    core.setOutput(Outputs.CacheRestoreDurationMs, String(Date.now() - start));
+    getHost().setOutput(Outputs.CacheRestoreDurationMs, String(Date.now() - start));
     report({
       step: 'restore',
       provider,
@@ -300,13 +300,13 @@ export async function restoreImpl(
         failedTiers.length === 1
           ? `the ${failedTiers[0]} tier failed (see the warning above)`
           : `the ${failedTiers.join(' and ')} tiers failed (see the warnings above)`;
-      core.info(`No cache restored: ${tiers}. Keys searched: ${keys}`);
+      log.info(`No cache restored: ${tiers}. Keys searched: ${keys}`);
     } else {
-      core.info(`Cache not found for input keys: ${keys}`);
+      log.info(`Cache not found for input keys: ${keys}`);
     }
     return undefined;
   } catch (err) {
-    core.setFailed(toError(err).message);
+    getHost().setFailed(toError(err).message);
     report({
       step: 'restore',
       provider,
@@ -323,7 +323,7 @@ export async function restoreImpl(
 }
 
 export async function runRestore(earlyExit = true): Promise<void> {
-  await restoreImpl(new StateProvider(), earlyExit);
+  await restoreImpl(getHost().state, earlyExit);
   if (earlyExit) {
     // An explicit exit code overrides process.exitCode, so keep the one core.setFailed set.
     process.exit(process.exitCode ?? 0);
