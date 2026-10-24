@@ -56,6 +56,10 @@ export interface CiHost {
   context(): CiContext;
   input(name: string, options?: InputOptions): string;
   setOutput(name: string, value: unknown): void;
+  /**
+   * Reports the step as failed. Every host must set `process.exitCode = 1`: the entry points end
+   * with `process.exit(process.exitCode ?? 0)`.
+   */
   setFailed(message: string | Error): void;
   state: IStateProvider;
   log: CiLogger;

@@ -160,7 +160,13 @@ describe('job summary through the host', () => {
     const previous = process.env.GITHUB_STEP_SUMMARY;
     process.env.GITHUB_STEP_SUMMARY = '/tmp/summary-not-used';
     try {
-      setHost({ ...new GitHubActionsHost({}), summary: undefined } as never);
+      // A real host object: the prototype keeps context(), input() and the other methods.
+      const host = Object.assign(
+        Object.create(GitHubActionsHost.prototype),
+        new GitHubActionsHost({})
+      );
+      Object.defineProperty(host, 'summary', { value: undefined });
+      setHost(host);
       await expect(
         writeRestoreSummary({
           jobSummary: true,

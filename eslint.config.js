@@ -10,6 +10,10 @@ const cacheImport = {
   name: '@actions/cache',
   message: 'Import @actions/cache only in src/core/githubTier.ts.',
 };
+// `paths` matches only the package name; `patterns` also matches deep imports such as
+// `@actions/core/lib/summary`.
+const corePattern = { group: ['@actions/core/*'], message: coreImport.message };
+const cachePattern = { group: ['@actions/cache/*'], message: cacheImport.message };
 const CI_ENV = '/^(GITHUB|RUNNER)_/';
 const CI_ENV_MESSAGE =
   'Do not read GITHUB_* or RUNNER_* environment variables outside src/ci. Add the read to a CiHost in src/ci.';
@@ -46,19 +50,22 @@ export default tseslint.config(
   {
     files: ['src/**/*.ts'],
     rules: {
-      'no-restricted-imports': ['error', { paths: [coreImport, cacheImport] }],
+      'no-restricted-imports': [
+        'error',
+        { paths: [coreImport, cacheImport], patterns: [corePattern, cachePattern] },
+      ],
     },
   },
   {
     files: ['src/ci/github.ts', 'src/state.ts'],
     rules: {
-      'no-restricted-imports': ['error', { paths: [cacheImport] }],
+      'no-restricted-imports': ['error', { paths: [cacheImport], patterns: [cachePattern] }],
     },
   },
   {
     files: ['src/core/githubTier.ts'],
     rules: {
-      'no-restricted-imports': ['error', { paths: [coreImport] }],
+      'no-restricted-imports': ['error', { paths: [coreImport], patterns: [corePattern] }],
     },
   },
   {

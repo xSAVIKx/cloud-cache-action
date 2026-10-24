@@ -5,6 +5,15 @@ import { resolveRefCandidates } from '../core/refs';
 import { type IStateProvider, StateProvider } from '../state';
 import type { CiContext, CiHost, CiLogger, InputOptions, SummaryWriter } from './host';
 
+/** The home directory of the OS user, or '' when the user has no passwd entry. */
+function osHomeDir(): string {
+  try {
+    return os.homedir();
+  } catch {
+    return '';
+  }
+}
+
 /** The host for GitHub Actions. It calls `core` only when a method runs, never when it loads. */
 export class GitHubActionsHost implements CiHost {
   readonly state: IStateProvider = new StateProvider();
@@ -32,7 +41,7 @@ export class GitHubActionsHost implements CiHost {
       refs: resolveRefCandidates(env),
       eventName: env.GITHUB_EVENT_NAME,
       workspace: getWorkspace(env),
-      homeDir: env.HOME || env.USERPROFILE || os.homedir(),
+      homeDir: env.HOME || env.USERPROFILE || osHomeDir(),
       runnerOs: runnerOs(env),
       env,
     };
