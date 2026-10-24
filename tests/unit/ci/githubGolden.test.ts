@@ -250,14 +250,27 @@ describe('S3 tier wiring reads the process environment', () => {
     Object.assign(process.env, saved);
   });
 
-  // buildS3Tier hashes the version with process.platform, not RUNNER_OS. On a Linux test host the
-  // Windows scenario therefore keeps the Linux version hash (87b7cfd49c9b3221).
+  // buildS3Tier hashes the version with process.platform, not RUNNER_OS, so the version in the
+  // save key depends on the test host: 3238684e250efce3 on win32, 87b7cfd49c9b3221 elsewhere.
+  const isWindowsHost = process.platform === 'win32';
   const WIRED = [
-    { ...SCENARIOS[0], saveKey: SCENARIOS[0].expected.saveKey },
-    { ...SCENARIOS[1], saveKey: SCENARIOS[1].expected.saveKey },
+    {
+      ...SCENARIOS[0],
+      saveKey: isWindowsHost
+        ? 'octo/app/refs%2Fheads%2Fmain/deps-1/3238684e250efce3/cache.tar.zst'
+        : 'octo/app/refs%2Fheads%2Fmain/deps-1/87b7cfd49c9b3221/cache.tar.zst',
+    },
+    {
+      ...SCENARIOS[1],
+      saveKey: isWindowsHost
+        ? 'octo/app/refs%2Fpull%2F7%2Fmerge/deps-1/3238684e250efce3/cache.tar.zst'
+        : 'octo/app/refs%2Fpull%2F7%2Fmerge/deps-1/87b7cfd49c9b3221/cache.tar.zst',
+    },
     {
       ...SCENARIOS[4],
-      saveKey: 'octo/app/refs%2Fheads%2Fmain/deps-1/87b7cfd49c9b3221/cache.tar.zst',
+      saveKey: isWindowsHost
+        ? 'octo/app/refs%2Fheads%2Fmain/deps-1/3238684e250efce3/cache.tar.zst'
+        : 'octo/app/refs%2Fheads%2Fmain/deps-1/87b7cfd49c9b3221/cache.tar.zst',
     },
   ];
 
