@@ -24,6 +24,17 @@ interface CliResult {
   code: number;
   log: string;
   outputs: Record<string, string>;
+  /** The content of the Bitbucket variables file, when the run had one. */
+  variables: string;
+}
+
+interface CliOptions {
+  /** The working directory. The default is the shared work directory. */
+  cwd?: string;
+  /** The env added to the clean env. The default is the generic CLOUD_CACHE_* ref setup. */
+  env?: Record<string, string>;
+  /** The file for BITBUCKET_PIPELINES_VARIABLES_PATH. It is emptied before the run. */
+  variablesFile?: string;
 }
 
 /** The parent env without the variables the CLI reads, so a developer's setup cannot leak in. */
@@ -38,8 +49,11 @@ function cleanEnv(): NodeJS.ProcessEnv {
 }
 
 /** Runs the built CLI bundle in the work directory, as a user of the CLI would. */
-async function cli(command: string, flags: string[]): Promise<CliResult> {
+async function cli(command: string, flags: string[], options: CliOptions = {}): Promise<CliResult> {
   fs.writeFileSync(outputsFile, '');
+  if (options.variablesFile) {
+    fs.writeFileSync(options.variablesFile, '');
+  }
   const args = [
     bundle,
     command,
@@ -67,12 +81,14 @@ async function cli(command: string, flags: string[]): Promise<CliResult> {
   let log: string;
   try {
     const { stdout, stderr } = await execFileAsync(process.execPath, args, {
-      cwd: work,
+      cwd: options.cwd ?? work,
       env: {
         ...cleanEnv(),
-        CLOUD_CACHE_REPOSITORY: repository,
-        CLOUD_CACHE_REF: 'main',
-        CLOUD_CACHE_WORKSPACE: work,
+        ...(options.env ?? {
+          CLOUD_CACHE_REPOSITORY: repository,
+          CLOUD_CACHE_REF: 'main',
+          CLOUD_CACHE_WORKSPACE: work,
+        }),
       },
     });
     log = stdout + stderr;
@@ -88,7 +104,8 @@ async function cli(command: string, flags: string[]): Promise<CliResult> {
       outputs[line.slice(0, split)] = line.slice(split + 1);
     }
   }
-  return { code, log, outputs };
+  const variables = options.variablesFile ? fs.readFileSync(options.variablesFile, 'utf8') : '';
+  return { code, log, outputs, variables };
 }
 
 async function listObjects(): Promise<{ key: string }[]> {
@@ -246,64 +263,22 @@ describeCli('cloud-cache CLI bundle against S3', () => {
     let varsFile: string;
 
     /** Runs the CLI as a Bitbucket step: the workspace is BITBUCKET_CLONE_DIR, not a flag. */
-    async function bbCli(
+    function bbCli(
       command: string,
       flags: string[],
       bbEnv: Record<string, string>
-    ): Promise<CliResult & { variables: string }> {
-      fs.writeFileSync(outputsFile, '');
-      fs.writeFileSync(varsFile, '');
-      const args = [
-        bundle,
-        command,
-        '--bucket',
-        s3.bucket,
-        '--endpoint',
-        s3.endpoint,
-        '--region',
-        s3.region,
-        '--provider',
-        s3.provider,
-        '--access-key',
-        s3.accessKeyId,
-        '--secret-key',
-        s3.secretAccessKey,
-        '--force-path-style',
-        '--retry=false',
-        '--state-file',
-        stateFile,
-        '--outputs-file',
-        outputsFile,
-        ...flags,
-      ];
-      let code = 0;
-      let log: string;
-      try {
-        const { stdout, stderr } = await execFileAsync(process.execPath, args, {
-          cwd: clone,
-          env: {
-            ...cleanEnv(),
-            BITBUCKET_BUILD_NUMBER: '1',
-            BITBUCKET_CLONE_DIR: clone,
-            BITBUCKET_REPO_FULL_NAME: bbRepo,
-            BITBUCKET_PIPELINES_VARIABLES_PATH: varsFile,
-            ...bbEnv,
-          },
-        });
-        log = stdout + stderr;
-      } catch (err: unknown) {
-        const failure = err as { code?: number; stdout?: string; stderr?: string };
-        code = typeof failure.code === 'number' ? failure.code : 1;
-        log = (failure.stdout ?? '') + (failure.stderr ?? '');
-      }
-      const outputs: Record<string, string> = {};
-      for (const line of fs.readFileSync(outputsFile, 'utf8').split('\n')) {
-        const split = line.indexOf('=');
-        if (split > 0) {
-          outputs[line.slice(0, split)] = line.slice(split + 1);
-        }
-      }
-      return { code, log, outputs, variables: fs.readFileSync(varsFile, 'utf8') };
+    ): Promise<CliResult> {
+      return cli(command, flags, {
+        cwd: clone,
+        variablesFile: varsFile,
+        env: {
+          BITBUCKET_BUILD_NUMBER: '1',
+          BITBUCKET_CLONE_DIR: clone,
+          BITBUCKET_REPO_FULL_NAME: bbRepo,
+          BITBUCKET_PIPELINES_VARIABLES_PATH: varsFile,
+          ...bbEnv,
+        },
+      });
     }
 
     async function listBbObjects(): Promise<string[]> {
@@ -365,7 +340,6 @@ describeCli('cloud-cache CLI bundle against S3', () => {
         expect(restored.outputs['cache-hit']).toBe('false');
         expect(restored.outputs['cache-matched-key']).toMatch(/^mvn-/);
         expect(restored.log).toContain('refs/heads/develop');
-        expect(restored.outputs['cache-matched-key']).toBeTruthy();
         expect(fs.readFileSync(path.join(clone, 'payload', 'a.txt'), 'utf8')).toBe('alpha');
 
         const prSave = await bbCli('save', prFlags, pr);
@@ -390,7 +364,7 @@ describeCli('cloud-cache CLI bundle against S3', () => {
       expect(lines.length).toBeGreaterThan(0);
       const record = JSON.parse(lines[lines.length - 1]) as Record<string, unknown>;
       expect(record.platform).toBe('bitbucket');
-      expect(record.runner).toEqual(expect.objectContaining({ stepSize: expect.anything() }));
+      expect(record.runner).toEqual(expect.objectContaining({ stepSize: '2x' }));
       expect(record).toHaveProperty('compression');
     });
 
@@ -400,6 +374,7 @@ describeCli('cloud-cache CLI bundle against S3', () => {
         BITBUCKET_EXIT_CODE: '1',
       });
       expect(result.code).toBe(0);
+      expect(result.log).toContain('Use --save-on-failure to save anyway.');
       expect(result.outputs['cache-s3-key']).toBeUndefined();
       expect(await listBbObjects()).toHaveLength(0);
     });
