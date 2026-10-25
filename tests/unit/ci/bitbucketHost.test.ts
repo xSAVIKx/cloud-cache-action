@@ -59,7 +59,7 @@ describe('BitbucketHost context', () => {
     expect(ctx.refs.restore).toEqual(['refs/heads/feature/x', 'refs/heads/main']);
     expect(ctx.workspace).toBe('/b');
     expect(ctx.eventName).toBe('push');
-    expect(ctx.labels).toBeUndefined();
+    expect(ctx.labels).toMatchObject({ stepSize: 'unknown' });
   });
 
   it('maps a pull request build', () => {
@@ -192,5 +192,17 @@ describe('BitbucketHost outputs and summary', () => {
 
   it('has a text summary writer', () => {
     expect(host(BRANCH_ENV).summary).toBeInstanceOf(TextSummaryWriter);
+  });
+});
+
+describe('BitbucketHost labels', () => {
+  it('sets the runner labels from the step size', () => {
+    const labels = host({ ...BRANCH_ENV, BITBUCKET_STEP_SIZE: '4x' }).context().labels;
+    expect(labels).toMatchObject({ stepSize: '4x', cpus: expect.any(Number) });
+  });
+
+  it('computes the labels once per host', () => {
+    const h = host(BRANCH_ENV);
+    expect(h.context().labels).toBe(h.context().labels);
   });
 });

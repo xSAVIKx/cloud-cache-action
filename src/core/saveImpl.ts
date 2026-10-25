@@ -6,7 +6,7 @@ import { isWriteAccessDeniedError } from '../storage/errors';
 import { isValidEvent } from '../utils/inputUtils';
 import { getCacheMode, isCacheWritable } from './cacheMode';
 import { readCacheConfig, type CacheConfig } from './config';
-import { emitMetrics, type StepMetrics } from './metrics';
+import { emitMetrics, hostMetricsFields, type StepMetrics } from './metrics';
 import { formatTimings } from './timings';
 import { toError, type S3ObjectInfo } from './outcomes';
 import { applyPreset, readPreset } from './presets';
@@ -285,6 +285,8 @@ export async function saveImpl(stateProvider: IStateProvider): Promise<number | 
   const start = Date.now();
   let config: CacheConfig | undefined;
   let provider: string | undefined;
+  let compression: 'zstd' | 'gzip' | undefined;
+  let region: string | undefined;
   // One line per step: a throw after the save has already reported must not report twice.
   let reported = false;
   const report = (metrics: Omit<StepMetrics, 'timestamp' | 'durationMs'>): void => {
@@ -294,6 +296,7 @@ export async function saveImpl(stateProvider: IStateProvider): Promise<number | 
     reported = true;
     const full = {
       ...metrics,
+      ...hostMetricsFields(compression, region),
       timestamp: new Date().toISOString(),
       durationMs: Date.now() - start,
     };
@@ -370,6 +373,8 @@ export async function saveImpl(stateProvider: IStateProvider): Promise<number | 
     const githubExactHit = stateProvider.getState(State.CacheGithubExactHit) === 'true';
     const s3 = await setUpS3(config, stateProvider);
     provider = s3?.storage.providerConfig.provider;
+    compression = s3?.compression.method;
+    region = s3?.storage.providerConfig.region;
 
     const result = config.dualCache
       ? await saveBothTiers(config, s3, s3ExactHit, githubExactHit)

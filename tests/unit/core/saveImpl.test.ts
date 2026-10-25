@@ -71,13 +71,19 @@ jest.unstable_mockModule('../../../src/core/summary', () => ({
 }));
 const mockEmitMetrics =
   jest.fn<(metrics: StepMetrics, metricsFile: string, workspace: string) => void>();
+const mockHostMetricsFields =
+  jest.fn<(compression?: string, region?: string) => Partial<StepMetrics>>();
 jest.unstable_mockModule('../../../src/core/metrics', () => ({
   emitMetrics: mockEmitMetrics,
+  hostMetricsFields: mockHostMetricsFields,
 }));
 
 const { runSave, runSaveOnly, saveImpl } = await import('../../../src/core/saveImpl');
 
-const tier = { storage: { providerConfig: { provider: 'seaweedfs' } } } as unknown as S3Tier;
+const tier = {
+  storage: { providerConfig: { provider: 'seaweedfs', region: 'eu-west-1' } },
+  compression: { method: 'gzip', archiveFilename: 'cache.tgz' },
+} as unknown as S3Tier;
 const s3Info = { objectKey: 'octo/app/k/cache.tar.zst', size: 2048, etag: '"new"' };
 const s3Saved: SaveOutcome = { kind: 'saved', s3: s3Info, transferMs: 9 };
 const githubSaved: SaveOutcome = { kind: 'saved' };
@@ -95,6 +101,7 @@ describe('saveImpl', () => {
     outputs.clear();
     jest.clearAllMocks();
     state = new MemoryState();
+    mockHostMetricsFields.mockReturnValue({});
     process.env.GITHUB_EVENT_NAME = 'push';
     inputs.set(Inputs.Key, 'Linux-npm-abc');
     inputs.set(Inputs.Path, '~/.npm');
@@ -792,5 +799,16 @@ describe('saveImpl', () => {
       expect(mockSetFailed).not.toHaveBeenCalled();
       expect(exitCodes).toEqual([0]);
     });
+  });
+
+  it('adds the host fields, with the compression and region of the S3 tier, to the metrics', async () => {
+    mockHostMetricsFields.mockReturnValue({ platform: 'bitbucket' });
+
+    await saveImpl(state);
+
+    expect(mockHostMetricsFields).toHaveBeenCalledWith('gzip', 'eu-west-1');
+    expect(mockEmitMetrics.mock.calls[0][0]).toEqual(
+      expect.objectContaining({ step: 'save', platform: 'bitbucket' })
+    );
   });
 });

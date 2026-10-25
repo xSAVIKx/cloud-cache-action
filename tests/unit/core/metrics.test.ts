@@ -13,7 +13,9 @@ jest.unstable_mockModule('@actions/core', () => ({
   info: jest.fn(),
 }));
 
-const { emitMetrics } = await import('../../../src/core/metrics');
+const { emitMetrics, hostMetricsFields } = await import('../../../src/core/metrics');
+const { setHost } = await import('../../../src/ci/host');
+const { GitHubActionsHost } = await import('../../../src/ci/github');
 
 const sample = (overrides: Partial<StepMetrics> = {}): StepMetrics => ({
   step: 'restore',
@@ -81,5 +83,57 @@ describe('emitMetrics', () => {
       new RegExp(`^Could not write metrics to ${target.replace(/[\\^$*+?.()|[\]{}]/g, '\\$&')}: `)
     );
     expect(mockDebug).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('hostMetricsFields', () => {
+  const labels = { stepSize: '2x', cpus: 4, memoryLimitBytes: 4294967296 };
+
+  function fakeHost(platform: string, env: NodeJS.ProcessEnv = {}) {
+    return {
+      context: () => ({ platform, env, labels }),
+      log: { warning: mockWarning, debug: mockDebug },
+    } as unknown as import('../../../src/ci/host').CiHost;
+  }
+
+  afterEach(() => {
+    jest.clearAllMocks();
+    setHost(undefined);
+  });
+
+  it('adds the platform, compression, region and runner on Bitbucket', () => {
+    setHost(fakeHost('bitbucket'));
+    expect(hostMetricsFields('zstd', 'eu-west-1')).toEqual({
+      platform: 'bitbucket',
+      compression: 'zstd',
+      region: 'eu-west-1',
+      runner: labels,
+    });
+  });
+
+  it('leaves out a compression or region that is not known', () => {
+    setHost(fakeHost('generic'));
+    expect(hostMetricsFields(undefined, undefined)).toEqual({
+      platform: 'generic',
+      runner: labels,
+    });
+  });
+
+  it('adds setupMs from CLOUD_CACHE_SETUP_MS', () => {
+    setHost(fakeHost('bitbucket', { CLOUD_CACHE_SETUP_MS: '1830' }));
+    expect(hostMetricsFields('gzip', 'auto').setupMs).toBe(1830);
+    expect(mockWarning).not.toHaveBeenCalled();
+  });
+
+  it('ignores a CLOUD_CACHE_SETUP_MS that is not a number and warns once', () => {
+    setHost(fakeHost('bitbucket', { CLOUD_CACHE_SETUP_MS: 'abc' }));
+    const fields = hostMetricsFields('gzip', 'auto');
+    expect('setupMs' in fields).toBe(false);
+    expect(mockWarning).toHaveBeenCalledTimes(1);
+  });
+
+  it('adds no key on GitHub', () => {
+    setHost(new GitHubActionsHost());
+    expect(hostMetricsFields('zstd', 'us-east-1')).toEqual({});
   });
 });

@@ -24,7 +24,10 @@ jest.unstable_mockModule('@actions/core', () => ({
   saveState: jest.fn(),
   getState: () => '',
 }));
-const tier = { storage: { providerConfig: { provider: 'seaweedfs' } } } as unknown as S3Tier;
+const tier = {
+  storage: { providerConfig: { provider: 'seaweedfs', region: 'eu-west-1' } },
+  compression: { method: 'gzip', archiveFilename: 'cache.tgz' },
+} as unknown as S3Tier;
 const s3Saved: SaveOutcome = {
   kind: 'saved',
   s3: { objectKey: 'octo/app/k/cache.tar.zst', size: 2048, etag: '"new"' },
@@ -42,6 +45,7 @@ jest.unstable_mockModule('../../../src/core/summary', () => ({
 }));
 jest.unstable_mockModule('../../../src/core/metrics', () => ({
   emitMetrics: () => {},
+  hostMetricsFields: () => ({}),
 }));
 
 const { saveImpl } = await import('../../../src/core/saveImpl');

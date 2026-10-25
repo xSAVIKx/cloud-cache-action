@@ -9,6 +9,7 @@ import {
   toFullRef,
 } from './generic';
 import type { CiContext } from './host';
+import { type RunnerLabels, runnerLabels } from './runnerLabels';
 import { TextSummaryWriter } from './textSummary';
 
 const DEFAULT_BRANCH = 'main';
@@ -23,6 +24,8 @@ export class BitbucketHost extends GenericHost {
   override readonly summary = new TextSummaryWriter();
 
   private readonly allowRefOverride: boolean;
+
+  private labels: RunnerLabels | undefined;
 
   private contextLogged = false;
 
@@ -98,6 +101,7 @@ export class BitbucketHost extends GenericHost {
       workspace: env.BITBUCKET_CLONE_DIR || env.CLOUD_CACHE_WORKSPACE || process.cwd(),
       homeDir: env.HOME || env.USERPROFILE || osHomeDir(),
       runnerOs: runnerOs(env),
+      labels: (this.labels ??= runnerLabels(env)),
       env,
     };
   }

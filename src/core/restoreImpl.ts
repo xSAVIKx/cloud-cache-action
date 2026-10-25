@@ -6,7 +6,7 @@ import { isValidEvent } from '../utils/inputUtils';
 import { getCacheMode, isCacheReadable } from './cacheMode';
 import { persistCacheConfig, readCacheConfig, type CacheConfig } from './config';
 import { buildExplainReport, renderExplain, writeExplainSummary } from './explain';
-import { emitMetrics, type StepMetrics } from './metrics';
+import { emitMetrics, hostMetricsFields, type StepMetrics } from './metrics';
 import { formatTimings } from './timings';
 import { toError, type RestoreOutcome } from './outcomes';
 import { applyPreset, readPreset } from './presets';
@@ -99,6 +99,8 @@ export async function restoreImpl(
   const start = Date.now();
   let config: CacheConfig | undefined;
   let provider: string | undefined;
+  let compression: 'zstd' | 'gzip' | undefined;
+  let region: string | undefined;
   // One line per step: a miss that then fails on fail-on-cache-miss must not report twice.
   let reported = false;
   const report = (metrics: Omit<StepMetrics, 'timestamp' | 'durationMs'>): void => {
@@ -108,6 +110,7 @@ export async function restoreImpl(
     reported = true;
     const full = {
       ...metrics,
+      ...hostMetricsFields(compression, region),
       timestamp: new Date().toISOString(),
       durationMs: Date.now() - start,
     };
@@ -185,6 +188,8 @@ export async function restoreImpl(
 
     const s3 = await setUpS3(config, stateProvider);
     provider = s3?.storage.providerConfig.provider;
+    compression = s3?.compression.method;
+    region = s3?.storage.providerConfig.region;
     if (config.explain && s3) {
       try {
         const report = await buildExplainReport(s3, config);

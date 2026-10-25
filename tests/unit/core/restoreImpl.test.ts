@@ -69,14 +69,17 @@ jest.unstable_mockModule('../../../src/core/explain', () => ({
 }));
 const mockEmitMetrics =
   jest.fn<(metrics: StepMetrics, metricsFile: string, workspace: string) => void>();
+const mockHostMetricsFields =
+  jest.fn<(compression?: string, region?: string) => Partial<StepMetrics>>();
 jest.unstable_mockModule('../../../src/core/metrics', () => ({
   emitMetrics: mockEmitMetrics,
+  hostMetricsFields: mockHostMetricsFields,
 }));
 
 const { restoreImpl, runRestore, runRestoreOnly } = await import('../../../src/core/restoreImpl');
 
 const tier = {
-  storage: { providerConfig: { provider: 'seaweedfs' } },
+  storage: { providerConfig: { provider: 'seaweedfs', region: 'eu-west-1' } },
   compression: { method: 'zstd', archiveFilename: 'cache.tar.zst' },
 } as unknown as S3Tier;
 const s3Hit = (matchedKey: string, exact: boolean): RestoreOutcome => ({
@@ -102,6 +105,7 @@ describe('restoreImpl', () => {
     outputs.clear();
     jest.clearAllMocks();
     state = new MemoryState();
+    mockHostMetricsFields.mockReturnValue({});
     process.env.GITHUB_EVENT_NAME = 'push';
     inputs.set(Inputs.Key, 'Linux-npm-abc');
     inputs.set(Inputs.Path, '~/.npm');
@@ -713,5 +717,24 @@ describe('restoreImpl', () => {
       exitSpy.mockRestore();
     }
     expect(exitCodes).toEqual([0, 0]);
+  });
+
+  it('adds the host fields, with the compression and region of the S3 tier, to the metrics', async () => {
+    mockHostMetricsFields.mockReturnValue({ platform: 'bitbucket' });
+
+    await restoreImpl(state, false);
+
+    expect(mockHostMetricsFields).toHaveBeenCalledWith('zstd', 'eu-west-1');
+    expect(mockEmitMetrics.mock.calls[0][0]).toEqual(
+      expect.objectContaining({ step: 'restore', platform: 'bitbucket', outcome: 'miss' })
+    );
+  });
+
+  it('leaves the compression and region out when the S3 tier is not built', async () => {
+    mockBuildS3Tier.mockRejectedValue(new Error('no client'));
+
+    await restoreImpl(state, false);
+
+    expect(mockHostMetricsFields).toHaveBeenLastCalledWith(undefined, undefined);
   });
 });
