@@ -11,7 +11,7 @@ The CLI finds Bitbucket by the variable `BITBUCKET_BUILD_NUMBER`. It then reads 
 - Node.js 24 or later in the build image.
 - GNU `tar` in the `PATH`.
 - `zstd` in the `PATH`. Without `zstd`, the engine uses `gzip`. The log names the fallback.
-- A S3 bucket. Use a separate bucket, or a separate key prefix, for each CI system.
+- An S3 bucket. Use a separate bucket, or a separate key prefix, for each CI system.
 
 ## Usage pattern
 
@@ -28,8 +28,8 @@ The file `SHA256SUMS` is in the same directory. Replace `X.Y.Z` with the version
 1. Set the version and the start time.
 2. Download `cloud-cache.mjs` and `SHA256SUMS`.
 3. Check the checksum.
-4. Set `CLOUD_CACHE_SETUP_MS` to the time of the download.
-5. Run `restore` before the build.
+4. Compute the time of the download in milliseconds.
+5. Run `restore` before the build. Pass `CLOUD_CACHE_SETUP_MS` to this command.
 6. Run `save` in `after-script`.
 
 ```yaml
@@ -46,20 +46,26 @@ pipelines:
           - curl -fsSLo /tmp/cloud-cache.mjs "${BASE}/cloud-cache.mjs"
           - curl -fsSLo /tmp/SHA256SUMS "${BASE}/SHA256SUMS"
           - (cd /tmp && sha256sum -c --ignore-missing SHA256SUMS)
-          - export CLOUD_CACHE_SETUP_MS=$(( $(date +%s%3N) - START ))
-          - node /tmp/cloud-cache.mjs restore --key "maven-{hash:**/pom.xml}" --path ~/.m2/repository
+          - SETUP_MS=$(( $(date +%s%3N) - START ))
+          - CLOUD_CACHE_SETUP_MS=$SETUP_MS node /tmp/cloud-cache.mjs restore --key "maven-{hash:**/pom.xml}" --path ~/.m2/repository
           - mvn -B verify
         after-script:
           - node /tmp/cloud-cache.mjs save
 ```
 
-Set `CLOUD_CACHE_BUCKET` and the other inputs as repository variables. See [Inputs](./cli.md#inputs-flags-and-environment-variables).
+The image in this example must have Node.js 24. The official `maven` images from Docker Hub do not have Node.js. Use your own image, or install Node.js 24 in the step.
 
-The `setupMs` value is only in the metrics of commands that see `CLOUD_CACHE_SETUP_MS`. Set the variable as a repository variable, or export it again in `after-script`, if you want it in the `save` record.
+Set `CLOUD_CACHE_BUCKET`, `CLOUD_CACHE_ROLE_ARN` and the other `CLOUD_CACHE_*` settings as repository or deployment variables. Bitbucket gives repository and deployment variables to `script` and to `after-script`. Do not use `export` in `script` for these settings. Or pass the same flags on the `save` line. See [Inputs](./cli.md#inputs-flags-and-environment-variables).
+
+The CLI records `setupMs` on the `restore` record only. Pass `CLOUD_CACHE_SETUP_MS` to `restore` in `script`.
+
+::: warning Not verified
+We did not test two points. One point is whether a variable that you export in `script` is visible in `after-script`. The other point is whether `BITBUCKET_STEP_OIDC_TOKEN` is available in `after-script`. Atlassian community answers say that `after-script` starts a different shell.
+:::
 
 `save` with no flags uses the key and the paths from the state file of the `restore`. See [The state file](./cli.md#the-state-file).
 
-### Skip of save after a failure
+### Save after a failed step
 
 A failed build must not overwrite a good cache. In `after-script`, Bitbucket sets `BITBUCKET_EXIT_CODE`. If this value is not `0`, `save` logs one line and exits with code 0. It makes no request.
 
@@ -103,12 +109,12 @@ With OIDC, no long-lived AWS key is stored in Bitbucket. Bitbucket gives each st
 
 ### Set up AWS
 
-1. In IAM, create an OIDC identity provider for your Bitbucket workspace. Use the issuer URL and the audience that Bitbucket shows in **Repository settings**, **OpenID Connect**.
-2. Create an IAM role. Set the identity provider as the trusted entity.
+1. In IAM, create an OIDC identity provider for your Bitbucket workspace. Use the values that the OpenID Connect page of the repository settings shows. Enter the issuer URL in the field **Provider URL**.
+2. Create an IAM role. Set the trusted entity type to **Web identity**. Select the identity provider.
 3. Write a trust policy for the role. Limit it to your repository.
 4. Give the role access to the bucket (`s3:GetObject`, `s3:PutObject`, `s3:ListBucket`, and `s3:DeleteObject` for `prune`).
 5. Set `oidc: true` on the step.
-6. Pass the role ARN with `--role-arn` or `CLOUD_CACHE_ROLE_ARN`.
+6. Pass the role ARN with `--role-arn` or with the variable `CLOUD_CACHE_ROLE_ARN`. Set the variable as a repository or deployment variable.
 
 When all these conditions are true, the CLI uses OIDC:
 
@@ -126,8 +132,9 @@ If an `AWS_WEB_IDENTITY_TOKEN_FILE` exists, the CLI does not change it. It assum
 - step:
     oidc: true
     script:
-      - export CLOUD_CACHE_ROLE_ARN=arn:aws:iam::123456789012:role/bitbucket-cache
-      - node /tmp/cloud-cache.mjs restore --key "deps-{hash:package-lock.json}" --path node_modules
+      - node /tmp/cloud-cache.mjs restore --role-arn arn:aws:iam::123456789012:role/bitbucket-cache --key "deps-{hash:package-lock.json}" --path node_modules
+    after-script:
+      - node /tmp/cloud-cache.mjs save --role-arn arn:aws:iam::123456789012:role/bitbucket-cache
 ```
 
 ### Claims of the token
@@ -155,7 +162,7 @@ In setup (b), run `restore` with the read-only role in every step. Run `save` on
 The action uses `hashFiles()` in the workflow. The CLI has its own form: `{hash:<glob>[,<glob>...]}`. Use it in `--key` and `--restore-keys`.
 
 - The hash is the same as the result of `hashFiles` in GitHub Actions.
-- Globs are relative to the clone directory.
+- Globs are relative to the clone directory (the workspace).
 - A glob that starts with `!` excludes files.
 - A glob that matches no file gives an empty string. The CLI prints a warning.
 - The text `${hash:` is not a template. It stays as it is.
@@ -200,9 +207,9 @@ The CLI also prints a plain-text summary at the end of each command. Set `--job-
 
 ## Metrics
 
-The CLI appends one JSON line for each `restore` and `save` to a metrics file. On Bitbucket, the default file is `cloud-cache-metrics.jsonl` in the clone directory. Use `--metrics-file` or `CLOUD_CACHE_METRICS_FILE` to change it. For the common fields, read [Metrics and Timings](./getting-started.md#metrics-and-timings).
+Each command appends one JSON line to a metrics file. On Bitbucket, the default file is `cloud-cache-metrics.jsonl` in the clone directory (the workspace). Use `--metrics-file` or `CLOUD_CACHE_METRICS_FILE` to change it. For the common fields, read [Metrics and Timings](./getting-started.md#metrics-and-timings).
 
-On Bitbucket, each line has these extra fields. The CLI leaves out a field when it does not know the value.
+On Bitbucket, only the `restore` and `save` records have these extra fields. The CLI leaves out a field when it does not know the value.
 
 | Field         | Meaning                                                                                  |
 | ------------- | ---------------------------------------------------------------------------------------- |
@@ -220,7 +227,7 @@ To make the `setupMs` value, measure the time of the `curl` command in your scri
 
 ## Build images
 
-Use an image that has Node.js 24. For example, use `maven:3.9.16-amazoncorretto-21-al2023` with Node.js 24 on the `PATH`.
+Use an image that has Node.js 24. For example, use an image based on `maven:3.9.16-amazoncorretto-21-al2023` that adds Node.js 24 to the `PATH`.
 
 The Amazon Linux 2023 images have GNU `tar` and `gzip`. They do not have `zstd`. Without `zstd`, the engine uses `gzip`. To use `zstd`, add it to the image:
 
@@ -235,7 +242,7 @@ To save the download time, put `cloud-cache.mjs` in your own build image. Then t
 On Alpine Linux, install Node.js, GNU `tar` and `zstd`:
 
 ```sh
-apk add nodejs tar zstd
+apk add nodejs tar zstd coreutils
 ```
 
 BusyBox `tar` is not supported. The CLI stops at the start with an error message that names `apk add tar zstd`. Also check that the `nodejs` package is version 24 or later.
