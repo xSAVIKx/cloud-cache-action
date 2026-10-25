@@ -1,9 +1,9 @@
-import { DeleteObjectsCommand, HeadObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
 import { execFile } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
+import { DeleteObjectsCommand, HeadObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
 import { createTestS3Client, getTestS3Config, prepareTestBucket } from '../support/s3Server';
 import { makeTempDir, removeDir, writeFiles } from '../support/tempTree';
 
@@ -320,6 +320,7 @@ describeCli('cloud-cache CLI bundle against S3', () => {
         const first = await bbCli('restore', flags, branch);
         expect(first.code).toBe(0);
         expect(first.outputs['cache-hit']).toBe('false');
+        expect(first.log).not.toContain('::debug::');
         const saved = await bbCli('save', flags, branch);
         expect(saved.code).toBe(0);
         const developKey = saved.outputs['cache-s3-key'];

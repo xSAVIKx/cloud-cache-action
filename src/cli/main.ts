@@ -61,7 +61,8 @@ function warnOnStateMismatch(state: FileStateProvider, stateFile: string): void 
  */
 async function expandKeyInputs(
   inputs: Record<string, string>,
-  workspace: string
+  workspace: string,
+  onDebug: (text: string) => void
 ): Promise<{ inputs: Record<string, string>; unmatched: string[] }> {
   const out = { ...inputs };
   const unmatched: string[] = [];
@@ -76,7 +77,7 @@ async function expandKeyInputs(
     }
     const lines: string[] = [];
     for (const line of value.split('\n')) {
-      const expanded = await expandHashTemplates(line, workspace);
+      const expanded = await expandHashTemplates(line, workspace, onDebug);
       lines.push(expanded.text);
       unmatched.push(...expanded.unmatched);
     }
@@ -134,7 +135,7 @@ async function run(args: CliRun): Promise<void> {
   }
 
   const workspace = host.context().workspace;
-  const expanded = await expandKeyInputs(inputs, workspace);
+  const expanded = await expandKeyInputs(inputs, workspace, (text) => host.log.debug(text));
   Object.assign(inputs, expanded.inputs);
   for (const glob of expanded.unmatched) {
     host.log.warning(`The {hash:${glob}} template matched no file under ${workspace}.`);
