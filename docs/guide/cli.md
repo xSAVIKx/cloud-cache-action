@@ -232,4 +232,4 @@ To save the cache when the build fails, run `cloud-cache save` in a step that al
   - With `--dual-cache`, a `restore` also asks the GitHub service, with the same delay and warning. The S3 result is used.
   - With `--dual-cache`, a `save` writes to S3 and prints a warning for the GitHub cache. With `--dual-cache-strict=true`, that `save` fails with exit code 1.
 - `--job-summary` has no effect on the generic platform. The CLI does not write a job summary there. On Bitbucket, the CLI prints a plain-text summary.
-- The CLI reads the repository and the refs from the `CLOUD_CACHE_*` context variables.
+- The CLI reads the repository and the refs from the `CLOUD_CACHE_*` context variables. On Bitbucket, it reads the `BITBUCKET_*` variables. See [Bitbucket Pipelines](./bitbucket.md).

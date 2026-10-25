@@ -10,7 +10,7 @@ The CLI finds Bitbucket by the variable `BITBUCKET_BUILD_NUMBER`. It then reads 
 
 - Node.js 24 or later in the build image.
 - GNU `tar` in the `PATH`.
-- `zstd` in the `PATH`. Without `zstd`, the engine uses `gzip`. The log names the fallback.
+- `zstd` in the `PATH`. Without `zstd`, the engine uses `gzip`. With `--debug`, the log names the fallback. The metrics field `compression` shows the method.
 - An S3 bucket. Use a separate bucket, or a separate key prefix, for each CI system.
 
 ## Usage pattern
@@ -203,7 +203,7 @@ Use `output-variables:` on the step to give these variables to later steps.
       - echo "Cache hit was ${CLOUD_CACHE_CACHE_HIT}"
 ```
 
-The CLI also prints a plain-text summary at the end of each command. Set `--job-summary=false` to turn it off.
+The commands `restore`, `save`, and `inspect` print a plain-text summary at the end. The command `prune` prints no summary. Set `--job-summary=false` to turn it off.
 
 ## Metrics
 
