@@ -9,7 +9,19 @@ export interface CliRun {
   stateFile: string;
   outputsFile?: string;
   debug: boolean;
+  /** The CI platform. `auto` picks Bitbucket when BITBUCKET_BUILD_NUMBER is set. */
+  platform: Platform;
+  /** Use CLOUD_CACHE_REF, CLOUD_CACHE_BASE_REF and CLOUD_CACHE_REPOSITORY on Bitbucket. */
+  allowRefOverride: boolean;
+  /** The AWS role for the Bitbucket OIDC token. */
+  roleArn?: string;
+  /** Save also when the Bitbucket step failed. Only the save command takes it. */
+  saveOnFailure: boolean;
 }
+
+export type Platform = 'auto' | 'generic' | 'bitbucket';
+
+const PLATFORMS: readonly Platform[] = ['auto', 'generic', 'bitbucket'];
 
 export type CliArgs = CliRun | { help: true } | { version: true };
 
@@ -28,6 +40,10 @@ export const CLI_FLAGS = {
   stateFile: 'state-file',
   outputsFile: 'outputs-file',
   debug: 'debug',
+  platform: 'platform',
+  allowRefOverride: 'allow-ref-override',
+  roleArn: 'role-arn',
+  saveOnFailure: 'save-on-failure',
 } as const;
 
 function isCommand(value: string): value is CliCommand {
@@ -42,6 +58,20 @@ function parseBool(flag: string, value: string): boolean {
     return false;
   }
   throw new UsageError(`--${flag} takes true or false, not "${value}"`);
+}
+
+const CLI_BOOLEAN_FLAGS = new Set<string>([
+  CLI_FLAGS.debug,
+  CLI_FLAGS.allowRefOverride,
+  CLI_FLAGS.saveOnFailure,
+]);
+
+function parsePlatform(value: string): Platform {
+  const found = PLATFORMS.find((platform) => platform === value);
+  if (found === undefined) {
+    throw new UsageError(`--platform takes ${PLATFORMS.join(', ')}, not "${value}"`);
+  }
+  return found;
 }
 
 function envBool(value: string | undefined): boolean {
@@ -73,6 +103,10 @@ export function parseCliArgs(argv: string[], env: NodeJS.ProcessEnv = process.en
   let stateFile: string | undefined;
   let outputsFile: string | undefined;
   let debug: boolean | undefined;
+  let platform: string | undefined;
+  let allowRefOverride: boolean | undefined;
+  let roleArn: string | undefined;
+  let saveOnFailure: boolean | undefined;
 
   for (let i = 0; i < rest.length; i++) {
     const arg = rest[i];
@@ -83,20 +117,36 @@ export function parseCliArgs(argv: string[], env: NodeJS.ProcessEnv = process.en
     const name = eq === -1 ? arg.slice(2) : arg.slice(2, eq);
     const inline = eq === -1 ? undefined : arg.slice(eq + 1);
 
-    if (name === CLI_FLAGS.debug || BOOLEAN_INPUTS.has(name)) {
-      if (name !== CLI_FLAGS.debug && !(name in defaults)) {
+    if (name === CLI_FLAGS.saveOnFailure && command !== 'save') {
+      throw new UsageError(`--${name} is not a flag of the ${command} command`);
+    }
+    if (
+      name === CLI_FLAGS.debug ||
+      name === CLI_FLAGS.allowRefOverride ||
+      name === CLI_FLAGS.saveOnFailure ||
+      BOOLEAN_INPUTS.has(name)
+    ) {
+      if (!CLI_BOOLEAN_FLAGS.has(name) && !(name in defaults)) {
         throw unknownFlag(name, command);
       }
       const value = parseBool(name, inline ?? 'true');
       if (name === CLI_FLAGS.debug) {
         debug = value;
+      } else if (name === CLI_FLAGS.allowRefOverride) {
+        allowRefOverride = value;
+      } else if (name === CLI_FLAGS.saveOnFailure) {
+        saveOnFailure = value;
       } else {
         setOnce(inputs, name, String(value));
       }
       continue;
     }
 
-    const isCliFlag = name === CLI_FLAGS.stateFile || name === CLI_FLAGS.outputsFile;
+    const isCliFlag =
+      name === CLI_FLAGS.stateFile ||
+      name === CLI_FLAGS.outputsFile ||
+      name === CLI_FLAGS.platform ||
+      name === CLI_FLAGS.roleArn;
     if (!isCliFlag && !(name in defaults)) {
       throw unknownFlag(name, command);
     }
@@ -113,6 +163,10 @@ export function parseCliArgs(argv: string[], env: NodeJS.ProcessEnv = process.en
       stateFile = value;
     } else if (name === CLI_FLAGS.outputsFile) {
       outputsFile = value;
+    } else if (name === CLI_FLAGS.platform) {
+      platform = value;
+    } else if (name === CLI_FLAGS.roleArn) {
+      roleArn = value;
     } else if (MULTILINE_INPUTS.has(name)) {
       lists[name] = [...(lists[name] ?? []), value];
     } else {
@@ -131,6 +185,11 @@ export function parseCliArgs(argv: string[], env: NodeJS.ProcessEnv = process.en
       stateFile ?? (env.CLOUD_CACHE_STATE_FILE || join(tmpdir(), 'cloud-cache-state.json')),
     outputsFile: outputsFile ?? (env.CLOUD_CACHE_OUTPUTS_FILE || undefined),
     debug: debug ?? envBool(env.CLOUD_CACHE_DEBUG),
+    platform: parsePlatform(platform ?? (env.CLOUD_CACHE_PLATFORM || 'auto')),
+    allowRefOverride: allowRefOverride ?? envBool(env.CLOUD_CACHE_ALLOW_REF_OVERRIDE),
+    roleArn: roleArn ?? (env.CLOUD_CACHE_ROLE_ARN || undefined),
+    saveOnFailure:
+      command === 'save' && (saveOnFailure ?? envBool(env.CLOUD_CACHE_SAVE_ON_FAILURE)),
   };
 }
 
@@ -179,6 +238,14 @@ export function usage(): string {
     `  --${CLI_FLAGS.outputsFile} <path>  Append each output as name=value. A value with a newline`,
     '                         uses the name<<delimiter form. Env: CLOUD_CACHE_OUTPUTS_FILE',
     `  --${CLI_FLAGS.debug}                Print debug messages. Env: CLOUD_CACHE_DEBUG`,
+    `  --${CLI_FLAGS.platform} <value>       auto, generic or bitbucket. Env: CLOUD_CACHE_PLATFORM.`,
+    '                         Default: auto. It picks bitbucket when BITBUCKET_BUILD_NUMBER is set.',
+    `  --${CLI_FLAGS.allowRefOverride}[=true|false]  On bitbucket, use CLOUD_CACHE_REF, CLOUD_CACHE_BASE_REF`,
+    '                         and CLOUD_CACHE_REPOSITORY. Env: CLOUD_CACHE_ALLOW_REF_OVERRIDE',
+    `  --${CLI_FLAGS.roleArn} <arn>     The AWS role for the Bitbucket OIDC token.`,
+    '                         Env: CLOUD_CACHE_ROLE_ARN',
+    `  --${CLI_FLAGS.saveOnFailure}[=true|false]  (save only) On bitbucket, save also when the step`,
+    '                         failed. Env: CLOUD_CACHE_SAVE_ON_FAILURE',
     '  --help                  Print this text.',
     '  --version               Print the version.',
   ];
@@ -200,7 +267,11 @@ export function usage(): string {
     '  For example, --restore-keys reads CLOUD_CACHE_RESTORE_KEYS. A flag wins over the env var,',
     '  and the env var wins over the default.',
     '  CLOUD_CACHE_REPOSITORY, CLOUD_CACHE_REF, CLOUD_CACHE_BASE_REF and CLOUD_CACHE_DEFAULT_BRANCH',
-    '  set the repository and the refs that go into the cache keys.',
+    '  set the repository and the refs that go into the cache keys. On bitbucket, the first three',
+    '  have an effect only with --allow-ref-override or CLOUD_CACHE_ALLOW_REF_OVERRIDE=true.',
+    '  CLOUD_CACHE_PLATFORM, CLOUD_CACHE_ALLOW_REF_OVERRIDE, CLOUD_CACHE_ROLE_ARN and',
+    '  CLOUD_CACHE_SAVE_ON_FAILURE are the env vars of the flags --platform, --allow-ref-override,',
+    '  --role-arn and --save-on-failure.',
     ''
   );
   return lines.join('\n');

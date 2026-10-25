@@ -1,6 +1,6 @@
-import { describe, expect, it } from '@jest/globals';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { describe, expect, it } from '@jest/globals';
 import { parseCliArgs, UsageError } from '../../../src/cli/args';
 
 function parse(argv: string[], env: NodeJS.ProcessEnv = {}) {
@@ -87,5 +87,59 @@ describe('parseCliArgs', () => {
     expect(parseCliArgs(['-h'], {})).toEqual({ help: true });
     expect(parseCliArgs(['restore', '--help'], {})).toEqual({ help: true });
     expect(parseCliArgs(['--version'], {})).toEqual({ version: true });
+  });
+
+  it('parses the platform flags and their env vars', () => {
+    const base = parse(['restore']);
+    expect(base.platform).toBe('auto');
+    expect(base.allowRefOverride).toBe(false);
+    expect(base.roleArn).toBeUndefined();
+    expect(base.saveOnFailure).toBe(false);
+
+    const flags = parse([
+      'save',
+      '--platform',
+      'bitbucket',
+      '--allow-ref-override',
+      '--role-arn=arn:aws:iam::1:role/x',
+      '--save-on-failure',
+    ]);
+    expect(flags.platform).toBe('bitbucket');
+    expect(flags.allowRefOverride).toBe(true);
+    expect(flags.roleArn).toBe('arn:aws:iam::1:role/x');
+    expect(flags.saveOnFailure).toBe(true);
+    expect(parse(['prune', '--allow-ref-override=false']).allowRefOverride).toBe(false);
+    expect(flags.inputs).toEqual({});
+
+    const fromEnv = parse(['save'], {
+      CLOUD_CACHE_PLATFORM: 'generic',
+      CLOUD_CACHE_ALLOW_REF_OVERRIDE: 'true',
+      CLOUD_CACHE_ROLE_ARN: 'arn:env',
+      CLOUD_CACHE_SAVE_ON_FAILURE: '1',
+    });
+    expect(fromEnv.platform).toBe('generic');
+    expect(fromEnv.allowRefOverride).toBe(true);
+    expect(fromEnv.roleArn).toBe('arn:env');
+    expect(fromEnv.saveOnFailure).toBe(true);
+    expect(
+      parse(['save', '--platform', 'bitbucket'], { CLOUD_CACHE_PLATFORM: 'generic' }).platform
+    ).toBe('bitbucket');
+  });
+
+  it('rejects an unknown platform', () => {
+    expect(() => parse(['restore', '--platform', 'foo'])).toThrow(/auto, generic, bitbucket/);
+    expect(() => parse(['restore'], { CLOUD_CACHE_PLATFORM: 'foo' })).toThrow(UsageError);
+  });
+
+  it('accepts --save-on-failure only for save', () => {
+    for (const command of ['restore', 'inspect', 'prune']) {
+      expect(() => parse([command, '--save-on-failure'])).toThrow(UsageError);
+    }
+    for (const command of ['restore', 'save', 'inspect', 'prune']) {
+      expect(
+        parse([command, '--platform', 'generic', '--allow-ref-override', '--role-arn', 'a'])
+          .platform
+      ).toBe('generic');
+    }
   });
 });
