@@ -8,6 +8,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 Conventional Commit messages on `main`. Entries up to v1.9.0 follow
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.9.1](https://github.com/xSAVIKx/cloud-cache-action/compare/v1.9.0...v1.9.1) (2026-10-25)
+
+
+### Fixed
+
+* add connection and idle timeouts to the S3 client and log each retry ([01334bf](https://github.com/xSAVIKx/cloud-cache-action/commit/01334bf91b14362f5b5a3cee2d518ed36ef8bae0))
+* name the S3 call, the status and a fix in S3 access errors ([305c14e](https://github.com/xSAVIKx/cloud-cache-action/commit/305c14e4f568ac46e85771575eee4900ab6efd58))
+* S3 client timeouts and clear access error messages ([b4fb9bf](https://github.com/xSAVIKx/cloud-cache-action/commit/b4fb9bf27815e7acd5fb72230f5521c5723e3a82))
+* say that no cache was restored when a tier failed ([da33171](https://github.com/xSAVIKx/cloud-cache-action/commit/da33171d4e8613950d212e228f4a6b173110018e))
+* stop a stalled S3 response body after the socket timeout ([8bc67b2](https://github.com/xSAVIKx/cloud-cache-action/commit/8bc67b2fe50b2e9594e8b0a37199f291039a7845))
+
 ## [1.9.0] - 2026-10-24
 
 Faster uploads to AWS S3, opt-in transfer tuning, and phase timings in the log. Object keys and
