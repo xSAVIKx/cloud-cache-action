@@ -1,9 +1,9 @@
-import { afterAll, beforeAll, describe, expect, it } from '@jest/globals';
-import { hashFiles } from '@actions/glob';
 import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
+import { hashFiles } from '@actions/glob';
+import { afterAll, beforeAll, describe, expect, it, jest } from '@jest/globals';
 import { UsageError } from '../../../src/cli/args';
 import { expandHashTemplates } from '../../../src/cli/hashTemplate';
 
@@ -24,6 +24,56 @@ afterAll(() => {
 });
 
 describe('expandHashTemplates', () => {
+  it('hashes the files when the workspace has a trailing slash', async () => {
+    const plain = await expandHashTemplates('{hash:a/pom.xml}', dir);
+    const slash = await expandHashTemplates('{hash:a/pom.xml}', `${dir}/`);
+    expect(slash.unmatched).toEqual([]);
+    expect(slash.text).not.toBe('');
+    expect(slash.text).toBe(plain.text);
+  });
+
+  it('hashes the files when the workspace is relative', async () => {
+    const cwd = process.cwd();
+    const plain = await expandHashTemplates('{hash:a/pom.xml}', dir);
+    process.chdir(dir);
+    try {
+      const dot = await expandHashTemplates('{hash:a/pom.xml}', '.');
+      expect(dot.unmatched).toEqual([]);
+      expect(dot.text).toBe(plain.text);
+    } finally {
+      process.chdir(cwd);
+    }
+    const rel = relative(cwd, dir);
+    const viaRelative = await expandHashTemplates('{hash:a/pom.xml}', rel);
+    expect(viaRelative.text).toBe(plain.text);
+  });
+
+  it('sends ::debug:: text from hashFiles to the callback and not to stdout', async () => {
+    const lines: string[] = [];
+    const written: string[] = [];
+    const spy = jest.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
+      written.push(String(chunk));
+      return true;
+    });
+    let result;
+    try {
+      result = await expandHashTemplates('{hash:a/pom.xml}', dir, (text) => lines.push(text));
+      process.stdout.write('plain line\n');
+    } finally {
+      spy.mockRestore();
+    }
+    expect(result.text).not.toBe('');
+    expect(lines.length).toBeGreaterThan(0);
+    expect(written.join('')).not.toContain('::debug::');
+    expect(written).toContain('plain line\n');
+  });
+
+  it('restores process.stdout.write after the call', async () => {
+    const before = process.stdout.write;
+    await expandHashTemplates('{hash:a/pom.xml}', dir);
+    expect(process.stdout.write).toBe(before);
+  });
+
   it('matches the GitHub hashFiles algorithm', async () => {
     const expected = createHash('sha256')
       .update(Buffer.concat([sha('one'), sha('two')]))
