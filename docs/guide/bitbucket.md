@@ -162,7 +162,7 @@ In setup (b), run `restore` with the read-only role in every step. Run `save` on
 The action uses `hashFiles()` in the workflow. The CLI has its own form: `{hash:<glob>[,<glob>...]}`. Use it in `--key` and `--restore-keys`.
 
 - The hash is the same as the result of `hashFiles` in GitHub Actions.
-- Globs are relative to the clone directory .
+- Globs are relative to the clone directory (`BITBUCKET_CLONE_DIR`).
 - A glob that starts with `!` excludes files.
 - A glob that matches no file gives an empty string. The CLI prints a warning.
 - The text `${hash:` is not a template. It stays as it is.
