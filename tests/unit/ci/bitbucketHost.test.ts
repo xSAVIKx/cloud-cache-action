@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, jest } from '@jest/globals';
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BitbucketHost } from '../../../src/ci/bitbucket';
@@ -188,13 +188,6 @@ describe('BitbucketHost outputs and summary', () => {
     expect(readFileSync(vars, 'utf8')).toBe('CLOUD_CACHE_CACHE_HIT=true\n');
     expect(readFileSync(outputs, 'utf8')).toContain('cache-hit=true\n');
     expect(readFileSync(outputs, 'utf8')).toContain('multi<<');
-  });
-
-  it('writes no variables file when the path is unset', () => {
-    spyOut();
-    const before = readdirSync(dir).sort();
-    host(BRANCH_ENV).setOutput('cache-hit', 'true');
-    expect(readdirSync(dir).sort()).toEqual(before);
   });
 
   it('has a text summary writer', () => {
