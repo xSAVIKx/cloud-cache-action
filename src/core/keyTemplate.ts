@@ -8,6 +8,7 @@
 
 const SPECIAL_VARIABLES = new Set([
   'GITHUB_REPOSITORY',
+  'repository',
   'prefix',
   'ref',
   'key',
@@ -187,7 +188,12 @@ function tidy(text: string): string {
   return text.replace(/\\/g, '/').replace(/\/{2,}/g, '/');
 }
 
-export function compileKeyTemplate(options: KeyTemplateOptions): KeyTemplate {
+export function compileKeyTemplate(rawOptions: KeyTemplateOptions): KeyTemplate {
+  // `${repository}` is an alias of `${GITHUB_REPOSITORY}`. Rewrite it first; `pattern` stays raw.
+  const options: KeyTemplateOptions = {
+    ...rawOptions,
+    pattern: rawOptions.pattern.replaceAll('${repository}', '${GITHUB_REPOSITORY}'),
+  };
   const keyCount = options.pattern.split(KEY_PLACEHOLDER).length - 1;
   if (keyCount !== 1) {
     throw new Error(
@@ -370,7 +376,7 @@ export function compileKeyTemplate(options: KeyTemplateOptions): KeyTemplate {
 
   return {
     warnings,
-    pattern: options.pattern,
+    pattern: rawOptions.pattern,
     resolvedPattern,
     version: options.version,
     objectKey: (ref, key) => `${baseOf(ref)}${key}${suffixOf(ref)}`,
