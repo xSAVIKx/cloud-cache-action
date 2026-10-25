@@ -55,12 +55,12 @@ pipelines:
 
 The image in this example must have Node.js 24. The official `maven` images from Docker Hub do not have Node.js. Use your own image, or install Node.js 24 in the step.
 
-Set `CLOUD_CACHE_BUCKET`, `CLOUD_CACHE_ROLE_ARN` and the other `CLOUD_CACHE_*` settings as repository or deployment variables. Bitbucket gives repository and deployment variables to `script` and to `after-script`. Do not use `export` in `script` for these settings. Or pass the same flags on the `save` line. See [Inputs](./cli.md#inputs-flags-and-environment-variables).
+Set `CLOUD_CACHE_BUCKET`, `CLOUD_CACHE_ROLE_ARN` and the other `CLOUD_CACHE_*` settings as repository or deployment variables. Do not use `export` in `script` for these settings, because `after-script` can run in a different shell. Or pass the same flags on the `save` line. See [Inputs](./cli.md#inputs-flags-and-environment-variables).
 
 The CLI records `setupMs` on the `restore` record only. Pass `CLOUD_CACHE_SETUP_MS` to `restore` in `script`.
 
 ::: warning Not verified
-We did not test two points. One point is whether a variable that you export in `script` is visible in `after-script`. The other point is whether `BITBUCKET_STEP_OIDC_TOKEN` is available in `after-script`. Atlassian community answers say that `after-script` starts a different shell.
+We did not test three points. The first point is whether a variable that you export in `script` is visible in `after-script`. The second point is whether repository and deployment variables are visible in `after-script`. The third point is whether `BITBUCKET_STEP_OIDC_TOKEN` is available in `after-script`. One community report says that `after-script` starts a different shell. The official Atlassian documentation does not say this.
 :::
 
 `save` with no flags uses the key and the paths from the state file of the `restore`. See [The state file](./cli.md#the-state-file).
@@ -162,7 +162,7 @@ In setup (b), run `restore` with the read-only role in every step. Run `save` on
 The action uses `hashFiles()` in the workflow. The CLI has its own form: `{hash:<glob>[,<glob>...]}`. Use it in `--key` and `--restore-keys`.
 
 - The hash is the same as the result of `hashFiles` in GitHub Actions.
-- Globs are relative to the clone directory (the workspace).
+- Globs are relative to the clone directory .
 - A glob that starts with `!` excludes files.
 - A glob that matches no file gives an empty string. The CLI prints a warning.
 - The text `${hash:` is not a template. It stays as it is.
@@ -207,7 +207,7 @@ The CLI also prints a plain-text summary at the end of each command. Set `--job-
 
 ## Metrics
 
-Each command appends one JSON line to a metrics file. On Bitbucket, the default file is `cloud-cache-metrics.jsonl` in the clone directory (the workspace). Use `--metrics-file` or `CLOUD_CACHE_METRICS_FILE` to change it. For the common fields, read [Metrics and Timings](./getting-started.md#metrics-and-timings).
+Each command appends one JSON line to a metrics file. On Bitbucket, the default file is `cloud-cache-metrics.jsonl` in the clone directory. Use `--metrics-file` or `CLOUD_CACHE_METRICS_FILE` to change it. For the common fields, read [Metrics and Timings](./getting-started.md#metrics-and-timings).
 
 On Bitbucket, only the `restore` and `save` records have these extra fields. The CLI leaves out a field when it does not know the value.
 
@@ -216,7 +216,7 @@ On Bitbucket, only the `restore` and `save` records have these extra fields. The
 | `platform`    | The CI platform: `bitbucket`.                                                            |
 | `compression` | The archive compression: `zstd` or `gzip`.                                               |
 | `region`      | The region that the S3 client uses.                                                      |
-| `setupMs`     | The setup time in milliseconds, from `CLOUD_CACHE_SETUP_MS`.                             |
+| `setupMs`     | `restore` only. The setup time in milliseconds, from `CLOUD_CACHE_SETUP_MS`.            |
 | `runner`      | The runner labels: `stepSize`, `cpus` and `memoryLimitBytes`.                            |
 
 `stepSize` comes from `BITBUCKET_STEP_SIZE`. If the variable is not set, the value is `unknown`. `memoryLimitBytes` comes from the cgroup limit. The field is absent when there is no limit.
