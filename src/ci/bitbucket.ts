@@ -79,7 +79,7 @@ export class BitbucketHost extends GenericHost {
       if (overrides.length > 0) {
         if (useOverride) {
           this.log.info(
-            `Ref override is on. Values taken from the environment: ${overrides.join(', ')}.`
+            `Ref override is on. Values taken from the environment: ${overrides.map((name) => `${name}=${env[name]}`).join(', ')}.`
           );
         } else {
           this.log.warning(

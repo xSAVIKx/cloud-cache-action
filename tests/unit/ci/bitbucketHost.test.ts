@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, jest } from '@jest/globals';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BitbucketHost } from '../../../src/ci/bitbucket';
@@ -163,8 +163,9 @@ describe('BitbucketHost context', () => {
     expect(ctx.repository).toBe('other/repo');
     expect(err).not.toHaveBeenCalled();
     const text = out.mock.calls.map((c) => String(c[0])).join('');
-    expect(text).toContain('CLOUD_CACHE_REF');
-    expect(text).toContain('CLOUD_CACHE_REPOSITORY');
+    expect(text).toContain('CLOUD_CACHE_REF=refs/heads/main');
+    expect(text).toContain('CLOUD_CACHE_BASE_REF=trunk');
+    expect(text).toContain('CLOUD_CACHE_REPOSITORY=other/repo');
   });
 
   it('input never reads the context env names', () => {
@@ -183,6 +184,7 @@ describe('BitbucketHost outputs and summary', () => {
     );
     h.setOutput('cache-hit', 'true');
     h.setOutput('multi', 'a\nb');
+    h.setOutput('crlf', 'a\rb');
     expect(readFileSync(vars, 'utf8')).toBe('CLOUD_CACHE_CACHE_HIT=true\n');
     expect(readFileSync(outputs, 'utf8')).toContain('cache-hit=true\n');
     expect(readFileSync(outputs, 'utf8')).toContain('multi<<');
@@ -190,8 +192,9 @@ describe('BitbucketHost outputs and summary', () => {
 
   it('writes no variables file when the path is unset', () => {
     spyOut();
+    const before = readdirSync(dir).sort();
     host(BRANCH_ENV).setOutput('cache-hit', 'true');
-    expect(existsSync(join(dir, 'none.env'))).toBe(false);
+    expect(readdirSync(dir).sort()).toEqual(before);
   });
 
   it('has a text summary writer', () => {
