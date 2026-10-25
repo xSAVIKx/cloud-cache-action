@@ -1,8 +1,8 @@
 import {
   compileKeyTemplate,
   encodeRef,
-  normalizePrefix,
   type KeyTemplateOptions,
+  normalizePrefix,
 } from '../../../src/core/keyTemplate';
 
 const PATTERN = '${GITHUB_REPOSITORY}/${prefix}${ref}/${key}/${version}/${archive_filename}';
@@ -76,6 +76,7 @@ describe('compileKeyTemplate', () => {
         scopedToRepository: false,
       });
       expect(alias.objectKey(MAIN, 'k')).toBe(github.objectKey(MAIN, 'k'));
+      expect(alias.objectKey(MAIN, 'k')).not.toContain('ws/app');
     });
   });
 

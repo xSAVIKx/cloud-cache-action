@@ -62,6 +62,9 @@ beforeEach(() => {
     return true;
   });
   process.env = { ...savedEnv, CLOUD_CACHE_STATE_FILE: join(dir, 'state.json') };
+  delete process.env.BITBUCKET_BUILD_NUMBER;
+  delete process.env.BITBUCKET_EXIT_CODE;
+  delete process.env.BITBUCKET_STEP_OIDC_TOKEN;
 });
 afterEach(() => {
   process.env = { ...savedEnv };
@@ -200,9 +203,11 @@ describe('main', () => {
   });
 
   describe('OIDC', () => {
+    const TOKEN = 'oidc-secret-xyz';
+
     function oidcEnv() {
       process.env.BITBUCKET_BUILD_NUMBER = '7';
-      process.env.BITBUCKET_STEP_OIDC_TOKEN = 'tok';
+      process.env.BITBUCKET_STEP_OIDC_TOKEN = TOKEN;
       delete process.env.AWS_WEB_IDENTITY_TOKEN_FILE;
       delete process.env.AWS_ACCESS_KEY_ID;
       delete process.env.CLOUD_CACHE_ACCESS_KEY;
@@ -216,11 +221,11 @@ describe('main', () => {
         file = process.env.AWS_WEB_IDENTITY_TOKEN_FILE ?? '';
         content = readFileSync(file, 'utf8');
       });
-      expect(await main(['inspect', '--role-arn', 'arn:aws:iam::1:role/x'])).toBe(0);
+      expect(await main(['inspect', '--debug', '--role-arn', 'arn:aws:iam::1:role/x'])).toBe(0);
       expect(file).not.toBe('');
-      expect(content).toBe('tok');
+      expect(content).toBe(TOKEN);
       expect(existsSync(file)).toBe(false);
-      expect(stdout + stderr).not.toContain('tok\n');
+      expect(stdout + stderr).not.toContain(TOKEN);
     });
 
     it('removes the token file after an engine error', async () => {
