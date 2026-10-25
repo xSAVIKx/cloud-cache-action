@@ -22,7 +22,7 @@ export interface GenericHostOptions {
 }
 
 /** The home directory of the OS user, or '' when the user has no passwd entry. */
-function osHomeDir(): string {
+export function osHomeDir(): string {
   try {
     return os.homedir();
   } catch {
@@ -31,7 +31,7 @@ function osHomeDir(): string {
 }
 
 /** A bare branch name becomes a full ref. */
-function toFullRef(value: string | undefined): string | undefined {
+export function toFullRef(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
   if (!trimmed) {
     return undefined;
@@ -40,7 +40,7 @@ function toFullRef(value: string | undefined): string | undefined {
 }
 
 /** A branch name without a leading refs/heads/. Other values pass through: only branches are valid. */
-function toBranchName(value: string | undefined): string | undefined {
+export function toBranchName(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
   return trimmed?.startsWith('refs/heads/') ? trimmed.slice('refs/heads/'.length) : trimmed;
 }
@@ -66,7 +66,7 @@ export class GenericHost implements CiHost {
 
   private repositoryWarned = false;
 
-  constructor(private readonly options: GenericHostOptions) {
+  constructor(protected readonly options: GenericHostOptions) {
     this.state = new FileStateProvider(options.stateFile);
     this.log = {
       debug: (message) => {
@@ -82,7 +82,7 @@ export class GenericHost implements CiHost {
     };
   }
 
-  private get env(): NodeJS.ProcessEnv {
+  protected get env(): NodeJS.ProcessEnv {
     return this.options.env ?? process.env;
   }
 

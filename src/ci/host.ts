@@ -28,6 +28,8 @@ export interface CiContext {
   workspace: string;
   homeDir: string;
   runnerOs: RunnerOs;
+  /** Extra labels for metrics, set by the CI adapter. */
+  labels?: Record<string, string | number>;
   /** The environment this context was read from. */
   env: NodeJS.ProcessEnv;
 }
