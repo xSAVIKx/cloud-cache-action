@@ -8,6 +8,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 Conventional Commit messages on `main`. Entries up to v1.9.0 follow
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.10.0](https://github.com/xSAVIKx/cloud-cache-action/compare/v1.9.1...v1.10.0) (2026-10-25)
+
+
+### Added
+
+* add a cloud-cache CLI for CI systems other than GitHub Actions ([#31](https://github.com/xSAVIKx/cloud-cache-action/issues/31)) ([1040bdc](https://github.com/xSAVIKx/cloud-cache-action/commit/1040bdc9aa7ad6e28eb8f0c97759effbb9a5a592))
+
 ## [1.9.1](https://github.com/xSAVIKx/cloud-cache-action/compare/v1.9.0...v1.9.1) (2026-10-25)
 
 
