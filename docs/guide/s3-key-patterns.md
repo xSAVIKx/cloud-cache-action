@@ -21,6 +21,7 @@ my-org/my-project/refs%2Fheads%2Fmain/linux-node-18-a1b2c3/27747e0d22df7792/cach
 | Variable               | Description                                                                                 | Example                           |
 | ---------------------- | -------------------------------------------------------------------------------------------- | ---------------------------------- |
 | `${GITHUB_REPOSITORY}` | Repository in `owner/repo` format; removed when `scoped-to-repository: false`               | `xSAVIKx/cloud-cache-action`      |
+| `${repository}`        | An alias of `${GITHUB_REPOSITORY}`. Use it on CI systems other than GitHub                  | `my-workspace/my-repo`            |
 | `${prefix}`            | The `prefix` input with a trailing slash, or empty                                          | `frontend/`                       |
 | `${ref}`               | The Git ref, encoded as one path segment; removed when `scoped-to-ref: false`               | `refs%2Fheads%2Fmain`             |
 | `${key}`               | The cache key. Must appear exactly once. Inserted as written, so keys may contain `/`       | `linux-node-a1b2c3`               |

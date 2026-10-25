@@ -97,6 +97,29 @@ cloud-cache restore \
 | `--help`               |                             | Prints the help text.                                            |
 | `--version`            |                             | Prints the version.                                              |
 
+## Bitbucket Pipelines
+
+The CLI has an adapter for Bitbucket Pipelines. It reads the run from the `BITBUCKET_*` variables. See [Bitbucket Pipelines](./bitbucket.md).
+
+These flags are for Bitbucket. Each flag has an environment variable.
+
+| Flag                                | Environment variable             | Meaning                                                                                  |
+| ----------------------------------- | -------------------------------- | ---------------------------------------------------------------------------------------- |
+| `--platform <value>`                | `CLOUD_CACHE_PLATFORM`           | `auto`, `generic` or `bitbucket`. Default: `auto`. `auto` picks `bitbucket` when `BITBUCKET_BUILD_NUMBER` is set. |
+| `--allow-ref-override[=true\|false]` | `CLOUD_CACHE_ALLOW_REF_OVERRIDE` | On `bitbucket`, use `CLOUD_CACHE_REF`, `CLOUD_CACHE_BASE_REF` and `CLOUD_CACHE_REPOSITORY`. |
+| `--role-arn <arn>`                  | `CLOUD_CACHE_ROLE_ARN`           | The AWS role for the Bitbucket OIDC token.                                               |
+| `--save-on-failure[=true\|false]`   | `CLOUD_CACHE_SAVE_ON_FAILURE`    | `save` only. On `bitbucket`, save also when the step failed.                             |
+
+## Hash templates in keys
+
+The values of `--key` and `--restore-keys` can contain `{hash:<glob>[,<glob>...]}`. The CLI replaces each template with the `hashFiles` hash of the matching files. The globs are relative to the workspace.
+
+```sh
+cloud-cache restore --key "deps-{hash:package-lock.json}" --path node_modules
+```
+
+The template ends at the first `}`. A glob with braces, such as `**/*.{lock,json}`, does not work. Use two globs that a comma separates, for example `{hash:**/*.lock,**/*.json}`. For all rules, see [Key hashing with `{hash:}`](./bitbucket.md#key-hashing-with-hash).
+
 ## Context variables
 
 A CI system sets the repository and the refs. The CLI cannot find them, so you set them with these environment variables.
@@ -208,5 +231,5 @@ To save the cache when the build fails, run `cloud-cache save` in a step that al
   - With `--use-fallback`, a `restore` that misses in S3 asks the GitHub service. It waits about 10 seconds, prints a warning, and reports a miss.
   - With `--dual-cache`, a `restore` also asks the GitHub service, with the same delay and warning. The S3 result is used.
   - With `--dual-cache`, a `save` writes to S3 and prints a warning for the GitHub cache. With `--dual-cache-strict=true`, that `save` fails with exit code 1.
-- `--job-summary` has no effect. The CLI does not write a job summary.
+- `--job-summary` has no effect on the generic platform. The CLI does not write a job summary there. On Bitbucket, the CLI prints a plain-text summary.
 - The CLI reads the repository and the refs from the `CLOUD_CACHE_*` context variables.

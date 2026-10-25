@@ -99,6 +99,7 @@ export default defineConfig({
           { text: 'Benchmarks', link: '/guide/benchmarks' },
           { text: 'Migrating from actions/cache', link: '/guide/migration' },
           { text: 'Command Line (CLI)', link: '/guide/cli' },
+          { text: 'Bitbucket Pipelines', link: '/guide/bitbucket' },
         ],
       },
       {
