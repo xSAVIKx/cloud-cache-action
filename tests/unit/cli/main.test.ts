@@ -100,6 +100,38 @@ describe('main', () => {
     expect(pruneImpl).toHaveBeenCalledWith();
   });
 
+  it('expands {hash:} in CLOUD_CACHE_KEY', async () => {
+    writeFileSync(join(dir, 'lock.txt'), 'lock');
+    process.env.CLOUD_CACHE_WORKSPACE = dir;
+    process.env.CLOUD_CACHE_KEY = 'k-{hash:lock.txt}';
+    process.env.CLOUD_CACHE_RESTORE_KEYS = 'k-\nr-{hash:lock.txt}';
+    let key = '';
+    let restoreKeys = '';
+    inspectImpl.mockImplementation(async () => {
+      key = getHost().input('key');
+      restoreKeys = getHost().input('restore-keys');
+    });
+    expect(await main(['inspect'])).toBe(0);
+    expect(key).toMatch(/^k-[0-9a-f]{64}$/);
+    expect(restoreKeys).toMatch(/^k-\nr-[0-9a-f]{64}$/);
+    expect(restoreKeys.split('\n')[1]).toBe(`r-${key.slice(2)}`);
+  });
+
+  it('warns when a {hash:} template matches no file', async () => {
+    process.env.CLOUD_CACHE_WORKSPACE = dir;
+    process.env.CLOUD_CACHE_KEY = 'k-{hash:**/missing.lock}';
+    expect(await main(['inspect'])).toBe(0);
+    expect(stderr).toContain('matched no file');
+    expect(stderr).toContain('**/missing.lock');
+  });
+
+  it('exits 2 for an unclosed {hash:} template', async () => {
+    process.env.CLOUD_CACHE_KEY = 'k-{hash:lock.txt';
+    expect(await main(['inspect'])).toBe(2);
+    expect(stderr).toContain('{hash:');
+    expect(inspectImpl).not.toHaveBeenCalled();
+  });
+
   it('exit code follows process.exitCode', async () => {
     inspectImpl.mockImplementation(async () => {
       getHost().setFailed('no bucket');

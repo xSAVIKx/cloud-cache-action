@@ -9,6 +9,7 @@ import { State } from '../constants';
 import { getInputAsArray } from '../utils/inputUtils';
 import { type CliArgs, type CliRun, parseCliArgs, shortUsage, UsageError, usage } from './args';
 import { INPUT_DEFAULTS } from './defaults';
+import { expandHashTemplates } from './hashTemplate';
 import { checkTar } from './tarCheck';
 import { CLI_VERSION } from './version';
 
@@ -52,17 +53,56 @@ function warnOnStateMismatch(state: FileStateProvider, stateFile: string): void 
   }
 }
 
+/** The workspace that relative globs in {hash:} templates use. */
+function workspaceDir(): string {
+  return process.env.CLOUD_CACHE_WORKSPACE || process.cwd();
+}
+
+/**
+ * Expands the {hash:} templates in key and restore-keys. The value comes from the flag, else from
+ * the environment. It returns the expanded values and the templates that matched no file.
+ */
+async function expandKeyInputs(
+  inputs: Record<string, string>
+): Promise<{ inputs: Record<string, string>; unmatched: string[] }> {
+  const out = { ...inputs };
+  const unmatched: string[] = [];
+  const workspace = workspaceDir();
+  const sources: Array<[string, string]> = [
+    ['key', 'CLOUD_CACHE_KEY'],
+    ['restore-keys', 'CLOUD_CACHE_RESTORE_KEYS'],
+  ];
+  for (const [name, envName] of sources) {
+    const value = inputs[name] ?? process.env[envName];
+    if (value === undefined || !value.includes('{hash:')) {
+      continue;
+    }
+    const lines: string[] = [];
+    for (const line of value.split('\n')) {
+      const expanded = await expandHashTemplates(line, workspace);
+      lines.push(expanded.text);
+      unmatched.push(...expanded.unmatched);
+    }
+    out[name] = lines.join('\n');
+  }
+  return { inputs: out, unmatched };
+}
+
 async function run(args: CliRun): Promise<void> {
+  const { inputs, unmatched } = await expandKeyInputs(args.inputs);
   // The engine reads the host through getHost(), so the host must be set before any engine call.
   setHost(
     new GenericHost({
-      inputs: args.inputs,
+      inputs,
       defaults: INPUT_DEFAULTS[args.command],
       stateFile: args.stateFile,
       outputsFile: args.outputsFile,
       debug: args.debug,
     })
   );
+  for (const glob of unmatched) {
+    getHost().log.warning(`The {hash:${glob}} template matched no file under ${workspaceDir()}.`);
+  }
   switch (args.command) {
     case 'restore': {
       await checkTar();
@@ -119,6 +159,10 @@ export async function main(argv: string[]): Promise<number> {
   try {
     await run(args);
   } catch (error) {
+    if (error instanceof UsageError) {
+      process.stderr.write(`error: ${error.message}\n`);
+      return USAGE_EXIT_CODE;
+    }
     return reportError(error);
   }
   // A host sets process.exitCode when the step fails (setFailed).
