@@ -45,7 +45,10 @@ describe('setupBitbucketOidc', () => {
     expect(result).toBeDefined();
     const file = env.AWS_WEB_IDENTITY_TOKEN_FILE as string;
     expect(readFileSync(file, 'utf8')).toBe(TOKEN);
-    expect(statSync(file).mode & 0o777).toBe(0o600);
+    // Windows has no POSIX file modes.
+    if (process.platform !== 'win32') {
+      expect(statSync(file).mode & 0o777).toBe(0o600);
+    }
     expect(env.AWS_ROLE_ARN).toBe(ARN);
     expect(env.AWS_ROLE_SESSION_NAME).toBe('cloud-cache-7');
     const dir = dirname(file);
