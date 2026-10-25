@@ -70765,6 +70765,7 @@ function formatTuning(direction, settings, sizeBytes, fixed = {}) {
  */
 const SPECIAL_VARIABLES = new Set([
     'GITHUB_REPOSITORY',
+    'repository',
     'prefix',
     'ref',
     'key',
@@ -70852,7 +70853,12 @@ function tokenize(text) {
 function tidy(text) {
     return text.replace(/\\/g, '/').replace(/\/{2,}/g, '/');
 }
-function compileKeyTemplate(options) {
+function compileKeyTemplate(rawOptions) {
+    // `${repository}` is an alias of `${GITHUB_REPOSITORY}`. Rewrite it first; `pattern` stays raw.
+    const options = {
+        ...rawOptions,
+        pattern: rawOptions.pattern.replaceAll('${repository}', '${GITHUB_REPOSITORY}'),
+    };
     const keyCount = options.pattern.split(KEY_PLACEHOLDER).length - 1;
     if (keyCount !== 1) {
         throw new Error(`s3-key-pattern must contain \${key} exactly once (found ${keyCount}): "${options.pattern}"`);
@@ -71000,7 +71006,7 @@ function compileKeyTemplate(options) {
     };
     return {
         warnings,
-        pattern: options.pattern,
+        pattern: rawOptions.pattern,
         resolvedPattern,
         version: options.version,
         objectKey: (ref, key) => `${baseOf(ref)}${key}${suffixOf(ref)}`,
@@ -72450,6 +72456,7 @@ async function writeExplainSummary(report, jobSummary) {
 
 
 
+
 /** Debug-logs the metrics and, when `metricsFile` is set, appends them as one JSON line. */
 function emitMetrics(metrics, metricsFile, workspace) {
     const line = JSON.stringify(metrics);
@@ -72465,6 +72472,36 @@ function emitMetrics(metrics, metricsFile, workspace) {
     catch (err) {
         log/* log */.R.warning(`Could not write metrics to ${resolved}: ${(0,outcomes/* toError */.i)(err).message}`);
     }
+}
+/**
+ * The platform fields for a restore or save record. On GitHub it returns no key, so the GitHub
+ * metrics line does not change. A value that is not known is left out.
+ */
+function hostMetricsFields(compression, region) {
+    const context = (0,host/* getHost */.L)().context();
+    if (context.platform === 'github') {
+        return {};
+    }
+    const fields = { platform: context.platform };
+    if (compression) {
+        fields.compression = compression;
+    }
+    if (region) {
+        fields.region = region;
+    }
+    const setup = context.env.CLOUD_CACHE_SETUP_MS;
+    if (setup !== undefined && setup !== '') {
+        if (/^\d+$/.test(setup.trim())) {
+            fields.setupMs = Number(setup.trim());
+        }
+        else {
+            log/* log */.R.warning(`CLOUD_CACHE_SETUP_MS is not a whole number (${setup}), so it is ignored.`);
+        }
+    }
+    if (context.labels) {
+        fields.runner = context.labels;
+    }
+    return fields;
 }
 
 ;// CONCATENATED MODULE: ./src/core/inspectImpl.ts
@@ -73353,6 +73390,8 @@ async function restoreImpl(stateProvider, earlyExit) {
     const start = Date.now();
     let config;
     let provider;
+    let compression;
+    let region;
     // One line per step: a miss that then fails on fail-on-cache-miss must not report twice.
     let reported = false;
     const report = (metrics) => {
@@ -73362,6 +73401,7 @@ async function restoreImpl(stateProvider, earlyExit) {
         reported = true;
         const full = {
             ...metrics,
+            ...hostMetricsFields(compression, region),
             timestamp: new Date().toISOString(),
             durationMs: Date.now() - start,
         };
@@ -73429,6 +73469,8 @@ async function restoreImpl(stateProvider, earlyExit) {
         }
         const s3 = await setUpS3(config, stateProvider);
         provider = s3?.storage.providerConfig.provider;
+        compression = s3?.compression.method;
+        region = s3?.storage.providerConfig.region;
         if (config.explain && s3) {
             try {
                 const report = await buildExplainReport(s3, config);
@@ -73810,6 +73852,8 @@ async function saveImpl(stateProvider) {
     const start = Date.now();
     let config;
     let provider;
+    let compression;
+    let region;
     // One line per step: a throw after the save has already reported must not report twice.
     let reported = false;
     const report = (metrics) => {
@@ -73819,6 +73863,7 @@ async function saveImpl(stateProvider) {
         reported = true;
         const full = {
             ...metrics,
+            ...hostMetricsFields(compression, region),
             timestamp: new Date().toISOString(),
             durationMs: Date.now() - start,
         };
@@ -73889,6 +73934,8 @@ async function saveImpl(stateProvider) {
         const githubExactHit = stateProvider.getState(constants/* State */.Uw.CacheGithubExactHit) === 'true';
         const s3 = await saveImpl_setUpS3(config, stateProvider);
         provider = s3?.storage.providerConfig.provider;
+        compression = s3?.compression.method;
+        region = s3?.storage.providerConfig.region;
         const result = config.dualCache
             ? await saveBothTiers(config, s3, s3ExactHit, githubExactHit)
             : await saveSingleTier(config, s3, s3ExactHit);
