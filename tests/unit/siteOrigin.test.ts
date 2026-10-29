@@ -107,6 +107,23 @@ describeBuilt('built output', () => {
     expect(offenders).toEqual([]);
   });
 
+  it('points every og:url and og:image at our own site', () => {
+    const { url } = siteUrl();
+    const offenders: string[] = [];
+    let seen = 0;
+    for (const file of walk(DIST)) {
+      if (!file.endsWith('.html')) continue;
+      for (const m of readFileSync(file, 'utf8').matchAll(
+        /<meta[^>]+property="og:(?:url|image)"[^>]+content="([^"]+)"/g
+      )) {
+        seen++;
+        if (!m[1].startsWith(url)) offenders.push(`${path.relative(DIST, file)}: ${m[1]}`);
+      }
+    }
+    expect(seen).toBeGreaterThan(0);
+    expect(offenders).toEqual([]);
+  });
+
   it('generates the three files that used to be copied verbatim', () => {
     const { url } = siteUrl();
     // If these were still copied from public/, they would not contain the

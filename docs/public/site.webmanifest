@@ -1,6 +1,8 @@
 {
   "name": "Cloud Cache Action",
   "short_name": "CloudCache",
+  "start_url": "/cloud-cache-action/",
+  "scope": "/cloud-cache-action/",
   "icons": [
     {
       "src": "/cloud-cache-action/android-chrome-192x192.png",
@@ -15,5 +17,5 @@
   ],
   "theme_color": "#0ea5e9",
   "background_color": "#0f172a",
-  "display": "standalone"
+  "display": "browser"
 }
