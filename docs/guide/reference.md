@@ -29,47 +29,57 @@ the full definition (see [Action Metadata Definitions](./getting-started.md#acti
 
 ## Inputs
 
-| Input                            | Required |                          Default                           | Description                                                                 |
-| -------------------------------- | :------: | :--------------------------------------------------------: | --------------------------------------------------------------------------- |
-| `bucket`                         | **Yes**  |                             —                              | Name of the S3 bucket                                                       |
-| `key`                            | **Yes**, unless `preset` is set |                             —                              | Explicit key for restoring and saving cache                                 |
-| `path`                           | **Yes**, unless `preset` is set |                             —                              | Multiline list of paths, globs and `!` exclusions to cache (see [Paths and exclusions](./getting-started.md#paths-and-exclusions)) |
-| `preset`                         |    No    |                             —                              | Package manager preset that gives the default `path`, `key` and `restore-keys`: `npm`, `yarn`, `pnpm`, `bun`, `pip`, `poetry`, `uv`, `gradle`, `maven`, `cargo`, `go` (see [Cache presets](./presets.md)) |
-| `restore-keys`                   |    No    |                             —                              | Multiline string of prefix keys for fallback matching                       |
-| `endpoint`                       |    No    |                          Auto/AWS                          | Custom S3 endpoint URL                                                      |
-| `region`                         |    No    |                      Auto/`us-east-1`                      | AWS or S3 provider region                                                   |
-| `provider`                       |    No    |                            Auto                            | Preset: `aws`, `r2`, `gcs`, `b2`, `fastly`, `garage`, `seaweedfs`, `minio`, `rustfs`  |
-| `access-key` / `accessKey`       |    No    |                    `AWS_ACCESS_KEY_ID`                     | S3 Access Key ID                                                            |
-| `secret-key` / `secretKey`       |    No    |                  `AWS_SECRET_ACCESS_KEY`                   | S3 Secret Access Key                                                        |
-| `session-token` / `sessionToken` |    No    |                    `AWS_SESSION_TOKEN`                     | S3 Session Token                                                            |
-| `force-path-style`               |    No    |                            Auto                            | Force path-style S3 URLs                                                    |
-| `prefix`                         |    No    |                            `""`                            | Subfolder prefix path inside bucket                                         |
-| `s3-key-pattern`                 |    No    | `${GITHUB_REPOSITORY}/${prefix}${ref}/${key}/${version}/${archive_filename}` | Custom S3 key template pattern (supports `${ENV_VARS}`)                     |
-| `scoped-to-repository`           |    No    |                           `true`                           | Prefix bucket cache paths with repository name                              |
-| `scoped-to-ref`                  |    No    |                           `true`                            | Restore from the current ref, then the PR base, then the default branch; `false` shares caches across refs |
-| `lookup-only`                    |    No    |                          `false`                           | Check existence without downloading                                         |
-| `fail-on-cache-miss`             |    No    |                          `false`                           | Fail workflow if cache is not found                                         |
-| `enableCrossOsArchive`           |    No    |                          `false`                           | Allow Windows runners to save/restore cross-OS caches                       |
-| `read-only`                      |    No    |                          `false`                           | Restore cache but never save in post step                                   |
-| `retry`                          |    No    |                           `true`                           | Enable exponential backoff retries on S3 operations                         |
-| `retry-count`                    |    No    |                            `3`                             | Maximum number of S3 retries                                                |
-| `use-fallback`                   |    No    |                          `false`                           | Fallback to GitHub Actions cache service if S3 fails                        |
-| `dual-cache`                     |    No    |                          `false`                           | Cache to both S3 and GitHub Actions Cache simultaneously                    |
-| `restore-priority`               |    No    |                         `s3-first`                         | Cache source to query first: `s3-first` or `github-first`                   |
-| `dual-cache-strategy`            |    No    |                         `backfill`                         | `backfill` (upload to a tier only if it lacks the key) or `skip-on-hit` |
-| `dual-cache-strict`              |    No    |                          `false`                           | Fail the step when either tier errors during restore or save |
-| `streaming`                      |    No    |                          `false`                           | Stream archives directly between `tar` and S3 without a temporary file (experimental; see [Streaming Archives](./storage.md#streaming-archives-experimental)) |
-| `download-concurrency`           |    No    |                            `8`                             | Ranged GET requests a restore runs at once for archives larger than `download-chunk-size` (1–32); `1` downloads in one request (see [Parallel Transfers](./performance.md#parallel-transfers)) |
-| `download-chunk-size`            |    No    |                         `8388608`                          | Bytes per ranged GET request (1 MiB–128 MiB); archives no larger than this use one request |
-| `upload-concurrency`             |    No    |                            `8`                             | Multipart upload parts sent at once (1–32)                                  |
-| `upload-chunk-size`              |    No    |                         `67108864`                         | Bytes per multipart upload part (5 MiB–128 MiB); the same input `actions/cache` takes |
-| `transfer-tuning`                |    No    |                          `fixed`                           | `auto` selects the part size and the concurrency per archive from its size (and, for a save, the provider); a transfer input you set still wins (see [Parallel Transfers](./performance.md#parallel-transfers)) |
-| `compression-level`              |    No    |                            Tool default                            | zstd 1–19 or gzip 1–9 for saving; lower is faster and larger (see [Performance](./performance.md)) |
-| `job-summary`                    |    No    |                           `true`                           | Write a job summary table with the cache keys, hit, source, size and duration |
-| `metadata`                       |    No    |                             —                              | User metadata (`x-amz-meta-*`) for every saved object, one `key=value` per line, with surrounding whitespace trimmed (see [Object Metadata and Tags](./storage.md#object-metadata-and-tags)) |
-| `tags`                           |    No    |                             —                              | Object tags for every saved object, one `key=value` per line (up to 10; up to 9 with `streaming: true`, which reserves one slot for the checksum tag) |
-| `explain`                        |    No    |                          `false`                           | Log why the lookup hits or misses before restoring (see [Inspecting a cache lookup](./inspecting.md)) |
-| `metrics-file`                   |    No    |                            `""`                            | Append one JSON line of timings and sizes for this step to this file, relative to the workspace |
+<div class="reference-table">
+
+| Input | Description | Required | Default |
+| --- | --- | --- | --- |
+| `bucket` | Name of the S3 bucket | **Yes** | — |
+| `key` | Explicit key for restoring and saving cache | **Yes**, unless `preset` is set | — |
+| `path` | Multiline list of paths, globs and `!` exclusions to cache (see [Paths and exclusions](./getting-started.md#paths-and-exclusions)) | **Yes**, unless `preset` is set | — |
+| `preset` | Package manager preset that gives the default `path`, `key` and `restore-keys`: `npm`, `yarn`, `pnpm`, `bun`, `pip`, `poetry`, `uv`, `gradle`, `maven`, `cargo`, `go` (see [Cache presets](./presets.md)) | No | — |
+| `restore-keys` | Multiline string of prefix keys for fallback matching | No | — |
+| `endpoint` | Custom S3 endpoint URL | No | Auto/AWS |
+| `region` | AWS or S3 provider region | No | Auto/`us-east-1` |
+| `provider` | Preset: `aws`, `r2`, `gcs`, `b2`, `fastly`, `garage`, `seaweedfs`, `minio`, `rustfs` | No | Auto |
+| `access-key` / `accessKey` | S3 Access Key ID | No | `AWS_ACCESS_KEY_ID` |
+| `secret-key` / `secretKey` | S3 Secret Access Key | No | `AWS_SECRET_ACCESS_KEY` |
+| `session-token` / `sessionToken` | S3 Session Token | No | `AWS_SESSION_TOKEN` |
+| `force-path-style` | Force path-style S3 URLs | No | Auto |
+| `prefix` | Subfolder prefix path inside bucket | No | `""` |
+| `s3-key-pattern` | Custom S3 key template pattern (supports `${ENV_VARS}`) | No | See below the table |
+| `scoped-to-repository` | Prefix bucket cache paths with repository name | No | `true` |
+| `scoped-to-ref` | Restore from the current ref, then the PR base, then the default branch; `false` shares caches across refs | No | `true` |
+| `lookup-only` | Check existence without downloading | No | `false` |
+| `fail-on-cache-miss` | Fail workflow if cache is not found | No | `false` |
+| `enableCrossOsArchive` | Allow Windows runners to save/restore cross-OS caches | No | `false` |
+| `read-only` | Restore cache but never save in post step | No | `false` |
+| `retry` | Enable exponential backoff retries on S3 operations | No | `true` |
+| `retry-count` | Maximum number of S3 retries | No | `3` |
+| `use-fallback` | Fallback to GitHub Actions cache service if S3 fails | No | `false` |
+| `dual-cache` | Cache to both S3 and GitHub Actions Cache simultaneously | No | `false` |
+| `restore-priority` | Cache source to query first: `s3-first` or `github-first` | No | `s3-first` |
+| `dual-cache-strategy` | `backfill` (upload to a tier only if it lacks the key) or `skip-on-hit` | No | `backfill` |
+| `dual-cache-strict` | Fail the step when either tier errors during restore or save | No | `false` |
+| `streaming` | Stream archives directly between `tar` and S3 without a temporary file (experimental; see [Streaming Archives](./storage.md#streaming-archives-experimental)) | No | `false` |
+| `download-concurrency` | Ranged GET requests a restore runs at once for archives larger than `download-chunk-size` (1–32); `1` downloads in one request (see [Parallel Transfers](./performance.md#parallel-transfers)) | No | `8` |
+| `download-chunk-size` | Bytes per ranged GET request (1 MiB–128 MiB); archives no larger than this use one request | No | `8388608` |
+| `upload-concurrency` | Multipart upload parts sent at once (1–32) | No | `8` |
+| `upload-chunk-size` | Bytes per multipart upload part (5 MiB–128 MiB); the same input `actions/cache` takes | No | `67108864` |
+| `transfer-tuning` | `auto` selects the part size and the concurrency per archive from its size (and, for a save, the provider); a transfer input you set still wins (see [Parallel Transfers](./performance.md#parallel-transfers)) | No | `fixed` |
+| `compression-level` | zstd 1–19 or gzip 1–9 for saving; lower is faster and larger (see [Performance](./performance.md)) | No | Tool default |
+| `job-summary` | Write a job summary table with the cache keys, hit, source, size and duration | No | `true` |
+| `metadata` | User metadata (`x-amz-meta-*`) for every saved object, one `key=value` per line, with surrounding whitespace trimmed (see [Object Metadata and Tags](./storage.md#object-metadata-and-tags)) | No | — |
+| `tags` | Object tags for every saved object, one `key=value` per line (up to 10; up to 9 with `streaming: true`, which reserves one slot for the checksum tag) | No | — |
+| `explain` | Log why the lookup hits or misses before restoring (see [Inspecting a cache lookup](./inspecting.md)) | No | `false` |
+| `metrics-file` | Append one JSON line of timings and sizes for this step to this file, relative to the workspace | No | `""` |
+
+</div>
+
+The default of `s3-key-pattern` is:
+
+```text
+${GITHUB_REPOSITORY}/${prefix}${ref}/${key}/${version}/${archive_filename}
+```
 
 
 For the rules that `path` follows (globs, `~`, `!` exclusions and symbolic links), see [Paths and Exclusions](./getting-started.md#paths-and-exclusions).

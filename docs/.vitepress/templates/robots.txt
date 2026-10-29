@@ -1,3 +1,5 @@
+# Crawlers read only the robots.txt file at the root of the origin: {{SITE_ORIGIN}}/robots.txt
+# That file governs this site. A change to this file has no effect on crawlers.
 User-agent: *
 Allow: /
 

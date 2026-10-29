@@ -1,0 +1,20 @@
+<!doctype html>
+<!--
+  Source of docs/public/og-image.png (1200x630). To render it again:
+  1. Serve the repository root with a static HTTP server.
+  2. Open scripts/og-image.html in a headless browser with a 1200x630 window, and take a screenshot.
+  3. Reduce the PNG to 256 colors, so that the file stays under 300 KB.
+-->
+<html><head><meta charset="utf-8"><style>
+html,body{margin:0;width:1200px;height:630px;overflow:hidden}
+body{background:linear-gradient(135deg,#0f172a 0%,#1e293b 55%,#0b1220 100%);font-family:"Inter","DejaVu Sans","Liberation Sans",Arial,sans-serif;color:#f8fafc;display:flex;align-items:center;padding:0 80px;box-sizing:border-box;gap:64px}
+img{width:300px;height:300px;flex:none;border-radius:48px;box-shadow:0 0 0 2px rgba(56,189,248,.35),0 24px 64px rgba(14,165,233,.25)}
+h1{font-size:76px;line-height:1.05;margin:0 0 28px;font-weight:800;letter-spacing:-1.5px}
+p{font-size:36px;line-height:1.35;margin:0;color:#cbd5e1}
+.accent{color:#38bdf8}
+.bar{width:120px;height:8px;border-radius:4px;background:#0ea5e9;margin-bottom:32px}
+</style></head><body>
+<img src="../docs/public/logo.svg" alt="">
+<div><div class="bar"></div><h1>Cloud Cache Action</h1>
+<p>A drop-in replacement for <span class="accent">actions/cache</span> that stores CI caches in any S3-compatible bucket</p></div>
+</body></html>

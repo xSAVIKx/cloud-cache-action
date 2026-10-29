@@ -4,7 +4,7 @@
       <p class="license-text">Released under the <a href="https://github.com/xSAVIKx/cloud-cache-action/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">MIT License</a>.</p>
       <p class="author-text">
         Created by
-        <a href="https://serhiichuk.dev" target="_blank" rel="noopener noreferrer">Yurii Serhiichuk</a>
+        <a href="https://serhiichuk.dev" target="_blank" rel="author noopener">Yurii Serhiichuk</a>
       </p>
     </div>
   </footer>

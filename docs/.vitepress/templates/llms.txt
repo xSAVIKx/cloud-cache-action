@@ -2,7 +2,11 @@
 
 > High-performance GitHub Action for saving and restoring CI cache bundles directly to any S3-compatible cloud or self-hosted object storage with 1:1 actions/cache parity and native Node 24 runtime.
 
-Cloud Cache Action solves GitHub Actions cache quotas (10 GB default per repository) and egress transfer fees by letting developers store cache archives in their own S3-compatible storage tier (AWS S3, Cloudflare R2, Google Cloud Storage, Backblaze B2, Fastly, Garage S3, SeaweedFS, MinIO).
+{{LATEST_RELEASE}}
+
+Cloud Cache Action is the product name. `xSAVIKx/cloud-cache-action` is the action in workflow files, and `cloud-cache` is its command line interface (CLI).
+
+Cloud Cache Action stores GitHub Actions caches in your own S3-compatible bucket (AWS S3, Cloudflare R2, Google Cloud Storage, Backblaze B2, Fastly, Garage, SeaweedFS, MinIO and RustFS). The GitHub Actions cache gives each repository 10 GB at no cost and evicts the least recently used entries above that limit; Pro, Team and Enterprise accounts can raise the limit and pay for the storage above 10 GB (https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching#usage-limits-and-eviction-policy). A bucket has the limits and the prices of your storage provider.
 
 Key capabilities:
 - 1:1 input and output compatibility with `actions/cache` (v4, v5, and v6).
@@ -10,7 +14,7 @@ Key capabilities:
 - Multi-threaded Zstandard (`zstd`) compression with automatic `gzip` fallback.
 - Dual-caching mode: syncs simultaneously to both remote S3 and GitHub Actions Cache tier for maximum resilience.
 - Standalone sub-actions: `restore`, `save`, `prune` and `inspect` (for example `xSAVIKx/cloud-cache-action/restore@v1`).
-- A `cloud-cache` CLI that runs the same cache engine in other CI systems.
+- A `cloud-cache` CLI that runs the same cache engine in Bitbucket Pipelines and other CI systems.
 - Safe POSIX key normalization: Guarantees forward slashes (`/`) in S3 keys across Windows, Linux, and macOS runners.
 
 ```yaml
@@ -29,31 +33,11 @@ Key capabilities:
 
 ## Documentation
 
-- [Getting Started]({{SITE_URL}}guide/getting-started.html): Quickstart guide, cache lifecycle breakdown, and standalone restore/save workflows.
-- [Cache Presets]({{SITE_URL}}guide/presets.html): The preset input, and the paths and lockfiles of each package manager preset.
-- [Inputs and Outputs]({{SITE_URL}}guide/reference.html): Every input and output of the action, and the sub-actions.
-- [Dual Caching Guide]({{SITE_URL}}guide/dual-caching.html): Multi-tier caching across S3 and GitHub Actions Cache with backfill synchronization.
-- [S3 Key Patterns]({{SITE_URL}}guide/s3-key-patterns.html): Custom object key templating, prefixing, and organization-wide cache sharing.
-- [Pruning Caches]({{SITE_URL}}guide/pruning.html): The prune sub-action, usage, key matching, dry runs, safety refusals and scoping.
-- [Inspecting Lookups]({{SITE_URL}}guide/inspecting.html): The explain input and the inspect sub-action, reading the lookup report, outputs and metrics.
-- [How Caches Are Stored]({{SITE_URL}}guide/storage.html): The sha256 checksum, conditional writes for concurrent saves, metadata and tags, and streaming.
-- [Security]({{SITE_URL}}guide/security.html): Trust boundary, fork pull requests, the read-only pattern, the S3 calls the action makes, and least-privilege policies per provider.
-- [Migration Guide]({{SITE_URL}}guide/migration.html): 2-minute migration guide, copy-pastable AI agent migration prompt, and secrets cheat sheet.
-- [Upgrading]({{SITE_URL}}guide/upgrading.html): The upgrade notes for each v1 release, newest first.
-- [Command Line (CLI)]({{SITE_URL}}guide/cli.html): The cloud-cache command for CI systems other than GitHub Actions.
-- [Changelog]({{SITE_URL}}changelog.html): Release history, including breaking changes and upgrade notes for every version.
+{{DOCUMENTATION}}
 
 ## Storage Providers
 
-- [AWS S3]({{SITE_URL}}providers/aws-s3.html): Setup guide, bucket best practices, OIDC IAM role assumption, and lifecycle expiration.
-- [Cloudflare R2]({{SITE_URL}}providers/cloudflare-r2.html): Zero egress fee caching, bucket configuration best practices, and scoped API tokens.
-- [Google Cloud Storage]({{SITE_URL}}providers/google-cloud-storage.html): XML API interoperability, bucket best practices, and service account HMAC keys.
-- [Backblaze B2]({{SITE_URL}}providers/backblaze-b2.html): S3-compatible cloud storage setup, bucket lifecycle rules, and restricted application keys.
-- [Fastly Object Storage]({{SITE_URL}}providers/fastly-storage.html): Edge-proximate object storage caching configuration, lifecycle, and access management.
-- [Garage S3]({{SITE_URL}}providers/garage.html): Lightweight distributed self-hosted S3 setup, bucket quotas, and key management.
-- [SeaweedFS S3]({{SITE_URL}}providers/seaweedfs.html): High-capacity distributed filesystem, native TTL auto-pruning, and S3 credentials.
-- [MinIO S3]({{SITE_URL}}providers/minio.html): High-performance S3 object store, ephemeral CI containers, quotas, and service accounts.
-- [RustFS]({{SITE_URL}}providers/rustfs.html): Self-hosted S3-compatible server in Rust, setup, credentials and lifecycle.
+{{PROVIDERS}}
 
 ## Optional
 
