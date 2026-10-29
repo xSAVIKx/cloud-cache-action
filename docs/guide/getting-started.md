@@ -61,7 +61,7 @@ On a self-hosted Windows runner, the account can lack the `SeCreateSymbolicLinkP
 
 2. **Save Phase (Post)**:
    - If `read-only: true` or if an exact key match occurred during restore, saving is automatically skipped.
-   - Checks whether another job already saved the same object first; if so, keeps that job's cache instead of overwriting it. The upload itself is a conditional create, so two saves racing for the same key cannot overwrite each other on providers that enforce `If-None-Match` (verified on AWS S3, MinIO and SeaweedFS); providers that ignore it (verified: Garage; reportedly Google Cloud Storage's S3 interoperability) keep last-writer-wins.
+   - Checks whether another job already saved the same object first; if so, keeps that job's cache instead of overwriting it. The upload itself is a conditional create, so two saves racing for the same key cannot overwrite each other on providers that enforce `If-None-Match` (verified on AWS S3, MinIO, SeaweedFS and RustFS); providers that ignore it (verified: Garage; reportedly Google Cloud Storage's S3 interoperability) keep last-writer-wins.
    - Otherwise, archives the specified `path` directories using multi-threaded `zstd` compression.
    - Streams the compressed archive to your S3 bucket using multipart uploads via `@aws-sdk/lib-storage`, `upload-concurrency` (default `8`) parts of `upload-chunk-size` (default 64 MiB) at a time, tagged with a sha256 checksum for later integrity verification.
    - Stores any `metadata` as `x-amz-meta-*` user metadata on the saved object and any `tags` as object tags, and the metadata comes back on the next restore as the `cache-metadata` output. Providers without object tagging log one warning and save without tags (verified: SeaweedFS and MinIO store tags; Garage accepts the upload but implements no tagging API, so its tags cannot be read back).
@@ -116,6 +116,14 @@ Every step — restore, save, `prune` and `inspect` — also writes one `cloud-c
 - `prune` and `inspect` write their line once the step has finished its work, so a step that fails earlier writes none. `prune` reports its tallies in `extra` (`prunedCount`, `prunedBytes`, `keptCount`, `dryRun`) and `inspect` reports `candidateCount`.
 - Writing the file is best-effort by design: a machine-readable timing record must never fail a cache step, so a write error only logs `Could not write metrics to <path>: <reason>`.
 
+## Job Summary
+
+After both restore and save, a step summary table is written via `core.summary` — a "Cloud cache
+restore" table with the primary/matched key, cache hit, source, size and duration, and a "Cloud cache
+save" table with the key, tiers saved to, size and duration. This is on by default; set
+`job-summary: false` to turn it off. No summary is written when the step fails with an error, or
+when `GITHUB_STEP_SUMMARY` is not set.
+
 ## Standalone Restore and Save Actions
 
 Just like `actions/cache/restore` and `actions/cache/save`, you can invoke restore and save as independent steps:
@@ -141,6 +149,28 @@ Just like `actions/cache/restore` and `actions/cache/save`, you can invoke resto
     bucket: my-ci-cache-bucket
     key: ${{ runner.os }}-build-${{ hashFiles('**/lock') }}
     path: build/
+```
+
+### Saving after failed steps
+
+The post step only runs when the job succeeds. To save a cache even when a later step fails, use the separate actions with `if: always()`:
+
+```yaml
+- uses: xSAVIKx/cloud-cache-action/restore@v1
+  id: cache
+  with:
+    bucket: my-bucket
+    key: ${{ runner.os }}-build-${{ hashFiles('**/lock') }}
+    path: ~/.cache
+
+- run: make build
+
+- uses: xSAVIKx/cloud-cache-action/save@v1
+  if: always() && steps.cache.outputs.cache-hit != 'true'
+  with:
+    bucket: my-bucket
+    key: ${{ runner.os }}-build-${{ hashFiles('**/lock') }}
+    path: ~/.cache
 ```
 
 ### Action Metadata Definitions

@@ -36,7 +36,7 @@ provider:
 | Ranged `GET` (parallel downloads) | Works, answers `206 Partial Content` |
 | User metadata (`x-amz-meta-*`), so the sha256 integrity check runs | Stored and returned |
 | Object tags (`tags` input) | Stored, and readable with `GetObjectTagging` |
-| Conditional create (`If-None-Match`), for [Safe Concurrent Saves](https://github.com/xSAVIKx/cloud-cache-action#safe-concurrent-saves) | Enforced, rejects a second write with `412` |
+| Conditional create (`If-None-Match`), for [Safe Concurrent Saves](../guide/storage.md#safe-concurrent-saves) | Enforced, rejects a second write with `412` |
 | `CopyObject` with `REPLACE`, for metadata on `streaming: true` saves | Works |
 | `ListObjectsV2` and `DeleteObjects`, used by the `prune` sub-action | Work |
 
@@ -154,5 +154,5 @@ every pull request, in the `S3 compatibility (rustfs)` job of
   because many S3-compatible services reject the CRC checksums recent AWS SDKs send by default.
   Nothing to configure.
 - **Expiry**: the action never deletes caches. Use a RustFS lifecycle policy, or the
-  [`prune` sub-action](https://github.com/xSAVIKx/cloud-cache-action#cache-pruning), so old caches
+  [`prune` sub-action](../guide/pruning.md), so old caches
   do not accumulate.

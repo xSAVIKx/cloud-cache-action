@@ -112,22 +112,38 @@ Because `cloud-cache-action` maintains 1:1 input and output parity, you simply c
 
 All existing features (`lookup-only`, `fail-on-cache-miss`, `enableCrossOsArchive`, `read-only`) continue to work identically. `save-always` is not supported: use `cloud-cache-action/save` with `if: always()` instead.
 
-### `ACTIONS_CACHE_MODE` and denied writes
+See [Parity with actions/cache](#parity-with-actions-cache) for the behaviour that has no input.
 
-GitHub sets `ACTIONS_CACHE_MODE` from the `cache-mode` workflow key, at the workflow level or at `jobs.<job_id>.cache-mode`. When the workflow does not set the key, the [GitHub documentation](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching) gives a default of `read` for low-trust triggers, such as `pull_request_target`, `issue_comment` and `workflow_run`, that resolve to the default-branch scope. The `pull_request` event is not affected.
+## Parity with actions/cache
 
-The action obeys `ACTIONS_CACHE_MODE` in the S3 tier, with the same rules as `@actions/cache` 6.2.0 (and the 5.2.0 backport):
+The action takes the inputs of `actions/cache` v4 to v6: `key`, `path` (with globs, `~` and `!` exclusions), `restore-keys`, `lookup-only`, `fail-on-cache-miss`, `enableCrossOsArchive` and `upload-chunk-size`. It gives the same outputs: `cache-hit`, `cache-primary-key` and `cache-matched-key`. The key matching is the same: the exact key, then a key prefix, then the restore keys. The branch isolation is the same: the current ref, then the pull request base, then the default branch.
 
-- `none` skips the restore and the save.
-- `read` skips the save.
-- `write-only` skips the restore.
-- `write`, an unset variable and an unknown value change nothing.
+This section gives the behaviour that has no input.
 
-A skip logs one info line and does not fail the step, also in strict dual-cache mode. A skipped restore is a cache miss: `cache-hit` is `false`, and `fail-on-cache-miss: true` fails the step.
+**`ACTIONS_CACHE_MODE`.** GitHub sets this environment variable from the `cache-mode` workflow key (generally available since 2026-09-10). The value is `read`, `write`, `write-only` or `none`, at the workflow level or at `jobs.<job_id>.cache-mode`. When the workflow does not set the key, the [GitHub documentation](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching) gives a default of `read` for low-trust triggers, such as `pull_request_target`, `issue_comment` and `workflow_run`, that resolve to the default-branch scope. The `pull_request` event is not affected. `@actions/cache` 6.2.0 (and the 5.2.0 backport) reads the variable, and this action applies the same rules to the S3 tier:
 
-An S3-only job on one of those low-trust triggers can stop saving after the upgrade. To save from such a job again, set `cache-mode: write` on the job. Only do this when the job cannot run untrusted code.
+| `ACTIONS_CACHE_MODE`                      | Restore | Save    |
+| ----------------------------------------- | ------- | ------- |
+| `none`                                    | skipped | skipped |
+| `read`                                    | runs    | skipped |
+| `write-only`                              | skipped | runs    |
+| `write`, not set, or any other value      | runs    | runs    |
 
-When the storage refuses an S3 save with `AccessDenied` (or a `403` that is not a credential error), the step warns that the credentials may not be allowed to write to the bucket and that `read-only: true` skips the save. The job does not fail, except in strict dual-cache mode.
+The action trims the value and ignores its case. A skip logs one info line that names the variable, and the metrics line and the job summary show the step as `skipped` with the reason. A skip does not fail the step, also with `dual-cache-strict: true`. A skipped restore sets `cache-hit` to `false`. With `fail-on-cache-miss: true`, a skipped restore fails the step, as in `actions/cache`. `read-only: true` skips the save in every mode.
+
+An S3-only job on one of those low-trust triggers can stop saving after you upgrade to this version. To save from such a job again, set `cache-mode: write` on the job. Only do this when the job cannot run untrusted code, because the read default is there to stop cache poisoning.
+
+**Write denied.** When the storage refuses an S3 write call (`PutObject`, `CreateMultipartUpload`, `UploadPart`, `CompleteMultipartUpload` or `CopyObject`) with `AccessDenied` (or a `403` that is not a credential error), the step logs a warning that the credentials may not be allowed to write to the bucket, and that `read-only: true` skips the save. The job does not fail. With `dual-cache-strict: true`, the step fails, as for every other save error. A `403` for wrong credentials, such as `InvalidAccessKeyId`, `SignatureDoesNotMatch` or `ExpiredToken`, gives the usual warning without the hint. A `403` on a read call, such as the `HeadObject` existence check, also gives no hint: it means a wrong secret or a policy without `s3:ListBucket`, not a read-only key.
+
+**Access errors.** For every S3 `403`, the warning names the S3 call, the object, the HTTP status and the policy action that the call needs. A wrong secret, or a policy without `s3:ListBucket`, makes the first `HeadObject` fail with no response body. The warning then reads, for example:
+
+```text
+Restoring from s3 failed, so it counts as a cache miss: HeadObject s3://<bucket>/<key> returned HTTP 403 Forbidden. Check access-key, secret-key and region, and check that the bucket policy allows s3:ListBucket on the bucket and s3:GetObject on the cache keys. The Security guide lists the permission for each S3 call.
+```
+
+After a tier error, the last restore line is `No cache restored: the s3 tier failed (see the warning above). Keys searched: ...`. The `actions/cache` line `Cache not found for input keys: ...` is only for a true miss. For jobs that must not write, such as pull requests, see the read-only pattern in the [Security guide](./security.md).
+
+**`save-always`.** The action does not support this deprecated input. See [Saving after failed steps](./getting-started.md#saving-after-failed-steps).
 
 ---
 

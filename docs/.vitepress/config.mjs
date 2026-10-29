@@ -74,22 +74,24 @@ export default defineConfig({
     logo: { src: '/logo.svg', alt: 'Cloud Cache Action' },
     nav: [
       { text: 'Guide', link: '/guide/getting-started' },
-      { text: 'Dual Caching', link: '/guide/dual-caching' },
+      { text: 'Reference', link: '/guide/reference' },
       { text: 'Providers', link: '/providers/aws-s3' },
-      { text: 'Key Patterns', link: '/guide/s3-key-patterns' },
-      { text: 'Pruning', link: '/guide/pruning' },
-      { text: 'Inspecting', link: '/guide/inspecting' },
-      { text: 'Security', link: '/guide/security' },
       { text: 'Performance', link: '/guide/performance' },
-      { text: 'Migration', link: '/guide/migration' },
       { text: 'Changelog', link: '/changelog' },
     ],
     sidebar: [
       {
-        text: 'Getting Started',
+        text: 'Start',
         items: [
-          { text: 'Introduction', link: '/guide/getting-started' },
+          { text: 'Getting Started', link: '/guide/getting-started' },
           { text: 'Cache Presets', link: '/guide/presets' },
+          { text: 'Migrating from actions/cache', link: '/guide/migration' },
+          { text: 'Upgrading', link: '/guide/upgrading' },
+        ],
+      },
+      {
+        text: 'Guides',
+        items: [
           { text: 'Dual Caching (S3 + GitHub)', link: '/guide/dual-caching' },
           { text: 'S3 Key Templating', link: '/guide/s3-key-patterns' },
           { text: 'Pruning Caches', link: '/guide/pruning' },
@@ -97,8 +99,15 @@ export default defineConfig({
           { text: 'Security', link: '/guide/security' },
           { text: 'Performance', link: '/guide/performance' },
           { text: 'Benchmarks', link: '/guide/benchmarks' },
-          { text: 'Migrating from actions/cache', link: '/guide/migration' },
           { text: 'Command Line (CLI)', link: '/guide/cli' },
+        ],
+      },
+      {
+        text: 'Reference',
+        items: [
+          { text: 'Inputs and Outputs', link: '/guide/reference' },
+          { text: 'How Caches Are Stored', link: '/guide/storage' },
+          { text: 'Changelog', link: '/changelog' },
         ],
       },
       {
@@ -114,10 +123,6 @@ export default defineConfig({
           { text: 'MinIO S3', link: '/providers/minio' },
           { text: 'RustFS', link: '/providers/rustfs' },
         ],
-      },
-      {
-        text: 'Project',
-        items: [{ text: 'Changelog', link: '/changelog' }],
       },
     ],
     socialLinks: [{ icon: 'github', link: 'https://github.com/xSAVIKx/cloud-cache-action' }],

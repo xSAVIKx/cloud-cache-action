@@ -7,7 +7,7 @@
  *
  * The per-provider expectations in PROVIDER_SUPPORT below are measurements, not guesses: each
  * row is what the named server actually did when this suite was run against it (see the v1.3
- * Task 6 report and the provider table in README.md). A provider not listed here is treated as
+ * Task 6 report and the provider table in docs/guide/storage.md). A provider not listed here is treated as
  * unmeasured: the suite still requires a documented outcome (the feature works, or the
  * documented best-effort warning fired) but does not require a particular one.
  */

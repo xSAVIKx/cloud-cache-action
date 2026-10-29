@@ -8,8 +8,68 @@ The `download-concurrency`, `download-chunk-size`, `upload-concurrency` and `upl
 inputs decide how many connections a transfer uses and how much each request carries. The
 `compression-level` input decides how hard `zstd` or `gzip` work on a save. This page measures
 both sets of inputs on real data, so you can pick values for your provider and your cache instead
-of guessing. See [Parallel Transfers](https://github.com/xSAVIKx/cloud-cache-action#parallel-transfers)
-in the README for how the transfer inputs work.
+of guessing. [Parallel transfers](#parallel-transfers) tells how the transfer inputs work.
+
+## Parallel transfers
+
+Both directions move a large archive over several connections at once, with the fan-out
+`actions/cache` uses for the GitHub cache service: 8 concurrent 8 MiB blocks on download and
+8 concurrent 64 MiB parts on upload. (`actions/cache` downloads 4 MiB blocks; 8 MiB measured
+1.2× to 2.6× faster on every provider across two runs, see below.)
+
+```yaml
+    download-concurrency: 16   # 1–32; 1 turns the parallel download off
+    download-chunk-size: 16777216   # bytes per request, 1 MiB–128 MiB
+    upload-concurrency: 4   # 1–32
+    upload-chunk-size: 33554432   # bytes per part, 5 MiB–128 MiB
+```
+
+**Downloads.** A restore fetches any archive larger than `download-chunk-size` (default 8 MiB) as
+concurrent `Range` requests, `download-concurrency` (default `8`) at a time, so a large cache uses
+the whole link a runner has instead of one connection. Archives no larger than one chunk are
+downloaded in a single request, as before. On a hosted runner the default keeps at most 64 MiB of
+parts in memory.
+
+- **Per-part retries.** Each part is retried on its own (`retry-count` times) when its connection
+  drops, so a failure late in a large download costs one part, not the whole archive. The
+  single-request path keeps its whole-download retry.
+- **Timeouts.** The S3 client stops a TCP connect after 10 s, and a connection with no data in
+  either direction after 120 s. The SDK or the part retry then tries again. Each retry logs one
+  line, for example
+  `HeadObject s3://<bucket>/<key>: attempt 1 of 4 failed after 10.0 s: <reason>. Starting attempt 2 after a wait of 0.1 s.`
+  The idle limit is not a limit on the total transfer time. To change a limit, set
+  `CLOUD_CACHE_CONNECTION_TIMEOUT_MS` or `CLOUD_CACHE_SOCKET_TIMEOUT_MS` (milliseconds) in the job
+  `env`. The value `0` turns that timeout off.
+- **Both modes.** In the default file mode every part is written straight into the archive file at
+  its offset, and the sha256 check runs on the assembled file. With `streaming: true` the parts are
+  fetched ahead and handed to `tar` in order, so memory is bounded by
+  `download-concurrency × download-chunk-size`.
+- **Providers that ignore `Range`.** If the server answers the first ranged request with the whole
+  object, the restore logs
+  `s3://<bucket>/<key> does not support ranged GET requests; downloading it in one request.` and
+  continues with a single request. AWS S3, Cloudflare R2, Google Cloud Storage, Backblaze B2,
+  MinIO, SeaweedFS, RustFS and Garage all serve ranged requests.
+
+**Uploads.** A save sends the multipart upload's parts `upload-concurrency` (default `8`) at a time,
+each `upload-chunk-size` bytes (default 64 MiB). Every part is retried by the S3 SDK with the
+client's `retry-count`. The upload buffers up to `upload-concurrency × upload-chunk-size` in memory
+(512 MiB by default, as `actions/cache` does); lower either input on a small self-hosted runner.
+A value of `upload-chunk-size` below 5 MiB or above 128 MiB warns and uses the default, since
+every S3-compatible provider rejects smaller parts.
+
+**Automatic tuning.** With `transfer-tuning: auto`, a restore and a file-mode save select the
+part size and the concurrency from the archive size, for example 16 × 16 MiB for a restore. A
+save also uses the provider. The bytes in flight stay within about a quarter of the usable memory
+and 1 GiB, with at least one part in flight. A transfer
+input that you set still wins for that field, and a streaming save keeps the fixed settings. The
+default is `fixed`. The rules and the measurements are in the
+[Automatic tuning](#automatic-tuning)
+section and on the [Benchmarks](./benchmarks.md) page.
+
+The measured restore and save times for each provider are in the sections below.
+
+The restore's `cloud-cache-metrics` line reports the number of parts as `downloadParts`; see
+[Metrics and Timings](./getting-started.md#metrics-and-timings).
 
 ## How the numbers were measured
 
@@ -77,8 +137,8 @@ What the table says:
   every archive larger than one part, so that run has no copy time for GCS. File mode sends the checksum
   with the upload and has no copy. This run predates v1.6: a streamed save now attaches the
   checksum as an object tag instead, which removes this gap on S3 in the normal case. See
-  [Object Metadata and Tags](https://github.com/xSAVIKx/cloud-cache-action#object-metadata-and-tags)
-  in the README for when the copy still applies.
+  [Object Metadata and Tags](./storage.md#object-metadata-and-tags)
+  for when the copy still applies.
 
 ## Run-to-run variance
 

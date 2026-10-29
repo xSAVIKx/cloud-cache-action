@@ -37,6 +37,8 @@ Add the following step to your GitHub Actions workflow:
       ${{ runner.os }}-node-
 ```
 
+For a package manager cache, `preset: npm` (or `yarn`, `pnpm`, `bun`, `pip`, `poetry`, `uv`, `gradle`, `maven`, `cargo`, `go`) gives the `path`, `key` and `restore-keys` for you. See [Cache Presets](./presets.md).
+
 ## Paths and Exclusions
 
 `path` accepts files, directories, globs, `~` and `!` exclusions, one per line.
@@ -63,6 +65,7 @@ On a self-hosted Windows runner, the account can lack the `SeCreateSymbolicLinkP
    - Connects to your S3 bucket using modern `@aws-sdk/client-s3`.
    - Checks if an exact match exists for the `key` parameter.
    - If not found, evaluates `restore-keys` in order and downloads the most recently updated matching archive.
+   - Downloads an archive larger than `download-chunk-size` (default 8 MiB) as concurrent `Range` requests, `download-concurrency` (default `8`) at a time, each retried on its own; set `download-concurrency: 1` for a single request. A provider that ignores `Range` gets the single request automatically. With `transfer-tuning: auto`, the action selects these settings from the archive size (see [Automatic tuning](./performance.md#automatic-tuning)).
    - Verifies the archive's sha256 checksum, when the object carries one, before extracting it; a mismatch is logged as a warning and counts as a cache miss (with `dual-cache: true` and `dual-cache-strict: true`, it fails the step).
    - With `streaming: true`, extracts the archive as it downloads instead, verifying the checksum at the end: a network or `tar` failure mid-stream, or a checksum mismatch, becomes a cache miss with the workspace possibly partly extracted, and there is no whole-download retry as there is in the default file mode.
    - Decompresses the archive using `zstd` (or `gzip` fallback) directly into your workspace.
@@ -71,9 +74,9 @@ On a self-hosted Windows runner, the account can lack the `SeCreateSymbolicLinkP
 
 2. **Save Phase (Post)**:
    - If `read-only: true` or if an exact key match occurred during restore, saving is automatically skipped.
-   - Checks whether another job already saved the same object first; if so, keeps that job's cache instead of overwriting it. The upload itself is a conditional create, so two saves racing for the same key cannot overwrite each other on providers that enforce `If-None-Match` (verified on AWS S3, MinIO and SeaweedFS); providers that ignore it (verified: Garage; reportedly Google Cloud Storage's S3 interoperability) keep last-writer-wins.
+   - Checks whether another job already saved the same object first; if so, keeps that job's cache instead of overwriting it. The upload itself is a conditional create, so two saves racing for the same key cannot overwrite each other on providers that enforce `If-None-Match` (verified on AWS S3, MinIO, SeaweedFS and RustFS); providers that ignore it (verified: Garage; reportedly Google Cloud Storage's S3 interoperability) keep last-writer-wins.
    - Otherwise, archives the specified `path` directories using multi-threaded `zstd` compression.
-   - Streams the compressed archive to your S3 bucket using multipart uploads via `@aws-sdk/lib-storage`, tagged with a sha256 checksum for later integrity verification.
+   - Streams the compressed archive to your S3 bucket using multipart uploads via `@aws-sdk/lib-storage`, `upload-concurrency` (default `8`) parts of `upload-chunk-size` (default 64 MiB) at a time, tagged with a sha256 checksum for later integrity verification.
    - Stores any `metadata` as `x-amz-meta-*` user metadata on the saved object and any `tags` as object tags, and the metadata comes back on the next restore as the `cache-metadata` output. Providers without object tagging log one warning and save without tags (verified: SeaweedFS and MinIO store tags; Garage accepts the upload but implements no tagging API, so its tags cannot be read back).
    - Emits diagnostics and completes cleanly without breaking the build on non-fatal network interruptions.
    - Writes a job summary table with the key, saved-to tiers, size and duration, unless `job-summary: false`.
@@ -115,24 +118,24 @@ Every step — restore, save, `prune` and `inspect` — also writes one `cloud-c
 ```
 
 ```json
-{"step":"restore","timestamp":"2026-09-17T06:02:41.912Z","provider":"r2","key":"Linux-node-9f2c1a","matchedKey":"Linux-node-9f2c1a","objectKey":"octo/app/refs%2Fheads%2Fmain/Linux-node-9f2c1a/4d0f1b2c9a7e35f1/cache.tar.zst","source":"s3","bytes":199687424,"durationMs":8123,"transferDurationMs":5310,"streaming":false,"outcome":"hit"}
+{"step":"restore","timestamp":"2026-09-17T06:02:41.912Z","provider":"r2","key":"Linux-node-9f2c1a","matchedKey":"Linux-node-9f2c1a","objectKey":"octo/app/refs%2Fheads%2Fmain/Linux-node-9f2c1a/4d0f1b2c9a7e35f1/cache.tar.zst","source":"s3","bytes":199687424,"durationMs":8123,"transferDurationMs":5310,"lookupDurationMs":240,"extractDurationMs":2410,"streaming":false,"downloadParts":24,"outcome":"hit"}
 ```
 
 - `step` is `restore`, `save`, `prune` or `inspect`, and `outcome` is one of `hit`, `miss`, `saved`, `exists`, `skipped`, `error`, `pruned`, `would-hit` or `would-miss`.
 - `transferDurationMs` measures the S3 transfer alone in the default file mode. With `streaming: true` the archive is extracted (or compressed) as it moves, so the same field covers download-plus-extract; the `streaming` field on the line tells the two apart.
+- `downloadParts` on a restore is how many ranged requests fetched the archive: `1` for a single request and `0` when nothing was downloaded.
+- `lookupDurationMs` on a restore is the time to find the S3 object. In file mode, `archiveDurationMs` on a save is the time to write and hash the archive, and `extractDurationMs` on a restore is the time to unpack it. Streaming mode does these phases during the transfer, so it does not report them. A streaming step that falls back to file mode reports them.
+- After an S3 download or upload, the step also logs the phases in one line, for example `Timings: lookup 0.24 s, download 5.31 s (35.9 MiB/s), extract 2.41 s, total 8.12 s`. This line is not a debug line, so it shows in every log. `total` is the whole step, including the GitHub tier in dual-cache mode. The transfer time and the rate include retries.
 - `prune` and `inspect` write their line once the step has finished its work, so a step that fails earlier writes none. `prune` reports its tallies in `extra` (`prunedCount`, `prunedBytes`, `keptCount`, `dryRun`) and `inspect` reports `candidateCount`.
 - Writing the file is best-effort by design: a machine-readable timing record must never fail a cache step, so a write error only logs `Could not write metrics to <path>: <reason>`.
 
-## Transfer Tuning
+## Job Summary
 
-The `download-concurrency`, `download-chunk-size`, `upload-concurrency` and `upload-chunk-size` inputs set how many requests a transfer runs at once and how many bytes each request carries. The defaults are 8 × 8 MiB for a restore and 8 × 64 MiB for a save. Set `transfer-tuning: auto` to let the action select them per archive from its size (and, for a save, the provider):
-
-- A restore uses 16 × 16 MiB, with fewer workers when the archive has fewer parts.
-- A save of up to 256 MiB uses 16 × 16 MiB, and a larger save uses 16 × 32 MiB. A save of 1 GiB or more to Cloudflare R2 uses 32 × 16 MiB.
-- The bytes in flight stay within about a quarter of the usable memory, including a container limit, and within 1 GiB. At least one part is in flight.
-- A transfer input that the workflow sets still wins for that field. A wrapper that forwards a transfer input with a default value sets that input.
-- A streaming save keeps the fixed settings, because it does not know the archive size in advance.
-- The default is `transfer-tuning: fixed`. The Performance and Benchmarks pages have the measurements.
+After both restore and save, a step summary table is written via `core.summary` — a "Cloud cache
+restore" table with the primary/matched key, cache hit, source, size and duration, and a "Cloud cache
+save" table with the key, tiers saved to, size and duration. This is on by default; set
+`job-summary: false` to turn it off. No summary is written when the step fails with an error, or
+when `GITHUB_STEP_SUMMARY` is not set.
 
 ## Standalone Restore and Save Actions
 
@@ -161,6 +164,28 @@ Just like `actions/cache/restore` and `actions/cache/save`, you can invoke resto
     path: build/
 ```
 
+### Saving after failed steps
+
+The post step only runs when the job succeeds. To save a cache even when a later step fails, use the separate actions with `if: always()`:
+
+```yaml
+- uses: xSAVIKx/cloud-cache-action/restore@v1
+  id: cache
+  with:
+    bucket: my-bucket
+    key: ${{ runner.os }}-build-${{ hashFiles('**/lock') }}
+    path: ~/.cache
+
+- run: make build
+
+- uses: xSAVIKx/cloud-cache-action/save@v1
+  if: always() && steps.cache.outputs.cache-hit != 'true'
+  with:
+    bucket: my-bucket
+    key: ${{ runner.os }}-build-${{ hashFiles('**/lock') }}
+    path: ~/.cache
+```
+
 ### Action Metadata Definitions
 
 You can inspect the full action specification files directly in the repository:
@@ -185,6 +210,309 @@ You can inspect the full action specification files directly in the repository:
 ::: details `inspect/action.yml` (Click to view inspect action definition)
 <<< ../../inspect/action.yml{yaml}
 :::
+
+
+<!-- ============================================================================ -->
+<!-- FILE: docs/guide/presets.md -->
+<!-- ============================================================================ -->
+
+# Cache Presets
+
+The `preset` input gives the cache `path`, `key` and `restore-keys` for one package manager. It
+works like the `cache:` input of `actions/setup-node`. Use one input instead of three:
+
+```yaml
+- name: Cache npm downloads
+  uses: xSAVIKx/cloud-cache-action@v1
+  with:
+    bucket: my-ci-cache-bucket
+    access-key: ${{ secrets.S3_ACCESS_KEY }}
+    secret-key: ${{ secrets.S3_SECRET_KEY }}
+    preset: npm
+```
+
+This step does the same as the step below on a Linux runner:
+
+```yaml
+- name: Cache npm downloads
+  uses: xSAVIKx/cloud-cache-action@v1
+  with:
+    bucket: my-ci-cache-bucket
+    access-key: ${{ secrets.S3_ACCESS_KEY }}
+    secret-key: ${{ secrets.S3_SECRET_KEY }}
+    path: ~/.npm
+    key: Linux-npm-${{ hashFiles('**/package-lock.json', '**/npm-shrinkwrap.json', '!**/node_modules/**') }}
+    restore-keys: |
+      Linux-npm-
+```
+
+The `preset` input is available on the main action and on the `restore` and `save` sub-actions.
+The `prune` and `inspect` sub-actions do not take it.
+
+## What a preset gives
+
+- **`path`**: the download cache of the package manager for the runner OS. A preset never caches
+  `node_modules`, a virtual environment or a build output. These hold installed or built files
+  that depend on the tool version and the OS.
+- **`key`**: `<runner.os>-<preset>-<hash>`. `runner.os` is `Linux`, `macOS` or `Windows`. The
+  action reads it from the `RUNNER_OS` environment variable. `<hash>` is the result of the
+  `hashFiles` function of `@actions/glob` on the lockfile globs of the preset. This is the same
+  function that `hashFiles()` in a workflow uses. The globs are relative to `GITHUB_WORKSPACE`.
+- **`restore-keys`**: `<runner.os>-<preset>-`. A changed lockfile then restores the newest older
+  cache of the same preset.
+
+The action logs the resolved path and key. When the job summary is on, the summary also names the
+preset and the resolved paths.
+
+## Presets
+
+| Preset   | Linux path                                                   | macOS path                                                       | Windows path                                                          | Lockfile globs                                                                                                                                                   |
+| -------- | ------------------------------------------------------------ | ---------------------------------------------------------------- | --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm`    | `~/.npm`                                                     | `~/.npm`                                                         | `~\AppData\Local\npm-cache`                                           | `**/package-lock.json`, `**/npm-shrinkwrap.json`                                                                                                                 |
+| `yarn`   | `~/.cache/yarn`, `~/.yarn/berry/cache`, `.yarn/cache`        | `~/Library/Caches/Yarn`, `~/.yarn/berry/cache`, `.yarn/cache`    | `~\AppData\Local\Yarn\Cache`, `~\AppData\Local\Yarn\Berry\cache`, `.yarn\cache` | `**/yarn.lock`                                                                                                                                         |
+| `pnpm`   | `~/.local/share/pnpm/store`                                  | `~/Library/pnpm/store`                                           | `~\AppData\Local\pnpm\store`                                          | `**/pnpm-lock.yaml`                                                                                                                                              |
+| `bun`    | `~/.bun/install/cache`                                       | `~/.bun/install/cache`                                           | `~\.bun\install\cache`                                                | `**/bun.lock`, `**/bun.lockb`                                                                                                                                    |
+| `pip`    | `~/.cache/pip`                                               | `~/Library/Caches/pip`                                           | `~\AppData\Local\pip\Cache`                                           | `**/requirements.txt`                                                                                                                                            |
+| `poetry` | `~/.cache/pypoetry/cache`, `~/.cache/pypoetry/artifacts` | `~/Library/Caches/pypoetry/cache`, `~/Library/Caches/pypoetry/artifacts` | `~\AppData\Local\pypoetry\Cache\cache`, `~\AppData\Local\pypoetry\Cache\artifacts` | `**/poetry.lock` |
+| `uv`     | `~/.cache/uv`                                                | `~/.cache/uv`                                                    | `~\AppData\Local\uv\cache`                                            | `**/*requirements*.txt`, `**/*requirements*.in`, `**/*constraints*.txt`, `**/*constraints*.in`, `**/pyproject.toml`, `**/uv.lock`, `**/*.py.lock`                |
+| `gradle` | `~/.gradle/caches`, `~/.gradle/wrapper`                      | `~/.gradle/caches`, `~/.gradle/wrapper`                          | `~\.gradle\caches`, `~\.gradle\wrapper`                               | `**/*.gradle*`, `**/gradle.properties`, `**/gradle-wrapper.properties`, `buildSrc/**/Versions.kt`, `buildSrc/**/Dependencies.kt`, `gradle/*.versions.toml`, `**/versions.properties` |
+| `maven`  | `~/.m2/repository`                                           | `~/.m2/repository`                                               | `~\.m2\repository`                                                    | `**/pom.xml`, `**/.mvn/wrapper/maven-wrapper.properties`, `**/.mvn/extensions.xml`                                                                               |
+| `cargo`  | `~/.cargo/registry/index`, `~/.cargo/registry/cache`, `~/.cargo/git/db` | the same as Linux                                     | the same as Linux, with `\`                                           | `**/Cargo.lock`                                                                                                                                                  |
+| `go`     | `~/go/pkg/mod`, `~/.cache/go-build`                          | `~/go/pkg/mod`, `~/Library/Caches/go-build`                      | `~\go\pkg\mod`, `~\AppData\Local\go-build`                            | `**/go.sum`                                                                                                                                                      |
+
+The `npm`, `yarn`, `pnpm` and `bun` presets also exclude `!**/node_modules/**` from the hash. A
+package in `node_modules` can contain its own lockfile. Without the exclusion, the key after an
+install is different from the key before the install.
+
+## Sources
+
+Each path is the default that the tool documents, with no environment variable or configuration
+that changes it.
+
+- **`npm`**: the npm `cache` configuration: `~/.npm` on Posix, `%LocalAppData%\npm-cache` on
+  Windows. The actions/cache `examples.md` gives `~\AppData\npm-cache` for Windows, but npm 7 and
+  later use `%LocalAppData%`. The globs follow `actions/setup-node` and the actions/cache
+  examples. `actions/setup-node` also hashes `yarn.lock` for npm. This action does not, because
+  `yarn` has its own preset.
+- **`yarn`**: three directories.
+  - The Yarn 1 cache folder per OS, which `yarn cache dir` prints. The Yarn 1 docs do not give
+    the path. The source is `getCacheDir` in `src/util/user-dirs.js` of the Yarn 1 repository:
+    `~/.cache/yarn` on Linux, `~/Library/Caches/Yarn` on macOS, and
+    `%LOCALAPPDATA%\Yarn\Cache` on Windows.
+  - The Yarn 2 and later global cache. The yarnrc docs say that `enableGlobalCache` is `true` by
+    default and that the cache is then in `globalFolder`. `Configuration.ts` of Yarn 2 and later
+    sets the cache to `${globalFolder}/cache`. The docs give `${HOME}/.yarn/berry` for
+    `globalFolder`. On Windows, `getDefaultGlobalFolder` in `folderUtils.ts` uses
+    `%LOCALAPPDATA%\Yarn\Berry`.
+  - The Yarn 2 and later project cache (`cacheFolder`, `./.yarn/cache`).
+
+  The glob follows `actions/setup-node` and the actions/cache examples.
+- **`pnpm`**: the pnpm `storeDir` setting, when `PNPM_HOME` and `XDG_DATA_HOME` are not set. The
+  glob follows `actions/setup-node`.
+- **`bun`**: the Bun install cache documentation and the actions/cache examples. The examples give
+  `~\.bun` for Windows. That directory also holds the Bun binary, so this action caches only the
+  install cache below it.
+- **`pip`**: the actions/cache examples for pip, per OS. The glob follows `actions/setup-python`.
+- **`poetry`**: the Poetry `cache-dir` setting gives the directory. The Poetry docs do not name
+  its children. Poetry's `src/poetry/config/config.py` puts the repository cache in
+  `{cache-dir}/cache/repositories` and the artifact cache in `{cache-dir}/artifacts`. The preset
+  caches these two directories. It does not cache `{cache-dir}/virtualenvs`, which holds
+  environments for one Python version, because the key does not contain the Python version. A
+  `!` line cannot do this: when an include pattern matches a directory, `tar` archives the full
+  directory (see [Paths and Exclusions](./getting-started.md#paths-and-exclusions)). The glob
+  follows `actions/setup-python`.
+- **`uv`**: the uv cache directory: `$HOME/.cache/uv` on Linux and macOS (uv uses the XDG
+  directories on both), `%LOCALAPPDATA%\uv\cache` on Windows. The globs are the
+  `cache-dependency-glob` default of `astral-sh/setup-uv`.
+- **`gradle`**: the actions/cache examples for Gradle. The globs follow `actions/setup-java`.
+- **`maven`**: the actions/cache examples for Maven. The globs follow `actions/setup-java`.
+- **`cargo`**: the actions/cache examples for Cargo, without `~/.cargo/bin` and `target`.
+- **`go`**: the actions/cache examples for Go modules, per OS.
+
+### Why `cargo` does not cache `target`
+
+`target` holds build output, not downloads. It grows with each build, because Cargo does not
+remove old artifacts. Its content depends on the compiler version, the profile and the features,
+so a restored `target` is often stale and large. `~/.cargo/bin` holds installed binaries, not
+downloads. To cache `target` too, set `path` yourself:
+
+```yaml
+    preset: cargo
+    path: |
+      ~/.cargo/registry/index
+      ~/.cargo/registry/cache
+      ~/.cargo/git/db
+      target
+```
+
+## A custom cache directory
+
+The action does not run the package manager to find its cache directory. `actions/setup-node`
+runs `npm config get cache`, but this action uses the static default above. When you move the
+cache, for example with `npm_config_cache`, `PIP_CACHE_DIR`, `GOMODCACHE` or a `.yarnrc.yml`
+setting, set `path` to the directory you use. The preset still gives the key and the restore keys.
+
+### GitHub-hosted Windows runners
+
+The runner image can change the default directory of a tool. Two reports are not measured here:
+
+- The Windows image can set the npm cache to another directory, reported as `C:\npm\cache`.
+- pnpm can put its store at the root of the workspace drive, for example `D:\.pnpm-store`, when
+  the home directory is on a different drive. pnpm does this because hard links do not work
+  across drives.
+
+In both cases the preset path does not exist. The save then logs
+`Path Validation Error: Path(s) specified in the action for caching do(es) not exist, hence no cache is being saved.`
+When you see this message, run `npm config get cache` or `pnpm store path` in the job and set
+`path` to the directory that it prints.
+
+## Explicit inputs win
+
+An explicit `path`, `key` or `restore-keys` input replaces the preset value for that one input:
+
+| You set           | `path`              | `key`                    | `restore-keys`                                                |
+| ----------------- | ------------------- | ------------------------ | ------------------------------------------------------------- |
+| `preset` only     | preset              | preset                   | preset                                                        |
+| `preset`, `path`  | yours               | preset                   | preset                                                        |
+| `preset`, `key`   | preset              | yours, with no hash added | none                                                         |
+| `preset`, `restore-keys` | preset       | preset                   | yours                                                         |
+
+When you set `key`, the action does not add the preset restore keys. A prefix such as `Linux-npm-`
+matches only keys that the preset made, so it could restore a cache that your key scheme does not
+expect. Set `restore-keys` too if you want a fallback.
+
+The cache version contains the `path` lines. A preset path and the same path that you type give
+the same version on the same OS. A different `path` list is a different cache.
+
+## Errors
+
+- With no lockfile that matches the globs, the step fails. The message names the globs:
+  `Preset "go" found no lockfile to hash in /home/runner/work/app/app. It looked for: **/go.sum.
+  Add a lockfile, or set the key input.`
+- An unknown preset fails the step and lists the valid presets.
+- With no `preset` and no `key` or `path`, the restore fails with
+  `Input required and not supplied: key. Set key and path, or set preset.`
+
+On the save step, the same errors give a warning, and the step does not save.
+
+## The post step
+
+The main action restores in its main step and saves in its post step. The post step does not hash
+the lockfiles again. It uses the key and the paths that the restore step resolved. An install
+between the two steps can change a lockfile, but the save then still uses the key that the restore
+looked up.
+
+The `save` sub-action runs on its own and has no restore state. It hashes the lockfiles at the time
+it runs. To save under the key that a `restore` sub-action looked up, pass that key:
+
+```yaml
+- uses: xSAVIKx/cloud-cache-action/restore@v1
+  id: restore
+  with:
+    bucket: my-ci-cache-bucket
+    preset: pnpm
+
+- run: pnpm install --frozen-lockfile
+
+- uses: xSAVIKx/cloud-cache-action/save@v1
+  with:
+    bucket: my-ci-cache-bucket
+    preset: pnpm
+    key: ${{ steps.restore.outputs.cache-primary-key }}
+```
+
+
+<!-- ============================================================================ -->
+<!-- FILE: docs/guide/reference.md -->
+<!-- ============================================================================ -->
+
+# Inputs and Outputs
+
+This page lists the inputs and the outputs of the main action, `xSAVIKx/cloud-cache-action@v1`.
+The `restore` and `save` sub-actions take the same inputs, with these exceptions:
+
+- `restore` does not take the save inputs: `read-only`, `compression-level`, `upload-chunk-size`,
+  `upload-concurrency`, `metadata` and `tags`.
+- `save` does not take the restore inputs: `restore-keys`, `lookup-only`, `fail-on-cache-miss`,
+  `read-only`, `restore-priority`, `explain`, `download-concurrency` and `download-chunk-size`.
+
+The [`prune`](./pruning.md#inputs) and [`inspect`](./inspecting.md#outputs) sub-actions
+have their own inputs and outputs, on their own pages. The `action.yml` file of each action is
+the full definition (see [Action Metadata Definitions](./getting-started.md#action-metadata-definitions)).
+
+## Sub-actions
+
+| Action | Use |
+| --- | --- |
+| `xSAVIKx/cloud-cache-action@v1` | Restores in the main step and saves in the post step, as `actions/cache` does. |
+| `xSAVIKx/cloud-cache-action/restore@v1` | Restores only. |
+| `xSAVIKx/cloud-cache-action/save@v1` | Saves only. Use it with `if: always()` to save after a failed step (see [Saving after failed steps](./getting-started.md#saving-after-failed-steps)). |
+| `xSAVIKx/cloud-cache-action/prune@v1` | Deletes old cache archives, for example on a schedule. See [Pruning Caches](./pruning.md). |
+| `xSAVIKx/cloud-cache-action/inspect@v1` | Reports which object a restore would use, and why, without a restore. See [Inspecting Lookups](./inspecting.md). |
+
+## Inputs
+
+| Input                            | Required |                          Default                           | Description                                                                 |
+| -------------------------------- | :------: | :--------------------------------------------------------: | --------------------------------------------------------------------------- |
+| `bucket`                         | **Yes**  |                             —                              | Name of the S3 bucket                                                       |
+| `key`                            | **Yes**, unless `preset` is set |                             —                              | Explicit key for restoring and saving cache                                 |
+| `path`                           | **Yes**, unless `preset` is set |                             —                              | Multiline list of paths, globs and `!` exclusions to cache (see [Paths and exclusions](./getting-started.md#paths-and-exclusions)) |
+| `preset`                         |    No    |                             —                              | Package manager preset that gives the default `path`, `key` and `restore-keys`: `npm`, `yarn`, `pnpm`, `bun`, `pip`, `poetry`, `uv`, `gradle`, `maven`, `cargo`, `go` (see [Cache presets](./presets.md)) |
+| `restore-keys`                   |    No    |                             —                              | Multiline string of prefix keys for fallback matching                       |
+| `endpoint`                       |    No    |                          Auto/AWS                          | Custom S3 endpoint URL                                                      |
+| `region`                         |    No    |                      Auto/`us-east-1`                      | AWS or S3 provider region                                                   |
+| `provider`                       |    No    |                            Auto                            | Preset: `aws`, `r2`, `gcs`, `b2`, `fastly`, `garage`, `seaweedfs`, `minio`, `rustfs`  |
+| `access-key` / `accessKey`       |    No    |                    `AWS_ACCESS_KEY_ID`                     | S3 Access Key ID                                                            |
+| `secret-key` / `secretKey`       |    No    |                  `AWS_SECRET_ACCESS_KEY`                   | S3 Secret Access Key                                                        |
+| `session-token` / `sessionToken` |    No    |                    `AWS_SESSION_TOKEN`                     | S3 Session Token                                                            |
+| `force-path-style`               |    No    |                            Auto                            | Force path-style S3 URLs                                                    |
+| `prefix`                         |    No    |                            `""`                            | Subfolder prefix path inside bucket                                         |
+| `s3-key-pattern`                 |    No    | `${GITHUB_REPOSITORY}/${prefix}${ref}/${key}/${version}/${archive_filename}` | Custom S3 key template pattern (supports `${ENV_VARS}`)                     |
+| `scoped-to-repository`           |    No    |                           `true`                           | Prefix bucket cache paths with repository name                              |
+| `scoped-to-ref`                  |    No    |                           `true`                            | Restore from the current ref, then the PR base, then the default branch; `false` shares caches across refs |
+| `lookup-only`                    |    No    |                          `false`                           | Check existence without downloading                                         |
+| `fail-on-cache-miss`             |    No    |                          `false`                           | Fail workflow if cache is not found                                         |
+| `enableCrossOsArchive`           |    No    |                          `false`                           | Allow Windows runners to save/restore cross-OS caches                       |
+| `read-only`                      |    No    |                          `false`                           | Restore cache but never save in post step                                   |
+| `retry`                          |    No    |                           `true`                           | Enable exponential backoff retries on S3 operations                         |
+| `retry-count`                    |    No    |                            `3`                             | Maximum number of S3 retries                                                |
+| `use-fallback`                   |    No    |                          `false`                           | Fallback to GitHub Actions cache service if S3 fails                        |
+| `dual-cache`                     |    No    |                          `false`                           | Cache to both S3 and GitHub Actions Cache simultaneously                    |
+| `restore-priority`               |    No    |                         `s3-first`                         | Cache source to query first: `s3-first` or `github-first`                   |
+| `dual-cache-strategy`            |    No    |                         `backfill`                         | `backfill` (upload to a tier only if it lacks the key) or `skip-on-hit` |
+| `dual-cache-strict`              |    No    |                          `false`                           | Fail the step when either tier errors during restore or save |
+| `streaming`                      |    No    |                          `false`                           | Stream archives directly between `tar` and S3 without a temporary file (experimental; see [Streaming Archives](./storage.md#streaming-archives-experimental)) |
+| `download-concurrency`           |    No    |                            `8`                             | Ranged GET requests a restore runs at once for archives larger than `download-chunk-size` (1–32); `1` downloads in one request (see [Parallel Transfers](./performance.md#parallel-transfers)) |
+| `download-chunk-size`            |    No    |                         `8388608`                          | Bytes per ranged GET request (1 MiB–128 MiB); archives no larger than this use one request |
+| `upload-concurrency`             |    No    |                            `8`                             | Multipart upload parts sent at once (1–32)                                  |
+| `upload-chunk-size`              |    No    |                         `67108864`                         | Bytes per multipart upload part (5 MiB–128 MiB); the same input `actions/cache` takes |
+| `transfer-tuning`                |    No    |                          `fixed`                           | `auto` selects the part size and the concurrency per archive from its size (and, for a save, the provider); a transfer input you set still wins (see [Parallel Transfers](./performance.md#parallel-transfers)) |
+| `compression-level`              |    No    |                            Tool default                            | zstd 1–19 or gzip 1–9 for saving; lower is faster and larger (see [Performance](./performance.md)) |
+| `job-summary`                    |    No    |                           `true`                           | Write a job summary table with the cache keys, hit, source, size and duration |
+| `metadata`                       |    No    |                             —                              | User metadata (`x-amz-meta-*`) for every saved object, one `key=value` per line, with surrounding whitespace trimmed (see [Object Metadata and Tags](./storage.md#object-metadata-and-tags)) |
+| `tags`                           |    No    |                             —                              | Object tags for every saved object, one `key=value` per line (up to 10; up to 9 with `streaming: true`, which reserves one slot for the checksum tag) |
+| `explain`                        |    No    |                          `false`                           | Log why the lookup hits or misses before restoring (see [Inspecting a cache lookup](./inspecting.md)) |
+| `metrics-file`                   |    No    |                            `""`                            | Append one JSON line of timings and sizes for this step to this file, relative to the workspace |
+
+
+For the rules that `path` follows (globs, `~`, `!` exclusions and symbolic links), see [Paths and Exclusions](./getting-started.md#paths-and-exclusions).
+
+## Outputs
+
+- `cache-hit`: `'true'` if an exact match was found for the primary key; `'false'` otherwise.
+- `cache-primary-key`: The evaluated primary cache key.
+- `cache-matched-key`: Key that was matched and restored.
+- `cache-size`: Archive size in bytes.
+- `cache-storage-provider`: Resolved storage provider (e.g. `r2`, `gcs`, `aws`).
+- `cache-s3-key`: Full S3 object key inside the bucket.
+- `cache-etag`: ETag checksum of the archive in S3.
+- `cache-metadata`: JSON object of the restored object's user metadata, excluding `cloud-cache-*` keys; `{}` when there is none, on a GitHub-tier hit, or with `lookup-only: true`, which never downloads the object.
+- `cache-hit-source`: The tier that serviced the hit: `s3`, `github`, or `none`.
+- `cache-saved-sources`: Tiers successfully saved to: `s3`, `github`, or `s3,github`.
+- `cache-restore-duration-ms`: Wall-clock milliseconds the restore step took; `0` when it did not complete.
+- `cache-save-duration-ms`: Wall-clock milliseconds the save step took; `0` when it did not complete.
+- `cache-transfer-duration-ms`: Milliseconds spent on the S3 download or upload alone; `0` when nothing was transferred.
+- `cache-bytes`: Size in bytes of the archive restored or saved; `0` when none was. See [Metrics and Timings](./getting-started.md#metrics-and-timings).
 
 
 <!-- ============================================================================ -->
@@ -999,6 +1327,175 @@ line, and appends the same JSON as one line to `metrics-file` when that input is
 
 
 <!-- ============================================================================ -->
+<!-- FILE: docs/guide/storage.md -->
+<!-- ============================================================================ -->
+
+# How Caches Are Stored
+
+This page tells how a save writes a cache object and how a restore checks it. It covers the
+sha256 checksum, the conditional create that protects concurrent saves, user metadata and object
+tags, and the experimental streaming mode. You do not have to set an input for the checksum or
+for the conditional create. The action does both on every save.
+
+## Archive Integrity
+
+Every save computes the sha256 checksum of the archive. A file-mode save stores the checksum as
+object metadata (`cloud-cache-sha256`), as before. A streamed save stores the checksum as an
+object tag instead. Four cases still use the metadata copy: user `metadata` is set, the provider
+has no tagging API (Garage), the conditional create was not honored, or the save could not confirm
+that it still owns the object after the tag — see
+[Object Metadata and Tags](#object-metadata-and-tags).
+
+On restore, the S3 tier looks for the checksum in metadata first. When metadata carries none, it
+reads the tag, unless the object reports a tag count of exactly zero. Some servers never report
+a tag count, and an unknown count is not proof that the object has no tags. When neither metadata
+nor a tag carries a checksum, verification is skipped. When a checksum is found, the downloaded archive is hashed again and
+compared before extraction. A mismatch does not extract the archive: the S3 tier reports an
+`Integrity check failed for s3://<bucket>/<key>: expected sha256 <expected>, got <actual>` error,
+which the restore logs as a warning (`Restoring from s3 failed, so it counts as a cache miss: ...`)
+and treats as a cache miss, like any other S3 tier failure. With dual-cache the GitHub tier is
+tried next, `fail-on-cache-miss: true` fails the step as it would for any miss, and only
+`dual-cache-strict: true` turns the mismatch itself into a step failure. With
+[streaming](#streaming-archives-experimental), the archive is hashed while it is extracted, so a
+mismatch is only detected at the end and files may already have been extracted.
+
+Objects with no checksum at all skip verification: caches from v1.1, or objects whose tagging or
+metadata write the provider rejected. This is not a breaking change. An action older than v1.6
+that restores a cache saved as a tag finds no checksum metadata. It skips the integrity check the
+same way, instead of failing.
+
+**Garage** does preserve this metadata, so integrity checks apply there like everywhere else.
+
+## Safe Concurrent Saves
+
+Uploads use a conditional create (`If-None-Match: *`). On providers that enforce it (verified on
+AWS S3, MinIO, SeaweedFS and RustFS), when two jobs race to save the same key, only the first upload
+succeeds; the second detects the precondition failure, logs `Another job saved s3://<bucket>/<key>
+first; keeping its cache.`, and finishes without overwriting it. A `409 ConditionalRequestConflict`
+(a concurrent write or delete of the same key, such as a prune, landing mid-upload) is retried once
+with the same condition. Storage servers that reject the `If-None-Match` header outright are
+detected automatically and the upload is retried once without it, so this never breaks the action
+on providers with partial S3 API support.
+
+**Providers that ignore `If-None-Match` keep last-writer-wins.** Garage (verified) does not support
+conditional writes, and Google Cloud Storage's S3 interoperability reportedly ignores the header
+too, so a race between two saves for the same key is last-writer-wins there, the same as v1.1's
+behavior. The existing HEAD check before archiving still avoids pointless work when the key already
+exists.
+
+## Object Metadata and Tags
+
+`metadata` stores user metadata (`x-amz-meta-*`) on every cache object the step saves, and `tags`
+sets object tags, one `key=value` per line; surrounding whitespace is trimmed from each key and
+value. Metadata is returned on restore as the `cache-metadata` output (a JSON object), except with
+`lookup-only: true`, which never downloads the object. Tags are what bucket lifecycle rules and
+IAM policies can filter on. Both inputs live on the main action and on
+`cloud-cache-action/save@v1`: the standalone `restore` sub-action never saves, so it does not take
+them.
+
+```yaml
+    metadata: |
+      team=platform
+      build=${{ github.run_id }}
+    tags: |
+      cloud-cache=true
+      repo=${{ github.repository }}
+```
+
+Keys starting with `cloud-cache-` are reserved. Metadata is limited to 2 KB in total and tags to
+10. With `streaming: true`, the cap drops to 9: a streamed save reserves one tag slot for the
+`cloud-cache-sha256` checksum (see below). The cap is set from the `streaming` input itself, so a
+streamed save that falls back to file mode on Windows still uses the stricter cap of 9. On
+providers without object tagging the save logs one warning
+(`s3://<bucket> could not store object tags (<reason>); saved without them.`) and completes without
+tags.
+Both are best-effort extras: neither can fail the save.
+
+| Provider | Metadata | Tags |
+|---|---|---|
+| MinIO | ✅ verified | ✅ verified |
+| SeaweedFS | ✅ verified | ✅ verified |
+| RustFS | ✅ verified | ✅ verified |
+| Garage | ✅ verified | ⚠️ accepted on upload, but Garage implements no tagging API (`GetObjectTagging`/`PutObjectTagging` answer `501 NotImplemented`), so the tags cannot be read back and should be assumed dropped |
+| AWS S3, Cloudflare R2, GCS, B2, Fastly | ✅ | see provider docs |
+
+Verified rows were measured by `tests/integration/objectAttributes.test.ts` against local MinIO,
+SeaweedFS, RustFS and Garage servers; the last row is not covered by the local integration suite.
+
+With [streaming](#streaming-archives-experimental), the sha256 checksum is only known once the
+stream has finished, so it is attached after the upload. Normally it is attached as an object tag
+(`PutObjectTagging`), sent together with any user `tags`. Four cases attach it with a copy of the
+object onto itself instead, the same mechanism v1.2 through v1.5 always used: user `metadata` is
+set, the provider has no tagging API (Garage today), the conditional create was not honored, or
+the ownership check after the tag could not confirm the object. A tag write that fails for any
+other reason falls back to the copy as well. When the upload reported no ETag, these last two
+cases keep no checksum instead (see below). A provider that cannot do the copy either — or an
+archive over 5 GiB, since a copy cannot span more than 5 GiB — costs the checksum, not the cache:
+the save logs
+`Saved s3://<bucket>/<key> but could not attach metadata: <reason>` and succeeds. A tag has no
+size limit, so a streamed archive over 5 GiB gets a checksum for the first time when the tag path
+applies. The copy was verified to work on MinIO, SeaweedFS, RustFS and Garage. Google Cloud
+Storage has no tagging API, so a streamed save to GCS always uses the copy. GCS cannot check
+`CopySourceIfMatch` against the ETag of a multipart upload. On GCS the copy therefore names the
+generation that the upload wrote as its source version (`?versionId=`). When another job replaced
+the object in between, the copy finds no source and fails, and the save keeps no checksum. With
+Object Versioning on the bucket, an old generation stays readable: the copy can then put an older
+save back over a newer one, with a checksum that matches its bytes.
+
+The ownership check is one `HeadObject` after the tag. It proves that no other job replaced the
+object between the upload and the tag. When the upload and the HEAD both report an ETag, the save
+compares the ETags. Otherwise it compares the `cloud-cache-writer` metadata. The upload writes a
+random id for this save into that field when the tag path applies, so a streamed object that
+carries the checksum tag also carries `cloud-cache-writer=<id>` as user metadata. Like all
+`cloud-cache-` keys, it is not reported in `cache-metadata`. It does not count against the
+metadata limit, because the upload sends it only when no user `metadata` is set. When the check
+shows that another job wrote the object, the save removes its checksum tag, warns, and does not
+copy. The tag set has no partial update, so this can also remove the checksum tag of the other
+job: that cache then has no checksum, but never a false one. When the check cannot confirm the
+object (no object, a failed HEAD, or neither value returned), the save removes its checksum tag.
+It then uses the copy only when the upload reported an ETag, because only then can
+`CopySourceIfMatch` guard the copy. With no upload ETag, the save keeps no checksum and logs
+`Saved s3://<bucket>/<key> without a checksum: the upload reported no ETag, ...`. A failed tag
+write with no upload ETag has the same result. A missing checksum only skips the integrity check,
+but a false checksum would reject a good cache. MinIO, SeaweedFS, RustFS and
+Garage return the `cloud-cache-writer` field on `HeadObject` for single-part and multipart
+uploads.
+
+## Streaming Archives (Experimental)
+
+Set `streaming: true` to stream archives directly between `tar` and S3 instead of writing a
+temporary archive file first. This applies to the S3 tier only (the GitHub Actions Cache tier is
+unaffected), uses less disk, and can be faster for large caches — but with these trade-offs:
+
+- **No whole-archive retry.** A streaming upload cannot be retried as a single unit if it fails
+  partway; only the S3 SDK's own per-part retries apply. Non-streaming (file-mode) saves are
+  unaffected and keep full retry support.
+- **No whole-download retry, and possibly partial extraction, on restore.** A streamed restore
+  extracts the archive as it downloads, so a network or `tar` failure mid-stream becomes a cache
+  miss (with a warning) and can leave the workspace partly extracted. File-mode restores download
+  to a temporary file first and retry the whole download before extracting anything.
+- **The integrity checksum is attached after the upload.** The digest is only known once the
+  stream has finished, so a streamed save attaches `cloud-cache-sha256` afterwards, normally as an
+  object tag rather than metadata (a copy of the object onto itself in four narrower cases; see
+  [Object Metadata and Tags](#object-metadata-and-tags)). This drops about 8 seconds from a
+  512 MiB save on Amazon S3, where the copy used to dominate the step. Attaching it is
+  best-effort: on a provider that rejects both attempts the save still succeeds, logs
+  `Saved s3://<bucket>/<key> but could not attach metadata: <reason>`, and the object carries no
+  checksum, so restoring it skips the integrity check. An action older than v1.6 restoring a
+  streamed cache saved by v1.6 or later finds no checksum metadata and skips the integrity check
+  the same way, instead of failing.
+- **`tags` allows one fewer entry.** With `streaming: true` the cap drops from 10 to 9, because
+  the checksum tag reserves one slot. The cap follows the `streaming` input itself, so a streamed
+  save that falls back to file mode on Windows keeps the stricter cap of 9.
+
+Streaming is opt-in and defaults to `false`; disabling it (or leaving it unset) is identical to
+v1.1 behavior. It automatically falls back to file mode — logging
+`Streaming is not supported with BSD tar and zstd on Windows; using a temporary archive file.` —
+when the plan requires the two-step BSD-tar-plus-zstd path on Windows. It follows the same
+conditional-create and Garage fallback rules as [Safe Concurrent Saves](#safe-concurrent-saves).
+
+
+<!-- ============================================================================ -->
 <!-- FILE: docs/guide/security.md -->
 <!-- ============================================================================ -->
 
@@ -1064,6 +1561,10 @@ restores the cache and never saves. Only a trusted job on the default branch sav
 `read-only: true` makes the post step skip the save. The read-only key makes the storage refuse a
 save even if a step changes the workflow. Use both. A trusted job on the default branch uses the
 read-write key and saves.
+
+If you give a job the read-only key and do not set `read-only: true`, the save gets
+`AccessDenied`. The step then logs a warning that names `read-only: true`, and the job does not
+fail. In strict dual-cache mode, the step fails.
 
 ## Which S3 calls the action makes
 
@@ -1382,7 +1883,7 @@ Please migrate all GitHub Actions caching steps in this repository to `xSAVIKx/c
        - Inputs: `bucket`, `endpoint: https://storage.googleapis.com`, `access-key: ${{ secrets.GCS_HMAC_ACCESS_ID }}`, `secret-key: ${{ secrets.GCS_HMAC_SECRET }}`
      - **Backblaze B2**:
        - Inputs: `bucket`, `endpoint: https://s3.<region>.backblazeb2.com`, `access-key: ${{ secrets.B2_KEY_ID }}`, `secret-key: ${{ secrets.B2_APPLICATION_KEY }}`
-     - **Self-Hosted (MinIO / Garage / SeaweedFS)**:
+     - **Self-Hosted (MinIO / Garage / SeaweedFS / RustFS)**:
        - Inputs: `bucket`, `endpoint`, `access-key`, `secret-key` (and `force-path-style: true` for MinIO).
    - If I have not specified a provider yet, prompt me or default to **Cloudflare R2** or **AWS S3**.
 
@@ -1416,6 +1917,7 @@ Share this quick reference with your team or agent when setting up repository se
 | **Garage S3** | `GARAGE_ACCESS_KEY`<br>`GARAGE_SECRET_KEY` | `http://garage.internal:3900` |
 | **SeaweedFS S3** | `SEAWEED_ACCESS_KEY`<br>`SEAWEED_SECRET_KEY` | `http://seaweedfs.internal:8333` |
 | **MinIO S3** | `MINIO_ACCESS_KEY`<br>`MINIO_SECRET_KEY` | `http://minio.internal:9000`<br>*(Requires `force-path-style: true`)* |
+| **RustFS** | `RUSTFS_ACCESS_KEY`<br>`RUSTFS_SECRET_KEY` | `http://rustfs.internal:9000`<br>*(Set `provider: rustfs`)* |
 
 ---
 
@@ -1455,6 +1957,39 @@ Because `cloud-cache-action` maintains 1:1 input and output parity, you simply c
 ```
 
 All existing features (`lookup-only`, `fail-on-cache-miss`, `enableCrossOsArchive`, `read-only`) continue to work identically. `save-always` is not supported: use `cloud-cache-action/save` with `if: always()` instead.
+
+See [Parity with actions/cache](#parity-with-actions-cache) for the behaviour that has no input.
+
+## Parity with actions/cache
+
+The action takes the inputs of `actions/cache` v4 to v6: `key`, `path` (with globs, `~` and `!` exclusions), `restore-keys`, `lookup-only`, `fail-on-cache-miss`, `enableCrossOsArchive` and `upload-chunk-size`. It gives the same outputs: `cache-hit`, `cache-primary-key` and `cache-matched-key`. The key matching is the same: the exact key, then a key prefix, then the restore keys. The branch isolation is the same: the current ref, then the pull request base, then the default branch.
+
+This section gives the behaviour that has no input.
+
+**`ACTIONS_CACHE_MODE`.** GitHub sets this environment variable from the `cache-mode` workflow key (generally available since 2026-09-10). The value is `read`, `write`, `write-only` or `none`, at the workflow level or at `jobs.<job_id>.cache-mode`. When the workflow does not set the key, the [GitHub documentation](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching) gives a default of `read` for low-trust triggers, such as `pull_request_target`, `issue_comment` and `workflow_run`, that resolve to the default-branch scope. The `pull_request` event is not affected. `@actions/cache` 6.2.0 (and the 5.2.0 backport) reads the variable, and this action applies the same rules to the S3 tier:
+
+| `ACTIONS_CACHE_MODE`                      | Restore | Save    |
+| ----------------------------------------- | ------- | ------- |
+| `none`                                    | skipped | skipped |
+| `read`                                    | runs    | skipped |
+| `write-only`                              | skipped | runs    |
+| `write`, not set, or any other value      | runs    | runs    |
+
+The action trims the value and ignores its case. A skip logs one info line that names the variable, and the metrics line and the job summary show the step as `skipped` with the reason. A skip does not fail the step, also with `dual-cache-strict: true`. A skipped restore sets `cache-hit` to `false`. With `fail-on-cache-miss: true`, a skipped restore fails the step, as in `actions/cache`. `read-only: true` skips the save in every mode.
+
+An S3-only job on one of those low-trust triggers can stop saving after you upgrade to this version. To save from such a job again, set `cache-mode: write` on the job. Only do this when the job cannot run untrusted code, because the read default is there to stop cache poisoning.
+
+**Write denied.** When the storage refuses an S3 write call (`PutObject`, `CreateMultipartUpload`, `UploadPart`, `CompleteMultipartUpload` or `CopyObject`) with `AccessDenied` (or a `403` that is not a credential error), the step logs a warning that the credentials may not be allowed to write to the bucket, and that `read-only: true` skips the save. The job does not fail. With `dual-cache-strict: true`, the step fails, as for every other save error. A `403` for wrong credentials, such as `InvalidAccessKeyId`, `SignatureDoesNotMatch` or `ExpiredToken`, gives the usual warning without the hint. A `403` on a read call, such as the `HeadObject` existence check, also gives no hint: it means a wrong secret or a policy without `s3:ListBucket`, not a read-only key.
+
+**Access errors.** For every S3 `403`, the warning names the S3 call, the object, the HTTP status and the policy action that the call needs. A wrong secret, or a policy without `s3:ListBucket`, makes the first `HeadObject` fail with no response body. The warning then reads, for example:
+
+```text
+Restoring from s3 failed, so it counts as a cache miss: HeadObject s3://<bucket>/<key> returned HTTP 403 Forbidden. Check access-key, secret-key and region, and check that the bucket policy allows s3:ListBucket on the bucket and s3:GetObject on the cache keys. The Security guide lists the permission for each S3 call.
+```
+
+After a tier error, the last restore line is `No cache restored: the s3 tier failed (see the warning above). Keys searched: ...`. The `actions/cache` line `Cache not found for input keys: ...` is only for a true miss. For jobs that must not write, such as pull requests, see the read-only pattern in the [Security guide](./security.md).
+
+**`save-always`.** The action does not support this deprecated input. See [Saving after failed steps](./getting-started.md#saving-after-failed-steps).
 
 ---
 
@@ -1500,6 +2035,338 @@ branch or tag can also overwrite what `main` restores.
 
 
 <!-- ============================================================================ -->
+<!-- FILE: docs/guide/upgrading.md -->
+<!-- ============================================================================ -->
+
+# Upgrading
+
+This page gives the notes that you must read before you upgrade from one `v1` release to a later
+one. The newest release is first. The [Changelog](../changelog.md) lists every change in every
+release.
+
+`uses: xSAVIKx/cloud-cache-action@v1` always gets the newest `v1` release. To stay on one
+release, pin the action to a full tag, such as `@v1.10.1`, or to a commit SHA.
+
+## v1.8 and later
+
+There are no breaking changes and no default changes in v1.8, v1.9 and v1.10.
+
+- **v1.8, unsigned upload payloads.** Uploads over `https://` send
+  `x-amz-content-sha256: UNSIGNED-PAYLOAD`. When a server refuses the header, the action sends
+  the request again with a signed payload and logs one line. Set
+  `CLOUD_CACHE_UNSIGNED_PAYLOAD=false` in the job environment to turn the change off.
+- **v1.9, AWS buckets with Object Lock.** Uploads to AWS S3 no longer send an SDK checksum for
+  each part. An AWS bucket with an Object Lock default retention requires a checksum on each
+  upload, so a save to it fails with `400 InvalidRequest`. Set `CLOUD_CACHE_SDK_CHECKSUMS=true`
+  in the job environment to send the SDK checksums again.
+- **v1.9, `transfer-tuning`.** The new `transfer-tuning` input has the default `fixed`, so a
+  workflow that does not set it behaves as before. See
+  [Automatic tuning](./performance.md#automatic-tuning).
+
+## v1.7
+
+**There are no breaking changes in the inputs of v1.7, but one default changes.** Caches saved by
+v1.1 to v1.6 restore normally.
+
+- **`ACTIONS_CACHE_MODE`:** the S3 tier now obeys this variable, as `actions/cache` does. When a
+  workflow does not set the `cache-mode` key, GitHub sets `read` for `pull_request_target`,
+  `issue_comment` and `workflow_run`. An S3-only job on one of these triggers then restores but
+  does not save. To save again, set `cache-mode: write` on the job. Do this only when the job
+  cannot run untrusted code. See [Parity with actions/cache](./migration.md#parity-with-actions-cache).
+- **Prune:** `older-than-days` is now optional. The step fails only when none of the four rule
+  inputs is set, so an existing prune step works as before.
+
+## v1.6
+
+**There are no breaking changes in v1.6.** Caches saved by v1.1 to v1.5 stay valid. A streamed
+save now stores its checksum as an object tag. Grant `s3:PutObjectTagging` and
+`s3:GetObjectTagging` to the cache credentials. See
+[How Caches Are Stored](./storage.md#archive-integrity) and the [Security](./security.md) guide.
+
+## v1.5
+
+**There are no breaking changes in v1.5, and no default changes.** It adds
+[RustFS](../providers/rustfs.md) as a provider preset. Every other workflow behaves exactly as it did
+in v1.4.
+
+## v1.4
+
+**There are no breaking changes in v1.4.** Caches saved by earlier versions restore normally.
+One default changes:
+
+- **[Parallel transfers](./performance.md#parallel-transfers)** follow the `actions/cache` defaults. Restores of
+  archives larger than 8 MiB download in 8 concurrent ranged parts, controlled by the new
+  `download-concurrency` (default `8`) and `download-chunk-size` (default `8388608`) inputs; set
+  `download-concurrency: 1` to keep the single-request download of v1.3. Saves send 8 parts at
+  once instead of 4, controlled by the new `upload-concurrency` input, and the default
+  `upload-chunk-size` is now 64 MiB instead of 10 MiB, so a save may hold up to 512 MiB of parts in
+  memory; set `upload-concurrency: 4` and `upload-chunk-size: 10485760` to keep the v1.3 footprint.
+
+## v1.3
+
+**There are no breaking changes in v1.3.** Caches saved by v1.1 and v1.2 restore normally, the key
+layout, `${version}` hashing and archive format are unchanged, and a save that sets none of the new
+inputs writes the same object as v1.2 did. Every addition is opt-in:
+
+- **[Object metadata and tags](./storage.md#object-metadata-and-tags)** via the new `metadata` and `tags`
+  inputs, with the restored object's metadata exposed as the new `cache-metadata` output (`{}` when
+  there is none, on a GitHub-tier hit, or with `lookup-only: true`). Both are best-effort extras
+  that never fail a save.
+- **[Inspecting a cache lookup](./inspecting.md)**: the new `explain` input (default
+  `false`) and the new `inspect` sub-action, neither of which changes what a restore does.
+- **[Metrics and timings](./getting-started.md#metrics-and-timings)**: the new `cache-restore-duration-ms`,
+  `cache-save-duration-ms`, `cache-transfer-duration-ms` and `cache-bytes` outputs, set on every
+  path, and the new `metrics-file` input (default `""`, which keeps the previous file-free
+  behavior).
+- **Streaming saves now carry a checksum.** A `streaming: true` save attaches
+  `cloud-cache-sha256` after the upload, so streamed archives are integrity-checked on restore like
+  file-mode ones. See [Streaming Archives](./storage.md#streaming-archives-experimental).
+
+## v1.2
+
+**There are no breaking changes in v1.2.** Caches saved by v1.1 remain valid and continue to
+restore normally; objects saved without a sha256 checksum (any v1.1 cache) simply skip the new
+integrity check.
+
+- **New, all opt-in or on-by-default without changing existing behavior:** [Cache Pruning](./pruning.md) (a new `prune` sub-action, run separately — nothing changes for existing `restore`/`save` steps), [Archive Integrity](./storage.md#archive-integrity) (automatic; only skips when a checksum is absent), [Safe Concurrent Saves](./storage.md#safe-concurrent-saves) (automatic; falls back cleanly on servers that reject the condition), [Job Summary](./getting-started.md#job-summary) (on by default — set `job-summary: false` to keep the old, summary-free behavior), and [Streaming Archives](./storage.md#streaming-archives-experimental) (opt-in via `streaming: true`; default `false` keeps the v1.1 file-based path).
+- **Windows symlinks** are now covered by the Windows CI round trip: they restore as native symlinks through Git's GNU `tar` with `MSYS=winsymlinks:nativestrict`, as in v1.1.
+- **Tag-triggered runs:** if a run started by pushing a tag is the only place that saves a given cache, no pull request or branch build will ever restore it — restores never search `refs/tags/*`. Save on the default branch instead (a `push` there, or `workflow_dispatch`), or see [Tag-triggered runs and refs](./migration.md#tag-triggered-runs-and-refs) for using `scoped-to-ref: false`.
+- **Maintenance:** Dependabot now keeps npm and GitHub Actions dependencies up to date, and publishing a GitHub release runs `.github/workflows/release.yml` automatically — see [Releasing](https://github.com/xSAVIKx/cloud-cache-action/blob/main/CONTRIBUTING.md#releasing).
+
+## v1.1
+
+v1.1 changes how cache objects are named, so **caches saved by v1.0 are not found and are rebuilt once**.
+
+- **Key layout:** object keys now include the Git ref and a cache version: `${GITHUB_REPOSITORY}/${prefix}${ref}/${key}/${version}/${archive_filename}`. The version hashes `path`, the compression method and, on Windows, `enableCrossOsArchive`, so a cache is never restored into a job that caches different paths.
+- **Paths:** `path` supports globs, `~` and `!` exclusions like actions/cache, and archives store paths relative to `GITHUB_WORKSPACE`. See [Paths and exclusions](./getting-started.md#paths-and-exclusions).
+- **Branch isolation:** restores search the current ref, then the pull request base branch, then the default branch. Set `scoped-to-ref: false` to share caches across all refs.
+- **`save-always`** was removed. **`dual-cache-strategy: independent`** now behaves as `backfill` and logs a warning.
+- **`dual-cache-strict: true`** now fails the step on any tier error during restore or save.
+
+The action never reads v1.0 objects again; let a bucket lifecycle rule expire them.
+
+Ref scoping stores a separate cache for every branch and pull request merge ref (`refs/pull/<n>/merge`), so the bucket grows with the number of active refs. **A lifecycle rule that expires old cache objects is strongly recommended.** Add an `AbortIncompleteMultipartUpload` rule as well (for example, after 1 day): the action aborts the multipart uploads it sees fail, but a job that is cancelled or whose runner dies mid-upload leaves its uploaded parts behind, stored and billed until such a rule removes them.
+
+
+<!-- ============================================================================ -->
+<!-- FILE: docs/guide/cli.md -->
+<!-- ============================================================================ -->
+
+# The cloud-cache CLI
+
+## What it is
+
+`cloud-cache` is a command line tool. It runs the same cache engine as the GitHub Action. Use it in any CI system or on a local machine.
+
+The CLI has four commands. They match the action and its sub-actions: `restore`, `save`, `inspect` and `prune`. The flags have the names of the action inputs. The cache keys and the S3 object keys are the same as the keys of the action.
+
+## Requirements
+
+- Node.js 24 or later.
+- `tar` in the `PATH`.
+- `zstd` in the `PATH`. If `zstd` is not available, the engine uses `gzip`.
+
+BusyBox `tar` is not supported. The CLI stops with this message:
+
+```text
+BusyBox tar is not supported. Install GNU tar and zstd, for example: apk add tar zstd
+```
+
+On Alpine Linux, run `apk add tar zstd`.
+
+## Install
+
+Download the CLI from a GitHub release. The first release that includes the CLI, and each later release, has two files: `cloud-cache.mjs` and `SHA256SUMS`.
+
+1. Set the version.
+2. Download both files.
+3. Check the checksum.
+4. Run the file with Node.js.
+
+```sh
+VERSION=<version>
+BASE="https://github.com/xSAVIKx/cloud-cache-action/releases/download/v${VERSION}"
+curl -fsSLO "${BASE}/cloud-cache.mjs"
+curl -fsSLO "${BASE}/SHA256SUMS"
+sha256sum -c SHA256SUMS
+node cloud-cache.mjs --version
+```
+
+Replace `<version>` with the version that you want. Use the version of a release that has the `cloud-cache.mjs` asset. The command `sha256sum -c` prints `cloud-cache.mjs: OK` when the file is correct. On macOS, use `shasum -a 256 -c SHA256SUMS`.
+
+## Commands
+
+```text
+cloud-cache <command> [flags]
+```
+
+| Command   | What it does                                                | Matching action                          |
+| --------- | ----------------------------------------------------------- | ---------------------------------------- |
+| `restore` | Restores a cache. It saves its state for a later `save`.    | `xSAVIKx/cloud-cache-action/restore`     |
+| `save`    | Saves a cache. After a `restore`, it reads the state of that restore. | `xSAVIKx/cloud-cache-action/save` |
+| `inspect` | Shows which cache a restore would pick. It downloads nothing. | `xSAVIKx/cloud-cache-action/inspect`   |
+| `prune`   | Deletes old caches.                                         | `xSAVIKx/cloud-cache-action/prune`       |
+
+Run `cloud-cache --help` to see all flags of all commands, with their defaults.
+
+## Inputs: flags and environment variables
+
+Each flag has the name of an action input. For example, `--key`, `--path`, `--restore-keys` and `--bucket`.
+
+Each input also has an environment variable. The name is `CLOUD_CACHE_` and the input name in upper case, with `-` as `_`. For example, `--restore-keys` reads `CLOUD_CACHE_RESTORE_KEYS`.
+
+The CLI reads each input in this order:
+
+1. The flag.
+2. The environment variable.
+3. The default value.
+
+The default values are the same as the `default:` values in the action manifest of the command. For the meaning of each input, read [Inputs and Outputs](./reference.md).
+
+Follow these rules for flag values:
+
+- A boolean flag takes `true` or `false`. For example, `--lookup-only=true`. A flag without a value means `true`.
+- Some inputs take one value for each line: `path`, `restore-keys`, `metadata` and `tags`. Repeat the flag for each line. The CLI joins the values with a newline.
+- Put secrets in environment variables, not in flags. A flag is visible in the process list.
+
+```sh
+export CLOUD_CACHE_BUCKET=my-cache-bucket
+export CLOUD_CACHE_ACCESS_KEY=...
+export CLOUD_CACHE_SECRET_KEY=...
+
+cloud-cache restore \
+  --key "deps-$(sha256sum package-lock.json | cut -d' ' -f1)" \
+  --restore-keys deps- \
+  --path node_modules \
+  --path ~/.npm
+```
+
+### Flags of the CLI itself
+
+| Flag                   | Environment variable        | Meaning                                                          |
+| ---------------------- | --------------------------- | ---------------------------------------------------------------- |
+| `--state-file <path>`  | `CLOUD_CACHE_STATE_FILE`    | The state file. Default: `<tmpdir>/cloud-cache-state.json`.      |
+| `--outputs-file <path>` | `CLOUD_CACHE_OUTPUTS_FILE` | The outputs file. Without it, the CLI only prints the outputs.   |
+| `--debug`              | `CLOUD_CACHE_DEBUG`         | Prints debug messages. The variable accepts `true` or `1`.       |
+| `--help`               |                             | Prints the help text.                                            |
+| `--version`            |                             | Prints the version.                                              |
+
+## Context variables
+
+A CI system sets the repository and the refs. The CLI cannot find them, so you set them with these environment variables.
+
+| Variable                       | Meaning                                                                   | Default                       |
+| ------------------------------ | ------------------------------------------------------------------------- | ----------------------------- |
+| `CLOUD_CACHE_REPOSITORY`       | The repository name. It replaces `${GITHUB_REPOSITORY}` in the key pattern. | Empty                       |
+| `CLOUD_CACHE_REF`              | The ref of this run. A branch name or a full ref.                         | None                          |
+| `CLOUD_CACHE_BASE_REF`         | The base branch of a pull request.                                        | None                          |
+| `CLOUD_CACHE_DEFAULT_BRANCH`   | The default branch of the repository.                                     | None                          |
+| `CLOUD_CACHE_WORKSPACE`        | The directory that relative paths use.                                    | The current directory         |
+| `CLOUD_CACHE_EVENT_NAME`       | The name of the event that started the run.                               | `cli`                         |
+
+These variables are not input values. An input with the same environment name reads only its flag. For example, the `prune` input `ref` reads only `--ref`, not `CLOUD_CACHE_REF`.
+
+If `CLOUD_CACHE_REPOSITORY` is empty, the cache keys have no repository part. All repositories that use the same bucket and prefix then share their caches. The CLI prints a warning when the variable is empty. Set the variable in every job, or set `--scoped-to-repository=false` if you want to share the caches.
+
+### How refs scope the keys
+
+The key pattern contains `${ref}`. By default, a cache belongs to one ref. This is the same rule as in the action. See [S3 Key Templating](./s3-key-patterns.md).
+
+- A bare branch name such as `main` and a full ref such as `refs/heads/main` give the same key.
+- `save` writes under `CLOUD_CACHE_REF`.
+- `restore` searches these refs in order: `CLOUD_CACHE_REF`, then `CLOUD_CACHE_BASE_REF`, then `CLOUD_CACHE_DEFAULT_BRANCH`.
+- If you do not set `CLOUD_CACHE_REF`, the keys are not scoped to a ref. `save` and `restore` then use the same keys for all refs, and the CLI does not use `CLOUD_CACHE_BASE_REF` or `CLOUD_CACHE_DEFAULT_BRANCH`.
+
+Set `CLOUD_CACHE_REF` in every job that uses a scoped cache.
+
+## The state file
+
+`restore` writes a JSON file. `save` reads it. This is how `save` knows which key a `restore` matched. After an exact hit, `save` skips the upload.
+
+- The default path is `cloud-cache-state.json` in the temporary directory of the OS.
+- Use the same `--state-file` for `restore` and `save` if the two commands run with different `TMPDIR` values.
+- Each `restore` starts with an empty state file. It removes the state of the previous restore.
+- After a `restore`, `save` takes the key and the paths from the state file, not from its flags. If `--key` or `--path` differ from the state, `save` prints a warning that names both values. The state from restore wins.
+- Use one state file for each cache, and for each job that runs at the same time on one machine.
+- If the file does not exist, `save` works as if no restore ran.
+- If the file is not valid JSON, the CLI prints a warning and ignores it.
+
+## The outputs file
+
+The action sets step outputs. The CLI prints each output to the standard output as `name=value`. For example, `cache-hit=true`.
+
+With `--outputs-file`, the CLI also appends each output to that file. The directory of the file must exist. If the CLI cannot write the file, the command fails with this error: `Cannot write the outputs file <path>: <reason>`.
+
+A line has the form `name=value`.
+
+```text
+cache-hit=true
+cache-matched-key=deps-abc123
+```
+
+A value with a newline uses the `name<<delimiter` form. The delimiter is `CLOUD_CACHE_EOF_` and 16 random hex characters.
+
+```text
+cache-metadata<<CLOUD_CACHE_EOF_0123456789abcdef
+first line
+second line
+CLOUD_CACHE_EOF_0123456789abcdef
+```
+
+This is the same format as the `GITHUB_OUTPUT` file of GitHub Actions.
+
+## Exit codes
+
+| Code | Meaning                                                                          |
+| ---- | -------------------------------------------------------------------------------- |
+| 0    | Success. A cache miss is also success.                                           |
+| 1    | A failure. For example, a required input is missing, `--fail-on-cache-miss=true` with a miss, or a failure with `--dual-cache-strict=true`. |
+| 2    | A usage error. For example, an unknown command or flag.                          |
+
+The CLI fails in the same cases in which the action fails the step. A storage error during restore or save is a warning. The exit code is 0.
+
+## Example: a generic CI job
+
+This example uses shell commands. It fits any CI system. Restore the cache before the build. Save the cache after the build.
+
+1. Set the context variables and the credentials.
+2. Run `cloud-cache restore` before the build.
+3. Run the build.
+4. Run `cloud-cache save` after the build.
+
+```sh
+export CLOUD_CACHE_REPOSITORY="my-org/my-project"
+export CLOUD_CACHE_REF="$CI_BRANCH"
+export CLOUD_CACHE_DEFAULT_BRANCH="main"
+export CLOUD_CACHE_BUCKET="my-cache-bucket"
+export CLOUD_CACHE_ENDPOINT="https://s3.example.com"
+# CLOUD_CACHE_ACCESS_KEY and CLOUD_CACHE_SECRET_KEY come from the secret store of the CI system.
+
+KEY="deps-$(sha256sum package-lock.json | cut -d' ' -f1)"
+
+cloud-cache restore --key "$KEY" --restore-keys deps- --path node_modules --outputs-file outputs.env
+
+npm ci
+npm test
+
+cloud-cache save --key "$KEY" --path node_modules
+```
+
+`save` takes the key and the paths from the state file of the `restore` before it. `save` skips the upload when `restore` found an exact hit. Use one state file for each cache, and for each job that runs at the same time on one machine.
+
+To save the cache when the build fails, run `cloud-cache save` in a step that always runs. The syntax depends on the CI system.
+
+## Limits
+
+- `--use-fallback` and `--dual-cache` need the GitHub Actions cache service. This service is not available outside GitHub Actions. Do not use these flags with the CLI.
+  - With `--use-fallback`, a `restore` that misses in S3 asks the GitHub service. It waits about 10 seconds, prints a warning, and reports a miss.
+  - With `--dual-cache`, a `restore` also asks the GitHub service, with the same delay and warning. The S3 result is used.
+  - With `--dual-cache`, a `save` writes to S3 and prints a warning for the GitHub cache. With `--dual-cache-strict=true`, that `save` fails with exit code 1.
+- `--job-summary` has no effect. The CLI does not write a job summary.
+- The CLI reads the repository and the refs from the `CLOUD_CACHE_*` context variables.
+
+
+<!-- ============================================================================ -->
 <!-- FILE: docs/providers/aws-s3.md -->
 <!-- ============================================================================ -->
 
@@ -1530,6 +2397,15 @@ Without lifecycle management, older cache revisions accumulate and increase stor
    - **Action**: Expire current versions of objects after **30** or **60 days**.
 2. **Abort Incomplete Multipart Uploads**:
    - **Action**: Delete expired object delete markers and incomplete multipart uploads after **7 days**. This prevents lingering chunks from failed or interrupted uploads from consuming storage.
+
+### 4. Object Lock
+
+Do not use a bucket with an Object Lock default retention for caches. Prune cannot delete locked objects. Also, Object Lock requires a checksum on each upload. From v1.9, the action does not send the AWS SDK CRC32 checksums, because its own sha256 check covers the archive. A save to such a bucket then fails with `400 InvalidRequest`. If you must use such a bucket, set this environment variable on the job:
+
+```yaml
+env:
+  CLOUD_CACHE_SDK_CHECKSUMS: 'true'
+```
 
 ---
 
@@ -1825,6 +2701,7 @@ This action is tested continuously against Google Cloud Storage using HMAC keys 
 ## Notes
 
 - **Checksums**: for this provider, the action sends request checksums only when S3 requires them, because many S3-compatible services reject the CRC checksums recent AWS SDKs send by default. Nothing to configure.
+- **Streaming saves**: GCS has no object tagging API, so a `streaming: true` save attaches its checksum with a copy of the object onto itself. The copy names the generation that the upload wrote, so it fails when another job replaced the object in between. With Object Versioning on the bucket, an old generation stays readable, and the copy can put an older save back over a newer one. Its checksum still matches its bytes.
 - **Expiry**: the action never deletes caches. Add a lifecycle rule that expires objects after 30–60 days so old caches do not accumulate.
 
 
@@ -2223,6 +3100,7 @@ Once running:
 
 - **Checksums**: for this provider, the action sends request checksums only when S3 requires them, because many S3-compatible services reject the CRC checksums recent AWS SDKs send by default. Nothing to configure.
 - **Expiry**: the action never deletes caches. Add a lifecycle rule that expires objects after 30–60 days so old caches do not accumulate.
+- **Incomplete uploads**: SeaweedFS 4.46 lists incomplete multipart uploads without an `Initiated` time (measured on 2026-10-21). The `prune` input `abort-uploads-older-than-hours` therefore cannot find their age, aborts none, and logs a warning with the count. See [Pruning](../guide/pruning.md).
 
 
 <!-- ============================================================================ -->
@@ -2408,3 +3286,168 @@ The repository dogfoods MinIO directly inside the continuous integration test su
 
 - **Checksums**: for this provider, the action sends request checksums only when S3 requires them, because many S3-compatible services reject the CRC checksums recent AWS SDKs send by default. Nothing to configure.
 - **Expiry**: the action never deletes caches. Add a lifecycle rule that expires objects after 30–60 days so old caches do not accumulate.
+- **Incomplete uploads**: MinIO lists no incomplete multipart upload for a prefix that is not a full object key (measured on 2026-10-21 with the CI image). The `prune` input `abort-uploads-older-than-hours` therefore finds no upload and aborts none. Use the `--abort-incomplete-multipart-upload-days` lifecycle rule above instead.
+
+
+<!-- ============================================================================ -->
+<!-- FILE: docs/providers/rustfs.md -->
+<!-- ============================================================================ -->
+
+# RustFS Setup
+
+[RustFS](https://rustfs.com/) is an open-source, S3-compatible distributed object store written in
+Rust and licensed under Apache-2.0. It reached 1.0 in September 2026 and targets the same
+self-hosted and on-premise uses as MinIO, with erasure coding, lifecycle policies, IAM and
+server-side encryption.
+
+Use `provider: rustfs` to select path-style addressing and the `us-east-1` default region.
+
+```yaml
+- name: Cache dependencies using RustFS
+  uses: xSAVIKx/cloud-cache-action@v1
+  with:
+    bucket: ci-cache
+    endpoint: https://rustfs.internal:9000
+    provider: rustfs
+    access-key: ${{ secrets.RUSTFS_ACCESS_KEY }}
+    secret-key: ${{ secrets.RUSTFS_SECRET_KEY }}
+    key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+    restore-keys: |
+      ${{ runner.os }}-node-
+    path: ~/.npm
+```
+
+---
+
+## Feature support
+
+Every feature of this action was verified against RustFS 1.0.0, and the whole integration suite
+passes against it in CI next to Garage, SeaweedFS and MinIO. Nothing is disabled for this
+provider:
+
+| Feature | RustFS 1.0.0 |
+| :--- | :--- |
+| Multipart upload, with `upload-concurrency` and `upload-chunk-size` | Works |
+| Ranged `GET` (parallel downloads) | Works, answers `206 Partial Content` |
+| User metadata (`x-amz-meta-*`), so the sha256 integrity check runs | Stored and returned |
+| Object tags (`tags` input) | Stored, and readable with `GetObjectTagging` |
+| Conditional create (`If-None-Match`), for [Safe Concurrent Saves](../guide/storage.md#safe-concurrent-saves) | Enforced, rejects a second write with `412` |
+| `CopyObject` with `REPLACE`, for metadata on `streaming: true` saves | Works |
+| `ListObjectsV2` and `DeleteObjects`, used by the `prune` sub-action | Work |
+
+---
+
+## Port 9000 and provider detection
+
+RustFS serves the S3 API on port 9000 by default, the same port MinIO uses, so the endpoint alone
+cannot tell the two apart. An endpoint ending in `:9000` with no `provider` input is reported as
+`minio` in the log. Both presets resolve to the same settings (path-style addressing, `us-east-1`),
+so a cache works either way. Set `provider: rustfs` when you want the log and the
+`cache-storage-provider` output to name RustFS.
+
+---
+
+## Credentials
+
+The server's initial credentials come from `RUSTFS_ACCESS_KEY` and `RUSTFS_SECRET_KEY`, which
+default to `rustfsadmin` / `rustfsadmin`.
+
+> [!WARNING]
+> Do not put the server's root credentials in a workflow. Create a dedicated user restricted to the
+> cache bucket in the RustFS console or through its IAM API, and store that user's keys as GitHub
+> secrets.
+
+The [Security guide](../guide/security.md#minio-and-rustfs) shows a policy that limits the user to the bucket and the repository prefix.
+
+| Secret Name | Description |
+| :--- | :--- |
+| `RUSTFS_ACCESS_KEY` | Access key of the CI user |
+| `RUSTFS_SECRET_KEY` | Secret key of the CI user |
+
+---
+
+## Example: ephemeral RustFS inside a CI job
+
+RustFS starts fast enough to run as a throwaway container in the same job as the build, which
+gives an isolated cache with no external service:
+
+```yaml
+name: Build with an ephemeral RustFS cache
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Start RustFS
+        run: |
+          docker run -d --name ci-rustfs -p 9000:9000 \
+            -e RUSTFS_ACCESS_KEY=cloudcacheci \
+            -e RUSTFS_SECRET_KEY=cloudcachecisecret \
+            --tmpfs /data:uid=10001,gid=10001 \
+            --tmpfs /logs:uid=10001,gid=10001 \
+            rustfs/rustfs:1.0.0
+          # The S3 endpoint answers 403 to an anonymous request once it is ready.
+          for _ in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:9000/ || true)
+            if [ "$code" = "403" ]; then echo "RustFS ready."; break; fi
+            sleep 1
+          done
+
+      - name: Cache dependencies
+        uses: xSAVIKx/cloud-cache-action@v1
+        with:
+          bucket: ci-cache
+          endpoint: http://127.0.0.1:9000
+          provider: rustfs
+          access-key: cloudcacheci
+          secret-key: cloudcachecisecret
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+          path: ~/.npm
+```
+
+The action creates nothing but objects: create the bucket first, either in the console or with any
+S3 client, because the action never creates a bucket.
+
+> [!NOTE]
+> The container runs as uid/gid `10001`. Give it writable `/data` and `/logs`, either as `tmpfs`
+> mounts as above, as Docker named volumes, or as host directories you `chown -R 10001:10001`
+> first. A bind mount the user cannot write makes the server exit at startup with
+> `Local disk initialization failed`.
+
+---
+
+## Running RustFS locally for integration testing
+
+The repository's
+[`docker-compose.test.yml`](https://github.com/xSAVIKx/cloud-cache-action/blob/main/docker-compose.test.yml)
+includes a RustFS service, published on port 9010 so it can run next to MinIO:
+
+```bash
+docker compose -f docker-compose.test.yml up -d rustfs
+TEST_S3_ENDPOINT=http://127.0.0.1:9010 TEST_S3_PROVIDER=rustfs REQUIRE_S3=1 npm run test:integration
+```
+
+::: details `docker-compose.test.yml` (Click to view Compose definition)
+<<< ../../docker-compose.test.yml{yaml}
+:::
+
+---
+
+## Live CI
+
+The repository runs its integration suite and a full save-and-restore round trip against RustFS on
+every pull request, in the `S3 compatibility (rustfs)` job of
+[`.github/workflows/test.yml`](https://github.com/xSAVIKx/cloud-cache-action/blob/main/.github/workflows/test.yml).
+
+## Notes
+
+- **Checksums**: for this provider, the action sends request checksums only when S3 requires them,
+  because many S3-compatible services reject the CRC checksums recent AWS SDKs send by default.
+  Nothing to configure.
+- **Expiry**: the action never deletes caches. Use a RustFS lifecycle policy, or the
+  [`prune` sub-action](../guide/pruning.md), so old caches
+  do not accumulate.

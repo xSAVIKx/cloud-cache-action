@@ -3,8 +3,8 @@ layout: home
 
 hero:
   name: 'Cloud Cache Action'
-  text: 'Cache to any S3 storage with 1:1 actions/cache parity'
-  tagline: 'Drop-in replacement for actions/cache supporting AWS S3, Cloudflare R2, GCS, Backblaze B2, Fastly, Garage, SeaweedFS, MinIO, and RustFS.'
+  text: 'A drop-in replacement for actions/cache'
+  tagline: 'Store your CI caches in your own S3-compatible bucket: AWS S3, Cloudflare R2, GCS, Backblaze B2, Fastly, Garage, SeaweedFS, MinIO or RustFS.'
   image:
     src: /logo.svg
     alt: Cloud Cache Action
@@ -17,16 +17,16 @@ hero:
       link: /providers/aws-s3
 
 features:
-  - title: 1:1 actions/cache Parity
-    details: Supports all inputs, outputs, restore-keys, and behaviors from actions/cache v4, v5, and v6 on modern Node 24 runners.
-  - title: Universal S3 Compatibility
-    details: First-class support for AWS S3, Cloudflare R2, Google Cloud Storage HMAC, Backblaze B2, Fastly, Garage, SeaweedFS, MinIO, and RustFS.
-  - title: Custom S3 Key Templating
-    details: Full control over object key structure via patterns like `${GITHUB_REPOSITORY}/${prefix}${key}/${archive_filename}` or custom overrides.
-  - title: Standalone Sub-Actions
-    details: Includes dedicated /restore and /save sub-actions for decoupled workflow architectures.
-  - title: Fast & Resilient
-    details: Multi-threaded zstd compression (with gzip fallback), streaming multipart uploads, and automatic exponential backoff retries.
-  - title: MIT Licensed
-    details: Created by Yurii Serhiichuk (<a href="https://serhiichuk.dev" target="_blank">serhiichuk.dev</a>). Free and open source.
+  - title: Same inputs as actions/cache
+    details: The inputs, outputs, key matching and branch isolation of actions/cache v4 to v6, on the Node 24 runtime. Change the uses line, add a bucket, and keep your keys.
+  - title: Any S3-compatible storage
+    details: AWS S3 with static keys or OIDC, Cloudflare R2, Google Cloud Storage, Backblaze B2, Fastly, Garage, SeaweedFS, MinIO and RustFS.
+  - title: Fast transfers
+    details: Multi-threaded zstd compression, parallel ranged downloads, parallel multipart uploads, and automatic tuning from the archive size.
+  - title: Safe caches
+    details: A sha256 checksum on every save, verified on restore. Conditional writes stop two concurrent saves of one key from overwriting each other.
+  - title: Full cache lifecycle
+    details: Package manager presets, separate restore and save actions, scheduled pruning, lookup inspection, metrics, and dual caching with the GitHub Actions cache.
+  - title: CLI for other CI systems
+    details: The cloud-cache command runs the same cache engine outside GitHub Actions, with the same flags as the action inputs.
 ---

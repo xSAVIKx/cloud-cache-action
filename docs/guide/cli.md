@@ -67,7 +67,7 @@ The CLI reads each input in this order:
 2. The environment variable.
 3. The default value.
 
-The default values are the same as the `default:` values in the action manifest of the command. For the meaning of each input, read the [README](https://github.com/xSAVIKx/cloud-cache-action#inputs).
+The default values are the same as the `default:` values in the action manifest of the command. For the meaning of each input, read [Inputs and Outputs](./reference.md).
 
 Follow these rules for flag values:
 
