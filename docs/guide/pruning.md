@@ -1,7 +1,12 @@
+---
+description: "The prune sub-action of Cloud Cache Action deletes old CI caches from an S3 bucket by age, by count per ref or to fit a size budget. Inputs, dry runs and scope."
+---
+
 # Pruning Caches
 
-Object storage has no built-in cache eviction like GitHub's 10 GB-per-repository limit: whatever
-you save to S3 stays there until something deletes it. `cloud-cache-action/prune` is a standalone
+Object storage has no built-in cache eviction like the size limit of the GitHub Actions cache (10 GB
+per repository by default): whatever you save to S3 stays there until something deletes it.
+`xSAVIKx/cloud-cache-action/prune@v1` is a standalone
 sub-action that deletes cache archives from any S3-compatible bucket by age, by count per ref, or
 to fit a total size budget. You can run it on a schedule instead of relying only on a bucket
 lifecycle rule.
