@@ -55,3 +55,109 @@
   min-width: 32px;
   min-height: 32px;
 }
+
+/* ==========================================================================
+   Brand colors from the logo (sky blue, theme-color #0ea5e9)
+   ========================================================================== */
+
+/*
+ * --vp-c-brand-1 is the link and the hero name color. --vp-c-brand-3 is the default
+ * button background. Each value gives 4.5:1 or more against its background and its text.
+ */
+:root {
+  --vp-c-brand-1: #0369a1;
+  --vp-c-brand-2: #075985;
+  --vp-c-brand-3: #0369a1;
+  --vp-c-brand-soft: rgba(14, 165, 233, 0.14);
+  --vp-button-brand-bg: #0369a1;
+  --vp-button-brand-hover-bg: #075985;
+  --vp-button-brand-active-bg: #0c4a6e;
+}
+
+.dark {
+  --vp-c-brand-1: #38bdf8;
+  --vp-c-brand-2: #7dd3fc;
+  --vp-c-brand-3: #0369a1;
+  --vp-c-brand-soft: rgba(14, 165, 233, 0.16);
+  --vp-button-brand-bg: #0369a1;
+  --vp-button-brand-hover-bg: #075985;
+  --vp-button-brand-active-bg: #0c4a6e;
+}
+
+/* The nav logo has width and height attributes. These keep its size. */
+.VPNavBarTitle .logo {
+  width: 24px;
+  height: 24px;
+}
+
+/* ==========================================================================
+   Layout fixes
+   ========================================================================== */
+
+/* Wrap long headings in the outline. The default cuts them without an ellipsis. */
+.VPDocOutlineItem .outline-link {
+  white-space: normal;
+  overflow: visible;
+  line-height: 20px;
+}
+
+/*
+ * Show a shadow at the edge of a table that scrolls sideways. The two "local" layers move
+ * with the content and cover the shadows at the start and the end of the scroll. The two
+ * "scroll" layers stay at the edges. The rows are partly transparent, so the shadow shows
+ * through the striped rows and the header too.
+ */
+.vp-doc table {
+  --table-edge-shadow: rgba(0, 0, 0, 0.28);
+  background:
+    linear-gradient(to right, var(--vp-c-bg) 30%, transparent) left / 40px 100% no-repeat local,
+    linear-gradient(to left, var(--vp-c-bg) 30%, transparent) right / 40px 100% no-repeat local,
+    radial-gradient(farthest-side at 0 50%, var(--table-edge-shadow), transparent) left / 14px 100%
+    no-repeat scroll,
+    radial-gradient(farthest-side at 100% 50%, var(--table-edge-shadow), transparent) right / 14px
+    100% no-repeat scroll;
+  background-color: var(--vp-c-bg);
+}
+
+.dark .vp-doc table {
+  --table-edge-shadow: rgba(255, 255, 255, 0.22);
+}
+
+.vp-doc tr,
+.vp-doc th {
+  background-color: transparent;
+}
+
+.vp-doc tr:nth-child(2n),
+.vp-doc th {
+  background-color: color-mix(in srgb, var(--vp-c-bg-soft) 70%, transparent);
+}
+
+/*
+ * The Inputs table of the Reference page. The Description column is second, so it shows
+ * on a phone. A minimum width keeps it readable. A cell can wrap between two input names,
+ * but not inside one.
+ */
+.vp-doc .reference-table td:first-child code {
+  white-space: nowrap;
+}
+
+.vp-doc .reference-table th,
+.vp-doc .reference-table td {
+  padding: 8px 10px;
+}
+
+.vp-doc .reference-table td:nth-child(2) {
+  min-width: 10rem;
+}
+
+@media (min-width: 640px) {
+  .vp-doc .reference-table th,
+  .vp-doc .reference-table td {
+    padding: 8px 16px;
+  }
+
+  .vp-doc .reference-table td:nth-child(2) {
+    min-width: 18rem;
+  }
+}
