@@ -1,5 +1,6 @@
 ---
 title: Upgrading
+description: "Upgrade notes for each Cloud Cache Action v1 release, newest first, and how to pin the action to a full release tag or to a commit SHA."
 ---
 
 # Upgrading

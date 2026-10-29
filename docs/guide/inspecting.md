@@ -1,8 +1,12 @@
+---
+description: "Find out why a GitHub Actions cache restore missed: the explain input and the inspect sub-action list each S3 object that the lookup checked, with no download."
+---
+
 # Inspecting Lookups
 
-When a cache misses and you expected a hit, the question is always the same: _which objects did
-the restore actually look at, and why was none of them used?_ Cloud Cache Action answers it two
-ways, both of which print the same report:
+When a cache misses and you expected a hit, find out which objects the restore checked, and why
+it used none of them. Cloud Cache Action gives this report in two ways. Both ways print the same
+report:
 
 - **`explain: true`** on the restore (or on the main action) logs the report right before the
   restore runs, in the same step.

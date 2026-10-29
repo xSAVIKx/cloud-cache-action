@@ -1,6 +1,12 @@
-# S3 Key Templating & Overrides
+---
+description: "The default S3 object key of a Cloud Cache Action cache, the template placeholders, and how to change the key layout or share caches across repositories."
+---
 
-Cloud Cache Action gives you complete control over where cache archives are stored in your bucket.
+# S3 Key Templating
+
+The `s3-key-pattern` input sets the S3 object key of each cache archive. This page gives the
+default pattern, the template placeholders and common patterns, for example one cache that all
+repositories share.
 
 ## Default Key Pattern
 
@@ -125,7 +131,7 @@ Object key: `my-org/my-repo/Linux/backend-api/refs%2Fheads%2Fmain/Linux-deps-abc
 
 ## Custom Patterns and Pruning
 
-If you use [`cloud-cache-action/prune`](./pruning.md) with a custom `s3-key-pattern`, prune only
+If you use [`xSAVIKx/cloud-cache-action/prune@v1`](./pruning.md) with a custom `s3-key-pattern`, prune only
 deletes objects whose whole key matches the pattern. Keep `${GITHUB_REPOSITORY}` and `${ref}` in
 path segments of their own, separated from `${key}` and `${version}` by `/`: when they share a
 segment, keys from other repositories or refs could match, and the prune action refuses to run

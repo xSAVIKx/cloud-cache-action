@@ -1,5 +1,6 @@
 ---
 title: Inputs and Outputs
+description: "Every input and output of xSAVIKx/cloud-cache-action@v1 with its default value, and the inputs that the restore and save sub-actions do not take."
 ---
 
 # Inputs and Outputs

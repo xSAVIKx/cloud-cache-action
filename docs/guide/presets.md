@@ -1,3 +1,7 @@
+---
+description: "Cache presets for npm, yarn, pnpm, bun, pip, poetry, uv, gradle, maven, cargo and go: one preset input sets path, key and restore-keys for the S3 cache."
+---
+
 # Cache Presets
 
 The `preset` input gives the cache `path`, `key` and `restore-keys` for one package manager. It
