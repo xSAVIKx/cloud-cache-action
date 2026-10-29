@@ -1,6 +1,6 @@
 {
   "name": "cloud-cache-action",
-  "version": "1.10.0",
+  "version": "1.10.1",
   "description": "High-performance GitHub Action caching to any S3-compatible storage with actions/cache v4-v6 parity",
   "main": "dist/restore/index.js",
   "type": "module",

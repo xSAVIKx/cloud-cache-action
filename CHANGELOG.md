@@ -8,6 +8,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 Conventional Commit messages on `main`. Entries up to v1.9.0 follow
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.10.1](https://github.com/xSAVIKx/cloud-cache-action/compare/v1.10.0...v1.10.1) (2026-10-29)
+
+
+### Dependencies
+
+* fix the undici advisories and update the AWS SDK ([#38](https://github.com/xSAVIKx/cloud-cache-action/issues/38)) ([a42d713](https://github.com/xSAVIKx/cloud-cache-action/commit/a42d7134aa5ae933a40ca794db78f5ea6dc18c88))
+
 ## [1.10.0](https://github.com/xSAVIKx/cloud-cache-action/compare/v1.9.1...v1.10.0) (2026-10-25)
 
 
