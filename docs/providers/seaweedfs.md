@@ -25,15 +25,20 @@ an S3 API.
 
 ### 2. Native time-to-live (TTL) and automatic pruning
 
-SeaweedFS supports Time-To-Live (TTL) at the filer level:
+SeaweedFS can set a time-to-live (TTL) on new writes under a path prefix. In `weed shell`, the
+`fs.configure` command has a `-ttl` option for this (see
+[Path-Specific Configuration](https://github.com/seaweedfs/seaweedfs/wiki/Path-Specific-Configuration)).
+The S3 gateway stores a bucket under `/buckets/<bucket>/`. For a 30-day TTL on the `ci-cache`
+bucket:
 
-- You can configure a default directory TTL. SeaweedFS then removes cache files at the volume chunk level after 30 days, without manual cleanup jobs.
-- Example filer configuration for automatic cache eviction:
+```bash
+# In weed shell
+fs.configure -locationPrefix=/buckets/ci-cache/ -ttl=30d -apply
+```
 
-  ```bash
-  # Configure a 30-day TTL on the cache directory
-  weed filer.meta.tail -timeAgo=30d
-  ```
+The TTL applies to files that are written after you set it. The Cloud Cache Action test suite
+does not test this setting. To delete old caches on a schedule, you can also use the
+[`prune` sub-action](../guide/pruning.md).
 
 ### 3. Volume compaction and vacuuming
 

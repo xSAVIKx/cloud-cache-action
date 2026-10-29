@@ -22,7 +22,7 @@ Follow these recommendations when you create and configure the cache bucket.
 
 ### 1. Bucket region and colocation
 
-- **GitHub-hosted runners**: Default `ubuntu-latest` and `windows-latest` runners typically execute in AWS US regions (`us-east-1` or `us-east-2`). A bucket in `us-east-1` decreases cross-region latency and data transfer fees.
+- **GitHub-hosted runners**: GitHub hosts these runners in Microsoft Azure. Jobs that use multi-cloud compute can run in AWS or in Azure. GitHub does not state the region ([GitHub docs](https://docs.github.com/en/actions/concepts/runners/github-hosted-runners)). Select a bucket region, then measure the restore time in your own jobs.
 - **Self-hosted EC2 runners**: Create the bucket in the same AWS region and VPC as your runners. This prevents cross-region latency and cross-region data transfer costs.
 
 ### 2. Security and access control
