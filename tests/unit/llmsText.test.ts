@@ -65,7 +65,8 @@ describe('llms-full.txt', () => {
   it('has the body of every sidebar page and the changelog', () => {
     const files = [...source.pages.map((page) => page.file), 'changelog.md'];
     for (const file of new Set(files)) {
-      const body = readFileSync(path.join(DOCS, file), 'utf8');
+      // A Windows checkout can have CRLF line ends.
+      const body = readFileSync(path.join(DOCS, file), 'utf8').replace(/\r\n/g, '\n');
       const h1 = /^#\s+(.+)$/m.exec(body.replace(/^---[\s\S]*?\n---\n/, ''))?.[1];
       if (h1) expect(full).toContain(`# ${h1}`);
     }
