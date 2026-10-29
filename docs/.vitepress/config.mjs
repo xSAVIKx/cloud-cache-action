@@ -75,8 +75,7 @@ export default defineConfig({
     nav: [
       { text: 'Guide', link: '/guide/getting-started' },
       { text: 'Reference', link: '/guide/reference' },
-      { text: 'Providers', link: '/providers/aws-s3' },
-      { text: 'Performance', link: '/guide/performance' },
+      { text: 'Providers', link: '/providers/' },
       { text: 'Changelog', link: '/changelog' },
     ],
     sidebar: [
@@ -85,21 +84,32 @@ export default defineConfig({
         items: [
           { text: 'Getting Started', link: '/guide/getting-started' },
           { text: 'Cache Presets', link: '/guide/presets' },
-          { text: 'Migrating from actions/cache', link: '/guide/migration' },
+          { text: 'Migrate from actions/cache', link: '/guide/migration' },
           { text: 'Upgrading', link: '/guide/upgrading' },
+          { text: 'FAQ', link: '/guide/faq' },
         ],
       },
       {
-        text: 'Guides',
+        text: 'Features',
         items: [
-          { text: 'Dual Caching (S3 + GitHub)', link: '/guide/dual-caching' },
+          { text: 'Dual Caching', link: '/guide/dual-caching' },
           { text: 'S3 Key Templating', link: '/guide/s3-key-patterns' },
           { text: 'Pruning Caches', link: '/guide/pruning' },
           { text: 'Inspecting Lookups', link: '/guide/inspecting' },
+        ],
+      },
+      {
+        text: 'Operations',
+        items: [
           { text: 'Security', link: '/guide/security' },
           { text: 'Performance', link: '/guide/performance' },
           { text: 'Benchmarks', link: '/guide/benchmarks' },
-          { text: 'Command Line (CLI)', link: '/guide/cli' },
+        ],
+      },
+      {
+        text: 'Other CI Systems',
+        items: [
+          { text: 'The cloud-cache CLI', link: '/guide/cli' },
           { text: 'Bitbucket Pipelines', link: '/guide/bitbucket' },
         ],
       },
@@ -108,20 +118,22 @@ export default defineConfig({
         items: [
           { text: 'Inputs and Outputs', link: '/guide/reference' },
           { text: 'How Caches Are Stored', link: '/guide/storage' },
+          { text: 'Comparison', link: '/guide/comparison' },
           { text: 'Changelog', link: '/changelog' },
         ],
       },
       {
         text: 'Storage Providers',
         items: [
+          { text: 'Overview', link: '/providers/' },
           { text: 'AWS S3', link: '/providers/aws-s3' },
           { text: 'Cloudflare R2', link: '/providers/cloudflare-r2' },
           { text: 'Google Cloud Storage (GCS)', link: '/providers/google-cloud-storage' },
           { text: 'Backblaze B2', link: '/providers/backblaze-b2' },
           { text: 'Fastly Object Storage', link: '/providers/fastly-storage' },
-          { text: 'Garage S3', link: '/providers/garage' },
-          { text: 'SeaweedFS S3', link: '/providers/seaweedfs' },
-          { text: 'MinIO S3', link: '/providers/minio' },
+          { text: 'Garage', link: '/providers/garage' },
+          { text: 'SeaweedFS', link: '/providers/seaweedfs' },
+          { text: 'MinIO', link: '/providers/minio' },
           { text: 'RustFS', link: '/providers/rustfs' },
         ],
       },
