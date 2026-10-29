@@ -1,6 +1,6 @@
 <p align="center">
   <a href="https://xsavikx.github.io/cloud-cache-action/">
-    <img src="https://raw.githubusercontent.com/xSAVIKx/cloud-cache-action/main/docs/public/logo.svg" width="128" height="128" alt="Cloud Cache Action Logo">
+    <img src="https://raw.githubusercontent.com/xSAVIKx/cloud-cache-action/main/docs/public/logo.svg" width="128" height="128" alt="Cloud Cache Action documentation">
   </a>
 </p>
 
@@ -15,28 +15,17 @@
   <a href="https://xsavikx.github.io/cloud-cache-action/"><img src="https://img.shields.io/badge/docs-GitHub%20Pages-blue.svg" alt="Documentation"></a>
   <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/node-24-green.svg" alt="Node Runtime"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
-  <a href="https://serhiichuk.dev"><img src="https://img.shields.io/badge/Author-serhiichuk.dev-black" alt="Author"></a>
 </p>
 
 <p align="center">
   <a href="https://xsavikx.github.io/cloud-cache-action/guide/getting-started.html">Getting Started</a> •
   <a href="https://xsavikx.github.io/cloud-cache-action/guide/reference.html">Inputs and Outputs</a> •
-  <a href="#storage-providers">Providers</a> •
+  <a href="https://xsavikx.github.io/cloud-cache-action/providers/">Providers</a> •
   <a href="https://xsavikx.github.io/cloud-cache-action/guide/migration.html">Migration</a> •
   <a href="CHANGELOG.md">Changelog</a>
 </p>
 
 ---
-
-## Why use it
-
-- **The same inputs and outputs as `actions/cache` v4 to v6.** Change the `uses:` line, add a bucket and credentials, and keep your `key`, `path` and `restore-keys`.
-- **Your bucket, your limits.** There is no 10 GB repository quota, and no cache is removed unless you remove it. With Cloudflare R2, there are no egress fees.
-- **Any S3-compatible storage.** AWS S3 (static keys or OIDC), Cloudflare R2, Google Cloud Storage, Backblaze B2, Fastly, and self-hosted Garage, SeaweedFS, MinIO and RustFS.
-- **Fast transfers.** Multi-threaded `zstd` compression, parallel ranged downloads and parallel multipart uploads. See [Performance](https://xsavikx.github.io/cloud-cache-action/guide/performance.html).
-- **Safe caches.** Each save stores a sha256 checksum, and the restore verifies it. Branch isolation is the same as in `actions/cache`. On providers that support conditional writes, two concurrent saves of one key do not overwrite each other.
-- **Tools for the full cache lifecycle.** Package manager presets, scheduled pruning, lookup inspection, metrics, and an optional second tier in the GitHub Actions cache.
-- **A CLI for other CI systems.** The `cloud-cache` command runs the same cache engine outside GitHub Actions.
 
 ## Quick start
 
@@ -80,6 +69,16 @@ Migrate all GitHub Actions cache steps in this repository to `xSAVIKx/cloud-cach
 
 The [Migration](https://xsavikx.github.io/cloud-cache-action/guide/migration.html) guide has the full prompt and the secrets that each provider needs.
 
+## Why use it
+
+- **The same inputs and outputs as `actions/cache` v4 to v6.** Change the `uses:` line, add a bucket and credentials, and keep your `key`, `path` and `restore-keys`.
+- **Your bucket, your limits.** The GitHub Actions cache gives each repository 10 GB at no cost and evicts entries above the limit ([GitHub docs](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching#usage-limits-and-eviction-policy)). A bucket has the limits and the prices of your storage provider, and no cache is removed unless you remove it. With Cloudflare R2, there are no egress fees.
+- **Any S3-compatible storage.** AWS S3 (static keys or OIDC), Cloudflare R2, Google Cloud Storage, Backblaze B2, Fastly, and self-hosted Garage, SeaweedFS, MinIO and RustFS.
+- **Fast transfers.** Multi-threaded `zstd` compression, parallel ranged downloads and parallel multipart uploads. See [Performance](https://xsavikx.github.io/cloud-cache-action/guide/performance.html).
+- **Safe caches.** Each save stores a sha256 checksum, and the restore verifies it. Branch isolation is the same as in `actions/cache`. On providers that support conditional writes, two concurrent saves of one key do not overwrite each other.
+- **Tools for the full cache lifecycle.** Package manager presets, scheduled pruning, lookup inspection, metrics, and an optional second tier in the GitHub Actions cache.
+- **A CLI for other CI systems.** The `cloud-cache` command runs the same cache engine in [Bitbucket Pipelines](https://xsavikx.github.io/cloud-cache-action/guide/bitbucket.html) and other CI systems.
+
 ## Storage providers
 
 | Provider | Setup guide |
@@ -94,7 +93,7 @@ The [Migration](https://xsavikx.github.io/cloud-cache-action/guide/migration.htm
 | MinIO (self-hosted) | [MinIO](https://xsavikx.github.io/cloud-cache-action/providers/minio.html) |
 | RustFS (self-hosted) | [RustFS](https://xsavikx.github.io/cloud-cache-action/providers/rustfs.html) |
 
-The action finds the provider, the region and the addressing style from the `endpoint` URL. To override the result, set `provider`. The [Security](https://xsavikx.github.io/cloud-cache-action/guide/security.html) guide gives a least-privilege policy for each provider.
+The [Storage Providers](https://xsavikx.github.io/cloud-cache-action/providers/) overview compares the providers. The action finds the provider, the region and the addressing style from the `endpoint` URL. To override the result, set `provider`. The [Security](https://xsavikx.github.io/cloud-cache-action/guide/security.html) guide gives a least-privilege policy for each provider.
 
 ## Actions
 
@@ -111,12 +110,16 @@ The action finds the provider, the region and the addressing style from the `end
 ## Documentation
 
 - [Getting Started](https://xsavikx.github.io/cloud-cache-action/guide/getting-started.html): paths, how a restore and a save work, metrics, and the job summary.
+- [Storage Providers](https://xsavikx.github.io/cloud-cache-action/providers/): compare the nine providers, their credentials and their endpoints.
 - [Dual Caching](https://xsavikx.github.io/cloud-cache-action/guide/dual-caching.html): use the S3 bucket and the GitHub Actions cache together.
 - [S3 Key Templating](https://xsavikx.github.io/cloud-cache-action/guide/s3-key-patterns.html): change the object key layout.
 - [How Caches Are Stored](https://xsavikx.github.io/cloud-cache-action/guide/storage.html): checksums, concurrent saves, metadata and tags, and streaming.
 - [Performance](https://xsavikx.github.io/cloud-cache-action/guide/performance.html) and [Benchmarks](https://xsavikx.github.io/cloud-cache-action/guide/benchmarks.html): transfer settings and measured times.
-- [Command Line (CLI)](https://xsavikx.github.io/cloud-cache-action/guide/cli.html): use the cache in other CI systems.
+- [The cloud-cache CLI](https://xsavikx.github.io/cloud-cache-action/guide/cli.html): use the cache in other CI systems.
+- [Bitbucket Pipelines](https://xsavikx.github.io/cloud-cache-action/guide/bitbucket.html): cache Bitbucket builds in your own S3 bucket.
 - [Upgrading](https://xsavikx.github.io/cloud-cache-action/guide/upgrading.html): notes for each `v1` release.
+- [FAQ](https://xsavikx.github.io/cloud-cache-action/guide/faq.html): short answers to common questions.
+- [Comparison](https://xsavikx.github.io/cloud-cache-action/guide/comparison.html): Cloud Cache Action compared with other S3 cache actions.
 
 ## Contributing
 

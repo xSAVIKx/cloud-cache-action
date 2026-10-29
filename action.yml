@@ -1,5 +1,5 @@
 name: 'Cloud Cache Action'
-description: 'Cache artifacts to any S3-compatible storage with 1:1 actions/cache parity and dual-caching'
+description: 'Drop-in actions/cache replacement that stores caches in S3, Cloudflare R2, GCS, MinIO or any S3-compatible bucket'
 author: 'Yurii Serhiichuk (https://serhiichuk.dev)'
 
 inputs:
