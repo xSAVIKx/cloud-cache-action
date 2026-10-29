@@ -1,4 +1,8 @@
-# Dual Caching (S3 + GitHub Actions Cache)
+---
+description: "Dual caching saves and restores one cache in an S3-compatible bucket and in the GitHub Actions cache. Restore priority, save strategies, examples and inputs."
+---
+
+# Dual Caching with S3 and the GitHub Actions Cache
 
 **Dual Caching** allows your GitHub Actions workflows to save and restore cache bundles across **both** remote S3-compatible storage and GitHub's native Actions Cache service simultaneously.
 
@@ -14,7 +18,7 @@ In modern CI/CD setups, organizations often run a hybrid infrastructure:
 This creates a common challenge:
 
 1. **Runner Isolation**: Self-hosted or remote runners may have high latency, bandwidth limits, or restricted access to GitHub's internal cache service, but have direct, high-speed access to an S3-compatible bucket (or local Garage / SeaweedFS / MinIO / Cloudflare R2).
-2. **Quota Limits**: GitHub enforces a strict **10 GB per repository** cache limit. Once exceeded, older caches are evicted, causing unexpected slowdowns.
+2. **Quota Limits**: The GitHub Actions cache gives each repository 10 GB at no cost, and it removes entries that no job accessed for more than 7 days. Above the limit, GitHub evicts the least recently used entries. Pro, Team and Enterprise accounts can raise the limit, and GitHub bills the storage above 10 GB ([GitHub docs](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching#usage-limits-and-eviction-policy), [changelog of 2025-11-20](https://github.blog/changelog/2025-11-20-github-actions-cache-size-can-now-exceed-10-gb-per-repository/)). A bucket has the limits and the prices of your storage provider. An evicted cache causes a cache miss and a slower build.
 3. **Redundancy & Availability**: If GitHub's cache service experiences transient 503 errors or an outage, having S3 as an active peer ensures your builds never suffer cold starts.
 
 With Dual Caching enabled, the **exact same cache keys** are populated in both systems, and jobs can seamlessly read from whichever source is optimal.
@@ -146,7 +150,7 @@ jobs:
 
 ### Use Case 2: Quota Spillover & High-Availability Redundancy
 
-Avoid cold builds when GitHub's 10GB per-repo cache limit evicts keys, or during GitHub service disruptions:
+Avoid cold builds when the GitHub Actions cache evicts keys at its size limit (10 GB per repository by default), or during GitHub service disruptions:
 
 ```yaml
 - name: Cache with S3 backup

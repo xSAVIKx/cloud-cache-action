@@ -1,3 +1,7 @@
+---
+description: "The trust boundary of an S3 CI cache, fork pull requests, the S3 calls the action makes, and least-privilege policies for AWS S3, R2, GCS, MinIO and RustFS."
+---
+
 # Security and Least-Privilege Policies
 
 This guide explains what the cache protects, what it does not protect, and which permissions each
@@ -220,8 +224,8 @@ statement if you do not use that input.
 ```
 
 The last statement has no prefix condition, because AWS does not list `s3:prefix` as a condition key
-for `s3:ListBucketMultipartUploads` (AWS Service Authorization Reference for Amazon S3,
-<https://servicereference.us-east-1.amazonaws.com/v1/s3/s3.json>). The action filters the
+for `s3:ListBucketMultipartUploads` ([AWS service reference for S3](https://servicereference.us-east-1.amazonaws.com/v1/s3/s3.json)).
+The action filters the
 list to the prune scope itself. Prune does not call `HeadObject`, so its `s3:ListBucket` statement
 keeps the prefix condition. If you prune several repositories with one credential, widen the
 `Resource` ARNs and the `s3:prefix` value to match.
@@ -247,7 +251,7 @@ example one bucket for the cache of a single repository, if you need a hard boun
 The Cloudflare page lists no narrower group than **Object Read & Write**. This guide therefore
 assumes that a token which saves can also delete. Keep the read-write token out of pull request jobs.
 
-Checked on 2026-10-20: <https://developers.cloudflare.com/r2/api/tokens/>.
+Checked on 2026-10-20: [Cloudflare R2 API tokens](https://developers.cloudflare.com/r2/api/tokens/).
 
 ## Google Cloud Storage
 
@@ -290,9 +294,9 @@ This guide did not verify these points, so test them before you rely on them:
   and an aborted upload use multipart calls, and a role that lacks the multipart permissions can
   refuse them.
 
-Checked on 2026-10-20: <https://docs.cloud.google.com/storage/docs/access-control/iam>
+Checked on 2026-10-20: [Cloud Storage IAM](https://docs.cloud.google.com/storage/docs/access-control/iam)
 (object prefix condition, uniform bucket-level access, no condition on `storage.objects.list`) and
-<https://docs.cloud.google.com/storage/docs/authentication/hmackeys> (HMAC key permissions come from
+[HMAC keys](https://docs.cloud.google.com/storage/docs/authentication/hmackeys) (HMAC key permissions come from
 the service account).
 
 ## MinIO and RustFS

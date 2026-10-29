@@ -1,27 +1,42 @@
-# MinIO S3 Setup
-
-[MinIO](https://min.io/) is a high-performance distributed object store with native S3 API compatibility, widely used for on-premise infrastructure, private enterprise clouds, and local CI testing.
-
-> [!NOTE]
-> **Maintenance & Compatibility Notice**:
-> While upstream open-source MinIO changed licensing (AGPLv3) and standalone community releases are no longer actively maintained with free public security patches, many development teams and enterprise clusters continue to rely on existing MinIO infrastructure or use ephemeral containers in CI. `cloud-cache-action` maintains 100% interoperability with all MinIO versions.
-
+---
+description: "Use self-hosted MinIO as a GitHub Actions cache with Cloud Cache Action. A private bucket, quotas, ILM expiry, a service account, path-style and the step."
 ---
 
-## Best Practices: Bucket & Cluster Setup
+# MinIO
 
-Follow these recommendations when setting up MinIO for CI/CD caching:
+To use self-hosted MinIO as a GitHub Actions cache, create a private bucket and a service account
+that a bucket policy restricts. Then set `endpoint`, `force-path-style: true`, `bucket`,
+`access-key` and `secret-key` on `xSAVIKx/cloud-cache-action@v1`.
 
-### 1. Bucket Privacy & Quotas
-- **Bucket Access Policy**: Ensure the bucket access policy is strictly private (`none`). Never set download or public access policies on cache buckets.
-- **Hard Storage Quotas**: CI builds can rapidly generate hundreds of gigabytes of dependency archives. Use the MinIO Client (`mc`) to set a hard storage quota on your cache bucket:
+[MinIO](https://min.io/) is a distributed object store with an S3 API. Teams use it for
+on-premise infrastructure, private clouds and local CI tests.
+
+> [!NOTE]
+> **Maintenance and compatibility notice**:
+> Upstream open-source MinIO changed its license (AGPLv3). Standalone community releases no longer get free public security patches. Many teams still use existing MinIO infrastructure, or use ephemeral MinIO containers in CI. The CI of Cloud Cache Action tests the action against a MinIO container. See [Live CI workflow](#live-ci-workflow).
+
+## Requirements
+
+- A MinIO server or cluster that the runners can reach, or Docker on the runner for an ephemeral container.
+- The MinIO Client (`mc`) for the bucket and account setup.
+- A bucket for the cache and a service account that a policy restricts to that bucket.
+
+## Bucket setup
+
+### 1. Bucket privacy and quotas
+
+- **Bucket Access Policy**: Make sure that the bucket access policy is private (`none`). Never set download or public access policies on cache buckets.
+- **Hard Storage Quotas**: CI builds can make hundreds of gigabytes of dependency archives. Use the MinIO Client (`mc`) to set a hard storage quota on your cache bucket:
+
   ```bash
   # Set a 100 GB hard limit on the cache bucket
   mc quota set --hard 100GB myminio/ci-cache
   ```
 
-### 2. Information Lifecycle Management (ILM) Auto-Expiration
-MinIO includes native ILM lifecycle management. Configure automatic expiration so old caches are purged automatically:
+### 2. Information Lifecycle Management (ILM) expiration
+
+MinIO has native ILM lifecycle management. Configure automatic expiration, so that MinIO removes old caches:
+
 ```bash
 # Automatically expire and delete cache archives older than 30 days
 mc ilm rule add --expire-days 30 myminio/ci-cache
@@ -30,49 +45,57 @@ mc ilm rule add --expire-days 30 myminio/ci-cache
 mc ilm rule add --expire-delete-marker --abort-incomplete-multipart-upload-days 7 myminio/ci-cache
 ```
 
-### 3. Server-Side Encryption
-Enable transparent server-side encryption with MinIO-managed keys:
+### 3. Server-side encryption
+
+Enable server-side encryption with MinIO-managed keys:
+
 ```bash
 # Enable auto-encryption on the bucket
 mc encrypt set sse-s3 myminio/ci-cache
 ```
 
----
-
-## Credentials & Least-Privilege Service Accounts
+## Credentials
 
 > [!WARNING]
-> Never use root credentials (`MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD`) in your GitHub Actions workflows. Always create a dedicated Service Account restricted strictly to the CI cache bucket.
+> Never use root credentials (`MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD`) in your GitHub Actions workflows. Create a dedicated service account that is restricted to the CI cache bucket.
 
-### 1. Create a Restricted Policy (`ci-cache-policy.json`)
+### 1. Create a restricted policy (`ci-cache-policy.json`)
+
 Copy the MinIO policy from the [Security guide](../guide/security.md#minio-and-rustfs) into
 `ci-cache-policy.json`. Change the bucket name and the prefix to match your set-up.
 
 Add the policy to MinIO:
+
 ```bash
 mc admin policy create myminio ci-cache-policy ci-cache-policy.json
 ```
 
-### 2. Generate Service Account Credentials
+### 2. Generate service account credentials
+
 ```bash
 # Create a service account restricted by the policy
 mc admin user svcacct add --policy ci-cache-policy myminio ci-runner
 ```
-MinIO will print the **Access Key** and **Secret Key**.
 
-### 3. Configure GitHub Secrets
-Store the credentials in your repository's **Settings** > **Secrets and variables** > **Actions**:
+MinIO shows the **Access Key** and the **Secret Key**.
+
+### 3. Configure GitHub secrets
+
+Store the credentials in **Settings** > **Secrets and variables** > **Actions** of your repository:
 
 | Secret Name | Description |
 | :--- | :--- |
 | `MINIO_ACCESS_KEY` | MinIO Service Account Access Key |
 | `MINIO_SECRET_KEY` | MinIO Service Account Secret Key |
 
----
+## Workflow example
 
-## Example 1: GitHub Actions CI with Ephemeral MinIO Container
+> [!TIP]
+> **Path-Style Addressing**: Set `force-path-style: true` for MinIO, unless you configured wildcard DNS subdomains (virtual-host style) for your buckets.
 
-You can spin up an ephemeral MinIO instance directly inside your GitHub Actions runner job using Docker or Docker Compose for zero-cost, isolated CI caching:
+### Ephemeral MinIO container in a GitHub Actions job
+
+You can start an ephemeral MinIO instance in your GitHub Actions job with Docker or Docker Compose. This gives an isolated cache with no external service:
 
 ```yaml
 name: Build with Local MinIO Cache
@@ -123,11 +146,9 @@ jobs:
         run: npm ci
 ```
 
----
+### Self-hosted or on-premise MinIO cluster
 
-## Example 2: Self-Hosted / On-Prem MinIO Cluster
-
-For organizations hosting a persistent MinIO server or cluster on private infrastructure (e.g., bare-metal or Kubernetes):
+For a persistent MinIO server or cluster on private infrastructure (for example, bare-metal or Kubernetes):
 
 ```yaml
 - name: Cache dependencies using self-hosted MinIO
@@ -142,14 +163,9 @@ For organizations hosting a persistent MinIO server or cluster on private infras
     path: build/
 ```
 
-> [!TIP]
-> **Path-Style Addressing**: Always set `force-path-style: true` for MinIO unless you have configured wildcard DNS subdomains (virtual-host style) for your buckets.
+## Local testing
 
----
-
-## Running MinIO Locally for Integration Testing
-
-You can spin up MinIO locally using the repository's [`docker-compose.test.yml`](https://github.com/xSAVIKx/cloud-cache-action/blob/main/docker-compose.test.yml):
+You can start MinIO locally with the [`docker-compose.test.yml`](https://github.com/xSAVIKx/cloud-cache-action/blob/main/docker-compose.test.yml) file of the repository:
 
 ```bash
 docker compose -f docker-compose.test.yml up -d minio
@@ -159,22 +175,22 @@ docker compose -f docker-compose.test.yml up -d minio
 <<< ../../docker-compose.test.yml{yaml}
 :::
 
-Once running:
+When the container runs:
+
 - **S3 API**: `http://localhost:9000`
 - **Web Console**: `http://localhost:9001` (Default credentials: `minioadmin` / `minioadmin`)
-
----
-
-## Live CI Dogfooding Workflow
-
-The repository dogfoods MinIO directly inside the continuous integration test suite: [`.github/workflows/test.yml`](https://github.com/xSAVIKx/cloud-cache-action/blob/main/.github/workflows/test.yml).
-
-::: details `.github/workflows/test.yml` (Click to view test workflow)
-<<< ../../.github/workflows/test.yml{yaml}
-:::
 
 ## Notes
 
 - **Checksums**: for this provider, the action sends request checksums only when S3 requires them, because many S3-compatible services reject the CRC checksums recent AWS SDKs send by default. Nothing to configure.
+- **Concurrent saves**: MinIO enforces the conditional create (`If-None-Match`). See [Safe Concurrent Saves](../guide/storage.md#safe-concurrent-saves).
 - **Expiry**: the action never deletes caches. Add a lifecycle rule that expires objects after 30–60 days so old caches do not accumulate.
 - **Incomplete uploads**: MinIO lists no incomplete multipart upload for a prefix that is not a full object key (measured on 2026-10-21 with the CI image). The `prune` input `abort-uploads-older-than-hours` therefore finds no upload and aborts none. Use the `--abort-incomplete-multipart-upload-days` lifecycle rule above instead.
+
+### Live CI workflow
+
+The repository uses MinIO in its continuous integration test suite: [`.github/workflows/test.yml`](https://github.com/xSAVIKx/cloud-cache-action/blob/main/.github/workflows/test.yml).
+
+::: details `.github/workflows/test.yml` (Click to view test workflow)
+<<< ../../.github/workflows/test.yml{yaml}
+:::

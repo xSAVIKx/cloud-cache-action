@@ -1,8 +1,12 @@
+---
+description: "Set up Cloud Cache Action: one step restores a GitHub Actions cache from an S3-compatible bucket, and a post step saves it. Paths, metrics and job summary."
+---
+
 # Getting Started
 
-**Cloud Cache Action** allows you to store and retrieve GitHub Actions cache bundles using any S3-compatible cloud or self-hosted object storage service.
+**Cloud Cache Action** stores and restores GitHub Actions caches in any S3-compatible cloud or self-hosted object storage service. It is a drop-in replacement for `actions/cache` v4 to v6. Change the `uses:` line, and add a bucket and credentials.
 
-It is designed as a drop-in replacement for `actions/cache@v4-v6`, keeping your CI/CD workflows lightning fast while bypassing GitHub's 10GB default cache quotas and egress fees.
+The GitHub Actions cache gives each repository 10 GB at no cost, and it removes entries that no job accessed for more than 7 days. Above the limit, GitHub evicts the least recently used entries. Pro, Team and Enterprise accounts can raise the limit, and GitHub bills the storage above 10 GB ([GitHub docs](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching#usage-limits-and-eviction-policy), [changelog of 2025-11-20](https://github.blog/changelog/2025-11-20-github-actions-cache-size-can-now-exceed-10-gb-per-repository/)). A bucket has the limits and the prices of your storage provider. With Cloudflare R2, there are no egress fees.
 
 ## Quickstart
 
@@ -13,7 +17,7 @@ Add the following step to your GitHub Actions workflow:
   uses: xSAVIKx/cloud-cache-action@v1
   with:
     bucket: my-ci-cache-bucket
-    endpoint: https://<account_id>.r2.cloudflarestorage.com # Or AWS, GCS, B2, MinIO, etc.
+    endpoint: https://<account_id>.r2.cloudflarestorage.com # Omit for AWS S3
     access-key: ${{ secrets.S3_ACCESS_KEY }}
     secret-key: ${{ secrets.S3_SECRET_KEY }}
     path: |
@@ -124,9 +128,9 @@ save" table with the key, tiers saved to, size and duration. This is on by defau
 `job-summary: false` to turn it off. No summary is written when the step fails with an error, or
 when `GITHUB_STEP_SUMMARY` is not set.
 
-## Standalone Restore and Save Actions
+## Restore and Save Actions
 
-Just like `actions/cache/restore` and `actions/cache/save`, you can invoke restore and save as independent steps:
+As with `actions/cache/restore` and `actions/cache/save`, you can run the restore and the save as separate steps:
 
 ### Restore Only
 

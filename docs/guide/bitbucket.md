@@ -1,10 +1,14 @@
+---
+description: "Cache Bitbucket Pipelines dependencies in your own S3 bucket with the cloud-cache CLI: restore and save commands, AWS OIDC, refs, outputs and metrics."
+---
+
 # Bitbucket Pipelines
 
 ## What it is
 
 The `cloud-cache` CLI runs in Bitbucket Pipelines. It uses the same cache engine as the GitHub Action. The cache keys and the S3 object keys have the same format.
 
-The CLI finds Bitbucket by the variable `BITBUCKET_BUILD_NUMBER`. It then reads the repository and the refs from the `BITBUCKET_*` variables. For the general CLI rules, read [Command Line (CLI)](./cli.md).
+The CLI finds Bitbucket by the variable `BITBUCKET_BUILD_NUMBER`. It then reads the repository and the refs from the `BITBUCKET_*` variables. For the general CLI rules, read [The cloud-cache CLI](./cli.md).
 
 ## Requirements
 

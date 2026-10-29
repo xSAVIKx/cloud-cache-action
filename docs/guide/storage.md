@@ -1,5 +1,6 @@
 ---
 title: How Caches Are Stored
+description: "How Cloud Cache Action writes a cache object: the sha256 checksum, conditional writes for concurrent saves, object metadata and tags, and streaming archives."
 ---
 
 # How Caches Are Stored
@@ -62,7 +63,7 @@ sets object tags, one `key=value` per line; surrounding whitespace is trimmed fr
 value. Metadata is returned on restore as the `cache-metadata` output (a JSON object), except with
 `lookup-only: true`, which never downloads the object. Tags are what bucket lifecycle rules and
 IAM policies can filter on. Both inputs live on the main action and on
-`cloud-cache-action/save@v1`: the standalone `restore` sub-action never saves, so it does not take
+`xSAVIKx/cloud-cache-action/save@v1`: the standalone `restore` sub-action never saves, so it does not take
 them.
 
 ```yaml

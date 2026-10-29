@@ -1,50 +1,62 @@
-# Fastly Object Storage Setup
-
-[Fastly Object Storage](https://www.fastly.com/products/object-storage) provides high-performance, S3-compatible cloud storage colocated with Fastly's global edge network, delivering low latency and high bandwidth for CI/CD runners.
-
+---
+description: "Use Fastly Object Storage as an S3-compatible GitHub Actions cache with Cloud Cache Action. Bucket region, lifecycle rules, bucket-scoped keys and the step."
 ---
 
-## Best Practices: Bucket Setup & Configuration
+# Fastly Object Storage
 
-Follow these recommendations when setting up your Fastly Object Storage bucket:
+To use Fastly Object Storage as a GitHub Actions cache, create a private bucket and an access key
+pair with **Read/Write** access to that bucket. Then set the regional `endpoint`, `bucket`,
+`access-key` and `secret-key` on `xSAVIKx/cloud-cache-action@v1`.
 
-### 1. Bucket Region & Placement
-- In the Fastly Control Panel, navigate to **Storage** > **Object Storage** > **Create bucket**.
-- **Region Selection**: Select the region closest to where your GitHub Actions runners run (e.g., US-East or EU-Central) to minimize transit hops and accelerate cache restores.
-- **Access Level**: Ensure the bucket is private. Public read permissions should remain disabled.
+[Fastly Object Storage](https://www.fastly.com/products/object-storage) is S3-compatible cloud
+storage from Fastly.
 
-### 2. Lifecycle Rules & Automatic Eviction
-CI cache bundles should have an expiration policy so stale dependencies are naturally evicted:
-- Set up an automated lifecycle rule in the bucket management console to expire and delete objects older than **30** or **60 days**.
-- Ensure incomplete multipart uploads are configured to abort after **7 days**.
+## Requirements
 
----
+- A Fastly account with Object Storage.
+- A private bucket in a region near your runners.
+- An S3-compatible access key pair that is scoped to that bucket.
 
-## Credentials & Access Management
+## Bucket setup
 
-### 1. Generate S3-Compatible Credentials
-1. In Fastly Object Storage, navigate to **Access Keys** / **API Credentials**.
-2. Create a new key pair scoped specifically to your CI cache bucket with **Read/Write** permissions.
-3. Note the generated **Access Key** and **Secret Key**.
+### 1. Bucket region and placement
 
-### 2. Configure GitHub Secrets
-Store the credentials in your repository's **Settings** > **Secrets and variables** > **Actions**:
+- In the Fastly Control Panel, go to **Storage** > **Object Storage** > **Create bucket**.
+- **Region Selection**: Select the region nearest to your GitHub Actions runners (for example, US-East or EU-Central). This decreases the network distance of each cache restore.
+- **Access Level**: Make sure that the bucket is private. Keep public read permissions disabled.
+
+### 2. Lifecycle rules and automatic eviction
+
+Give CI cache bundles an expiration policy, so that old dependencies are removed:
+
+- Set up a lifecycle rule in the bucket management console that expires and deletes objects older than **30** or **60 days**.
+- Configure incomplete multipart uploads to abort after **7 days**.
+
+## Credentials
+
+### 1. Generate S3-compatible credentials
+
+1. In Fastly Object Storage, go to **Access Keys** / **API Credentials**.
+2. Create a new key pair that is scoped to your CI cache bucket, with **Read/Write** permissions.
+3. Write down the generated **Access Key** and **Secret Key**.
+
+### 2. Configure GitHub secrets
+
+Store the credentials in **Settings** > **Secrets and variables** > **Actions** of your repository:
 
 | Secret Name | Description |
 | :--- | :--- |
 | `FASTLY_ACCESS_KEY` | Fastly S3 Access Key ID |
 | `FASTLY_SECRET_KEY` | Fastly S3 Secret Access Key |
 
----
-
-## Workflow Configuration
+## Workflow example
 
 ```yaml
 - name: Cache dependencies using Fastly Object Storage
   uses: xSAVIKx/cloud-cache-action@v1
   with:
     bucket: my-fastly-cache-bucket
-    endpoint: https://object.us-east-1.fastlystorage.com # Replace with your region
+    endpoint: https://object.us-east-1.fastlystorage.com # Your region
     access-key: ${{ secrets.FASTLY_ACCESS_KEY }}
     secret-key: ${{ secrets.FASTLY_SECRET_KEY }}
     key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
@@ -60,3 +72,4 @@ Store the credentials in your repository's **Settings** > **Secrets and variable
 ## Notes
 
 - **Checksums**: for this provider, the action sends request checksums only when S3 requires them, because many S3-compatible services reject the CRC checksums recent AWS SDKs send by default. Nothing to configure.
+- **Expiry**: the action never deletes caches. Use the lifecycle rule above, or the [`prune` sub-action](../guide/pruning.md).
