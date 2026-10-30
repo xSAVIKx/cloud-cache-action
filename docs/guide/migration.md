@@ -8,7 +8,7 @@ To migrate from `actions/cache` or `tespkg/actions-cache` to Cloud Cache Action,
 
 This page gives the manual steps first. A prompt for an AI coding agent and a table of the secrets for each provider follow.
 
-## Manual Migration from `actions/cache` (v4, v5, v6)
+## Manual migration from `actions/cache` (v4, v5, v6)
 
 Cloud Cache Action has the same inputs and outputs as `actions/cache`. Change the `uses:` line and add your bucket configuration:
 
@@ -78,7 +78,7 @@ After a tier error, the last restore line is `No cache restored: the s3 tier fai
 
 **`save-always`.** The action does not support this deprecated input. See [Saving after failed steps](./getting-started.md#saving-after-failed-steps).
 
-## Manual Migration from `tespkg/actions-cache`
+## Manual migration from `tespkg/actions-cache`
 
 If you use `tespkg/actions-cache`, Cloud Cache Action gives these differences:
 
@@ -87,13 +87,13 @@ If you use `tespkg/actions-cache`, Cloud Cache Action gives these differences:
 3. **Cross-Platform Path Safety**: Normalizes Windows cache keys to POSIX forward slashes (`/`), avoiding broken backslash keys in object storage.
 4. **Modern Parity**: Includes `actions/cache@v6` features such as `lookup-only`, `fail-on-cache-miss`, and `read-only`.
 
-### Input Differences
+### Input differences
 
 - All legacy inputs (`bucket`, `endpoint`, `region`, `insecure`, `accessKey`, `secretKey`, `sessionToken`) remain supported for backward compatibility.
 - Kebab-case aliases are also supported (`access-key`, `secret-key`, `session-token`, `force-path-style`).
 - **Fallback Behavior**: `use-fallback` is `false` by default in Cloud Cache Action, not `true`. If you want automatic GitHub Actions Cache fallback on S3 errors or cache miss, set `use-fallback: true`.
 
-## Required Secrets Cheat Sheet by Provider
+## Required secrets by provider
 
 Use this table when you set up the repository secrets. The [Storage Providers](../providers/index.md) page compares the providers.
 
@@ -110,13 +110,13 @@ Use this table when you set up the repository secrets. The [Storage Providers](.
 | **MinIO** | `MINIO_ACCESS_KEY`<br>`MINIO_SECRET_KEY` | `http://minio.internal:9000`<br>*(Requires `force-path-style: true`)* |
 | **RustFS** | `RUSTFS_ACCESS_KEY`<br>`RUSTFS_SECRET_KEY` | `http://rustfs.internal:9000`<br>*(Set `provider: rustfs`)* |
 
-## Automated Migration with AI Coding Agents
+## Automated migration with AI coding agents
 
 If you use an AI coding assistant or agent (such as Claude Code, Cursor, Copilot, Antigravity, Devin, Codex, or Gemini), copy and paste the prompt below into your agent.
 
 The prompt instructs the agent to discover all cache steps in your repository, recommend or detect your cloud storage provider, perform 1:1 input preservation, and output a concise checklist of required GitHub Secrets.
 
-### Copy-Pastable Agent Prompt
+### Agent prompt to copy
 
 ```markdown
 Please migrate all GitHub Actions caching steps in this repository to `xSAVIKx/cloud-cache-action@v1`.
@@ -143,6 +143,8 @@ Please migrate all GitHub Actions caching steps in this repository to `xSAVIKx/c
        - Inputs: `bucket`, `endpoint: https://storage.googleapis.com`, `access-key: ${{ secrets.GCS_HMAC_ACCESS_ID }}`, `secret-key: ${{ secrets.GCS_HMAC_SECRET }}`
      - **Backblaze B2**:
        - Inputs: `bucket`, `endpoint: https://s3.<region>.backblazeb2.com`, `access-key: ${{ secrets.B2_KEY_ID }}`, `secret-key: ${{ secrets.B2_APPLICATION_KEY }}`
+     - **Fastly Object Storage**:
+       - Inputs: `bucket`, `endpoint: https://object.<region>.fastlystorage.com`, `access-key: ${{ secrets.FASTLY_ACCESS_KEY }}`, `secret-key: ${{ secrets.FASTLY_SECRET_KEY }}`
      - **Self-Hosted (MinIO / Garage / SeaweedFS / RustFS)**:
        - Inputs: `bucket`, `endpoint`, `access-key`, `secret-key` (and `force-path-style: true` for MinIO).
    - If I have not specified a provider yet, prompt me or default to **Cloudflare R2** or **AWS S3**.
@@ -160,7 +162,7 @@ Please migrate all GitHub Actions caching steps in this repository to `xSAVIKx/c
    - Provide a clear checklist of the exact secret names I need to configure in GitHub Repository Settings (`Settings > Secrets and variables > Actions`).
 ```
 
-## Branch Isolation and Trust Model
+## Branch isolation and trust model
 
 Like actions/cache, restores only use caches from the current ref, the pull request's base branch and the default branch. A feature branch can reuse `main`'s cache, but `main` never restores a cache that a feature branch saved. Set `scoped-to-ref: false` to share caches across every ref.
 

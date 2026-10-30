@@ -36,8 +36,10 @@ bucket:
 fs.configure -locationPrefix=/buckets/ci-cache/ -ttl=30d -apply
 ```
 
-The TTL applies to files that are written after you set it. The Cloud Cache Action test suite
-does not test this setting. To delete old caches on a schedule, you can also use the
+The TTL applies to files that are written after you set it. A file that was written before keeps
+no TTL. Checked on 2026-10-30 with SeaweedFS 4.46 and `-ttl=1m`: after two minutes, a GET of an
+object written after the change returned `NoSuchKey`, and an object written before the change
+stayed. To delete old caches on a schedule, you can also use the
 [`prune` sub-action](../guide/pruning.md).
 
 ### 3. Volume compaction and vacuuming

@@ -8,7 +8,7 @@ description: "Dual caching saves and restores one cache in an S3-compatible buck
 
 ---
 
-## Why Dual Caching?
+## Why dual caching?
 
 In modern CI/CD setups, organizations often run a hybrid infrastructure:
 
@@ -25,9 +25,9 @@ With Dual Caching enabled, the **exact same cache keys** are populated in both s
 
 ---
 
-## Architecture & Flow
+## Architecture & flow
 
-### Restore Flow
+### Restore flow
 
 ```mermaid
 flowchart TD
@@ -48,7 +48,7 @@ flowchart TD
     S3TrySecond -- S3 Miss --> Miss
 ```
 
-### Save Flow (Post-step)
+### Save flow (post step)
 
 When `dual-cache: true` is enabled, the post-run step evaluates both tiers according to `dual-cache-strategy`:
 
@@ -61,9 +61,9 @@ When `dual-cache: true` is enabled, the post-run step evaluates both tiers accor
 
 ---
 
-## Real-World Use Cases & Examples
+## Real-world use cases & examples
 
-### Use Case 1: Lightweight Runners for Dependencies $\to$ Remote Cloud VM for Heavy Builds
+### Use case 1: lightweight runners for dependencies → a remote cloud VM for heavy builds
 
 A common architectural pattern is separating concerns across runner tiers to minimize cloud compute costs:
 
@@ -148,7 +148,7 @@ jobs:
 
 ---
 
-### Use Case 2: Quota Spillover & High-Availability Redundancy
+### Use case 2: quota spillover & high-availability redundancy
 
 Avoid cold builds when the GitHub Actions cache evicts keys at its size limit (10 GB per repository by default), or during GitHub service disruptions:
 
@@ -176,7 +176,7 @@ Avoid cold builds when the GitHub Actions cache evicts keys at its size limit (1
 
 ---
 
-### Use Case 3: Zero-Downtime Migration from GitHub Cache to Cloud Storage
+### Use case 3: zero-downtime migration from the GitHub cache to cloud storage
 
 If your team is migrating from `actions/cache` to Cloudflare R2 or AWS S3:
 
@@ -187,7 +187,7 @@ If your team is migrating from `actions/cache` to Cloudflare R2 or AWS S3:
 
 ---
 
-## Dual-Cache Configuration Reference
+## Dual-cache configuration reference
 
 ### Inputs
 
@@ -211,7 +211,7 @@ Strict mode catches every S3 error. For the GitHub Actions Cache tier it only se
 
 ---
 
-## Live CI Dogfooding & Verification
+## Live CI dogfooding & verification
 
 The dual-cache backfill and skip-on-hit strategies are exercised continuously within the repository's test workflow: [`.github/workflows/test.yml`](https://github.com/xSAVIKx/cloud-cache-action/blob/main/.github/workflows/test.yml).
 
