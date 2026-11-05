@@ -1280,6 +1280,17 @@ describe('buildS3Tier', () => {
     expect(mockWarning).toHaveBeenCalledWith(expect.stringContaining('${ref}'));
   });
 
+  it.each([
+    ['without ${archive_filename}', '${GITHUB_REPOSITORY}/${ref}-${key}/${version}'],
+    [
+      'with ${GITHUB_REPOSITORY} in a shared segment',
+      '${GITHUB_REPOSITORY}-x/${ref}-${key}/${version}/${archive_filename}',
+    ],
+  ])('warns about a shared ${ref} segment %s', async (_name, pattern) => {
+    await buildS3Tier({ ...config, s3KeyPattern: pattern }, env);
+    expect(mockWarning).toHaveBeenCalledWith(expect.stringContaining('${ref}'));
+  });
+
   it('does not warn about a shared segment when the pattern keeps ${ref} apart', async () => {
     await buildS3Tier(config, env);
     expect(mockWarning).not.toHaveBeenCalled();

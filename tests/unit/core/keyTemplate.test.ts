@@ -464,6 +464,15 @@ describe('scope matching', () => {
     expect(compileKeyTemplate({ ...pruneBase, pattern }).scopeProblem(ref)).toBe(problem);
   });
 
+  it.each([
+    ['${GITHUB_REPOSITORY}/${ref}-${key}/${version}', true],
+    ['${GITHUB_REPOSITORY}-x/${ref}-${key}/${version}/${archive_filename}', true],
+    ['${GITHUB_REPOSITORY}/${ref}/${key}/${version}', false],
+    ['${GITHUB_REPOSITORY}/${key}/${version}', false],
+  ])('refSharesSegment for %s is %s, whatever scopeProblem reports first', (pattern, shared) => {
+    expect(compileKeyTemplate({ ...pruneBase, pattern }).refSharesSegment()).toBe(shared);
+  });
+
   it('with scoped-to-ref false, matches keys without a ref and rejects ref-scoped keys', () => {
     const template = compileKeyTemplate({ ...pruneBase, scopedToRef: false });
     const matcher = template.scopeMatcher();

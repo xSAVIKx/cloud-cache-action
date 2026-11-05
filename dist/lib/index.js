@@ -71335,6 +71335,10 @@ function compileKeyTemplate(rawOptions) {
         return true;
     };
     const indexesOf = (kind) => tokens.flatMap((token, index) => (token.kind === kind ? [index] : []));
+    const refSharesSegment = () => {
+        const refs = indexesOf('ref');
+        return refs.length > 0 && !refs.some((index) => isSegmentIsolated(index));
+    };
     /** One anchored matcher per ref, built like scopeMatcher's, reused across candidates. */
     const versionMatchers = new Map();
     const versionMatcher = (ref) => {
@@ -71376,12 +71380,12 @@ function compileKeyTemplate(rawOptions) {
             if (ref === undefined) {
                 return undefined;
             }
-            const refs = indexesOf('ref');
-            if (refs.length === 0) {
+            if (indexesOf('ref').length === 0) {
                 return 'no-ref';
             }
-            return refs.some((index) => isSegmentIsolated(index)) ? undefined : 'ref-shares-segment';
+            return refSharesSegment() ? 'ref-shares-segment' : undefined;
         },
+        refSharesSegment,
         extractKey: (ref, objectKey) => {
             const head = baseOf(ref);
             const tail = suffixOf(ref);
@@ -71553,7 +71557,7 @@ async function buildS3Tier(config, env, options = {}) {
     for (const warning of template.warnings) {
         log/* log */.R.warning(warning);
     }
-    if (scopedToRef && template.scopeProblem(refs.current) === 'ref-shares-segment') {
+    if (scopedToRef && template.refSharesSegment()) {
         log/* log */.R.warning('s3-key-pattern puts ${ref} in a path segment with other text, so a restore for one ref can match the cache of another ref. Put ${ref} in a path segment of its own.');
     }
     // A pattern without ${ref} gives every ref the same object keys; search them only once.

@@ -34,6 +34,12 @@ my-org/my-project/refs%2Fheads%2Fmain/linux-node-18-a1b2c3/27747e0d22df7792/cach
 | `${version}`           | 16-character hash of `path`, the compression method and (on Windows) `enableCrossOsArchive` | `27747e0d22df7792`                |
 | `${archive_filename}`  | Archive name                                                                                 | `cache.tar.zst` or `cache.tar.gz` |
 
+Keep `${ref}` in a path segment of its own, apart from `${key}`. When `${ref}` shares a segment with
+`${key}`, for example `${ref}-${key}`, the branch `main-linux` with key `abc` writes the same object
+key as the branch `main` with key `linux-abc`. A restore for one ref can then hit the cache of the
+other ref. When `scoped-to-ref` is on and a ref is known, the action warns about this pattern. It
+does so whatever else the pattern contains.
+
 Write special placeholders in braces. A pattern without `${ref}` or `${version}` works, but the action warns:
 
 - Without `${ref}`, every branch shares caches.
@@ -140,9 +146,5 @@ segment, keys from other repositories or refs could match, and the prune action 
 whenever it cannot tell them apart.
 The pattern must also contain `${archive_filename}`. Without it, the prune action refuses to run.
 
-The same segment rule applies to restore. When `${ref}` shares a segment with `${key}`, for example
-`${ref}-${key}`, the branch `main-linux` with key `abc` writes the same object key as the branch
-`main` with key `linux-abc`. A restore for one ref can then hit the cache of the other ref. The
-action writes a warning when it finds this pattern.
 Starting the pattern with `${ref}` also leaves no fixed listing prefix for pruning every ref, so
 set its `ref` input in that case.
