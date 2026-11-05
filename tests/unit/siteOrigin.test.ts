@@ -66,10 +66,12 @@ describe('site origin', () => {
 
 /**
  * These run against a real build. Locally they skip when dist/ is absent, so
- * `npm test` on a clean checkout does not require a docs build. In CI the
- * checks job builds the docs first, so an absent dist/ fails the suite.
+ * `npm test` on a clean checkout does not require a docs build. The checks
+ * job in CI builds the docs and sets REQUIRE_DOCS_BUILD=1. With that variable
+ * set, an absent dist/ fails the suite. Other jobs do not set it.
  */
-const describeBuilt = existsSync(DIST) || process.env.CI ? describe : describe.skip;
+const describeBuilt =
+  existsSync(DIST) || process.env.REQUIRE_DOCS_BUILD === '1' ? describe : describe.skip;
 
 describeBuilt('built output', () => {
   it('has a docs build to check', () => {
