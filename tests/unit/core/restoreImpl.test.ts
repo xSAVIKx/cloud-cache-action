@@ -287,6 +287,15 @@ describe('restoreImpl', () => {
     expect(state.values.has(State.CacheS3ExactHit)).toBe(false);
   });
 
+  it('treats a rejected S3 restore as an error and still asks GitHub when use-fallback is set', async () => {
+    inputs.set(Inputs.UseFallback, 'true');
+    mockRestoreFromS3.mockRejectedValue(new Error('ENOSPC: no space left on device'));
+    mockRestoreFromGitHub.mockResolvedValue(githubHit('Linux-npm-abc', true));
+    await expect(restoreImpl(state, false)).resolves.toBe('Linux-npm-abc');
+    expect(mockSetFailed).not.toHaveBeenCalled();
+    expect(outputs.get('cache-hit-source')).toBe('github');
+  });
+
   it('fails when S3 cannot be set up and no other tier can serve the restore', async () => {
     mockBuildS3Tier.mockRejectedValue(new Error('Bucket name is required.'));
     await restoreImpl(state, false);

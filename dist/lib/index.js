@@ -61101,6 +61101,7 @@ class GitHubActionsHost {
             eventName: env.GITHUB_EVENT_NAME,
             workspace: (0,ci_env/* getWorkspace */.K)(env),
             homeDir: env.HOME || env.USERPROFILE || osHomeDir(),
+            tempDir: env.RUNNER_TEMP || external_node_os_.tmpdir(),
             runnerOs: (0,ci_env/* runnerOs */.t)(env),
             env,
         };
@@ -69509,7 +69510,7 @@ async function writeArchiveFromStdout(command, archivePath) {
 }
 /** Creates the archive and returns the sha256 of its bytes. */
 async function createArchive(archivePath, entries, compression, workspace, level) {
-    const tempDir = external_node_fs_.mkdtempSync(external_node_path_.join(external_node_os_.tmpdir(), 'cloud-cache-tar-'));
+    const tempDir = external_node_fs_.mkdtempSync(external_node_path_.join((0,host/* getHost */.L)().context().tempDir, 'cloud-cache-tar-'));
     try {
         const manifestPath = external_node_path_.join(tempDir, 'manifest.txt');
         external_node_fs_.writeFileSync(manifestPath, formatManifest(entries));
@@ -69540,7 +69541,7 @@ async function createArchive(archivePath, entries, compression, workspace, level
     }
 }
 async function extractArchive(archivePath, compression, workspace) {
-    const tempDir = external_node_fs_.mkdtempSync(external_node_path_.join(external_node_os_.tmpdir(), 'cloud-cache-tar-'));
+    const tempDir = external_node_fs_.mkdtempSync(external_node_path_.join((0,host/* getHost */.L)().context().tempDir, 'cloud-cache-tar-'));
     try {
         external_node_fs_.mkdirSync(workspace, { recursive: true });
         const tar = await findTar();
@@ -71762,8 +71763,10 @@ async function restoreFromS3(tier, primaryKey, restoreKeys, lookupOnly) {
             return { kind: 'error', error: (0,outcomes/* toError */.i)(err) };
         }
     }
-    const tempDir = external_node_fs_.mkdtempSync(external_node_path_.join(external_node_os_.tmpdir(), 'cloud-cache-restore-'));
+    // Created inside the try: a failure here is a failed tier, not a failed step.
+    let tempDir;
     try {
+        tempDir = external_node_fs_.mkdtempSync(external_node_path_.join((0,host/* getHost */.L)().context().tempDir, 'cloud-cache-restore-'));
         const archivePath = external_node_path_.join(tempDir, tier.compression.archiveFilename);
         const { bucket } = tier.storage;
         const transferStart = Date.now();
@@ -71797,7 +71800,9 @@ async function restoreFromS3(tier, primaryKey, restoreKeys, lookupOnly) {
         return { kind: 'error', error: (0,outcomes/* toError */.i)(err) };
     }
     finally {
-        external_node_fs_.rmSync(tempDir, { recursive: true, force: true });
+        if (tempDir) {
+            external_node_fs_.rmSync(tempDir, { recursive: true, force: true });
+        }
     }
 }
 async function saveToS3(tier, primaryKey, patterns) {
@@ -71840,7 +71845,7 @@ async function saveToS3(tier, primaryKey, patterns) {
  */
 async function saveToS3FileMode(tier, objectKey, entries, primaryKey, retryConflict = true, omitTags = false) {
     const { client, bucket } = tier.storage;
-    const tempDir = external_node_fs_.mkdtempSync(external_node_path_.join(external_node_os_.tmpdir(), 'cloud-cache-save-'));
+    const tempDir = external_node_fs_.mkdtempSync(external_node_path_.join((0,host/* getHost */.L)().context().tempDir, 'cloud-cache-save-'));
     try {
         const archivePath = external_node_path_.join(tempDir, tier.compression.archiveFilename);
         const archiveStart = Date.now();
@@ -72162,7 +72167,7 @@ function withStderrTail(err, tail) {
  */
 async function saveToS3Streaming(tier, objectKey, entries, tar, primaryKey) {
     const { client, bucket } = tier.storage;
-    const tempDir = external_node_fs_.mkdtempSync(external_node_path_.join(external_node_os_.tmpdir(), 'cloud-cache-save-'));
+    const tempDir = external_node_fs_.mkdtempSync(external_node_path_.join((0,host/* getHost */.L)().context().tempDir, 'cloud-cache-save-'));
     let child;
     let tarClose;
     // Set once the inner catch below has killed tar and waited for it, so the outer catch (which
@@ -72404,7 +72409,7 @@ async function restoreFromS3Streaming(tier, found, tar, hit) {
             compression: tier.compression.method,
             archivePath: '-',
             workspace: tier.workspace,
-            tempDir: external_node_os_.tmpdir(),
+            tempDir: (0,host/* getHost */.L)().context().tempDir,
         });
         child = spawnArchiveCommand(command, ['pipe', 'ignore', 'pipe']);
         const stderrTail = captureStderrTail(child.stderr);
@@ -73834,7 +73839,8 @@ async function restoreImpl(stateProvider, earlyExit) {
         }
         const failedTiers = [];
         for (const source of restoreOrder(config)) {
-            const outcome = await attempt(source, config, s3);
+            // A rejection counts as a failed tier, so that the other tier still runs.
+            const outcome = await attempt(source, config, s3).catch((err) => ({ kind: 'error', error: (0,outcomes/* toError */.i)(err) }));
             switch (outcome.kind) {
                 case 'hit': {
                     const matchedKey = reportHit(stateProvider, config, source, outcome);
