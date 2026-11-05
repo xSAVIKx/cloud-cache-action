@@ -38,7 +38,7 @@ the full definition (see [Action Metadata Definitions](./getting-started.md#acti
 | `path` | Multiline list of paths, globs and `!` exclusions to cache (see [Paths and exclusions](./getting-started.md#paths-and-exclusions)) | **Yes**, unless `preset` is set | — |
 | `preset` | Package manager preset that gives the default `path`, `key` and `restore-keys`: `npm`, `yarn`, `pnpm`, `bun`, `pip`, `poetry`, `uv`, `gradle`, `maven`, `cargo`, `go` (see [Cache presets](./presets.md)) | No | — |
 | `restore-keys` | Multiline string of prefix keys for fallback matching | No | — |
-| `endpoint` | Custom S3 endpoint URL | No | `AWS_ENDPOINT_URL_S3` or `AWS_ENDPOINT_URL`, else Auto/AWS |
+| `endpoint` | Custom S3 endpoint URL | No | `AWS_ENDPOINT_URL`, then `AWS_ENDPOINT_URL_S3`, else Auto/AWS |
 | `region` | AWS or S3 provider region | No | `AWS_REGION` or `AWS_DEFAULT_REGION`, else Auto/`us-east-1` |
 | `provider` | Preset: `aws`, `r2`, `gcs`, `b2`, `fastly`, `garage`, `seaweedfs`, `minio`, `rustfs` | No | Auto |
 | `access-key` / `accessKey` | S3 Access Key ID | No | `AWS_ACCESS_KEY_ID` |

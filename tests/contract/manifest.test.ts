@@ -410,4 +410,14 @@ ${fn}(true);
       });
     }
   });
+
+  it('documents the endpoint environment variables in the order the code reads them', () => {
+    const order = /`AWS_ENDPOINT_URL`, then `AWS_ENDPOINT_URL_S3`/;
+    for (const file of ['docs/guide/reference.md', 'docs/guide/cli.md']) {
+      const text = readFileSync(path.join(REPO, file), 'utf8');
+      expect({ file, ordered: order.test(text) }).toEqual({ file, ordered: true });
+    }
+    const client = readFileSync(path.join(REPO, 'src/storage/client.ts'), 'utf8');
+    expect(client).toMatch(/'AWS_ENDPOINT_URL',\s*'AWS_ENDPOINT_URL_S3'/);
+  });
 });
