@@ -30,6 +30,27 @@ function statePaths(state: FileStateProvider): string[] | undefined {
 }
 
 /**
+ * Ignores a state file that another workspace or repository wrote. It removes the file, so the
+ * save works as if no restore ran. A file without an owner comes from an older CLI and stays.
+ */
+function dropForeignState(state: FileStateProvider, stateFile: string): void {
+  const workspace = state.getState(State.CliWorkspace);
+  const repository = state.getState(State.CliRepository);
+  if (workspace === '' && repository === '') {
+    return;
+  }
+  const context = getHost().context();
+  if (workspace === context.workspace && repository === context.repository) {
+    return;
+  }
+  getHost().log.warning(
+    `Ignoring the state file ${stateFile}. Restore wrote it for the repository ${repository} in ${workspace}, ` +
+      `not for the repository ${context.repository} in ${context.workspace}.`
+  );
+  state.reset();
+}
+
+/**
  * Save takes the key and the paths from the state that restore wrote, as the action does. A key or
  * paths that the user gives to save and that differ from the state have no effect, so warn.
  */
@@ -134,6 +155,11 @@ async function run(args: CliRun): Promise<void> {
     return;
   }
 
+  // Save trusts the state of the last restore, so a restore must not keep an older state. The
+  // reset comes first, so a usage error in the templates does not leave the old state.
+  if (args.command === 'restore') {
+    new FileStateProvider(args.stateFile).reset();
+  }
   const workspace = host.context().workspace;
   const expanded = await expandKeyInputs(inputs, workspace, (text) => host.log.debug(text));
   Object.assign(inputs, expanded.inputs);
@@ -164,17 +190,24 @@ async function runCommand(args: CliRun): Promise<void> {
   switch (args.command) {
     case 'restore': {
       await checkTar();
-      // Save trusts the state of the last restore, so a restore must not keep an older hit.
       const state = new FileStateProvider(args.stateFile);
-      state.reset();
+      const context = getHost().context();
+      state.setState(State.CliWorkspace, context.workspace);
+      state.setState(State.CliRepository, context.repository);
       await restoreImpl(state, false);
       return;
     }
     case 'save': {
       await checkTar();
       const state = new FileStateProvider(args.stateFile);
-      warnOnStateMismatch(state, args.stateFile);
-      await saveImpl(state);
+      try {
+        dropForeignState(state, args.stateFile);
+        warnOnStateMismatch(state, args.stateFile);
+        await saveImpl(state);
+      } finally {
+        // A later save must not reuse the state of this job.
+        state.reset();
+      }
       return;
     }
     case 'inspect':

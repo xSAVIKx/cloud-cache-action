@@ -158,7 +158,9 @@ Set `CLOUD_CACHE_REF` in every job that uses a scoped cache.
 
 - The default path is `cloud-cache-state.json` in the temporary directory of the OS.
 - Use the same `--state-file` for `restore` and `save` if the two commands run with different `TMPDIR` values.
-- Each `restore` starts with an empty state file. It removes the state of the previous restore.
+- Each `restore` starts with an empty state file. It removes the state of the previous restore. This happens before the CLI expands `{hash:}` templates.
+- `restore` records the workspace and the repository in the state file. If `save` finds a state from another workspace or repository, it prints a warning and ignores that state.
+- `save` removes the state file when it ends. A second `save` does not use the state of the first job.
 - After a `restore`, `save` takes the key and the paths from the state file, not from its flags. If `--key` or `--path` differ from the state, `save` prints a warning that names both values. The state from restore wins.
 - Use one state file for each cache, and for each job that runs at the same time on one machine.
 - If the file does not exist, `save` works as if no restore ran.
