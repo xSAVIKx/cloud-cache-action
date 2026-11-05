@@ -69784,6 +69784,7 @@ const EMPTY_MESSAGES = new Set(['', 'UnknownError', 'Unknown']);
 /** Error names that are not an S3 error code. */
 const GENERIC_NAMES = new Set(['Unknown', 'Error', 'S3ServiceException']);
 const STATUS_TEXT = {
+    301: 'Moved Permanently',
     400: 'Bad Request',
     401: 'Unauthorized',
     403: 'Forbidden',
@@ -69798,6 +69799,7 @@ const STATUS_TEXT = {
     503: 'Service Unavailable',
     504: 'Gateway Timeout',
 };
+const REDIRECT_HINT = 'The bucket is probably in another region. Set the region input to the bucket region. S3 gives this region in the x-amz-bucket-region response header.';
 /** `HTTP 403 Forbidden`, or `HTTP 418` for a status with no known text. */
 function httpStatusText(status) {
     const text = STATUS_TEXT[status];
@@ -69851,6 +69853,9 @@ function s3ErrorMessage(err, request) {
             return `${s3RequestLabel(request)} failed${afterAttempts}: ${message}`;
         }
         return error.message ?? String(err);
+    }
+    if (status === 301 && message === undefined) {
+        return `${s3RequestLabel(request)} returned ${httpStatusText(status)}${afterAttempts}. ${REDIRECT_HINT}`;
     }
     if (status !== 403) {
         return (message ?? `${s3RequestLabel(request)} returned ${httpStatusText(status)}${afterAttempts}`);
@@ -70176,8 +70181,8 @@ function createStorageContext(options) {
         throw new Error('Bucket name is required. Please set "bucket" input or AWS_S3_BUCKET environment variable.');
     }
     const endpointInput = (0,inputUtils/* getInputWithEnv */.oh)(constants/* Inputs */.G0.Endpoint, [
-        'AWS_ENDPOINT_URL',
         'AWS_ENDPOINT_URL_S3',
+        'AWS_ENDPOINT_URL',
     ]);
     const regionInput = (0,inputUtils/* getInputWithEnv */.oh)(constants/* Inputs */.G0.Region, ['AWS_REGION', 'AWS_DEFAULT_REGION']);
     const providerInput = (0,host/* getHost */.L)().input(constants/* Inputs */.G0.Provider);
@@ -70201,6 +70206,10 @@ function createStorageContext(options) {
     };
     if (providerConfig.endpoint) {
         clientConfig.endpoint = providerConfig.endpoint;
+    }
+    else if (providerConfig.provider === 'aws') {
+        // A bucket in another region answers 301. The SDK then repeats the request in the right region.
+        clientConfig.followRegionRedirects = true;
     }
     // Several S3-compatible services reject the CRC checksums the SDK sends by default. On AWS the
     // CRC32 costs about 100 ms of main-thread CPU per 64 MiB part, and the sha256 check on restore
