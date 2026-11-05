@@ -65,13 +65,17 @@ describe('site origin', () => {
 });
 
 /**
- * These run against a real build. Skipped rather than failed when dist/ is
- * absent, so `npm test` on a clean checkout does not require a docs build —
- * but they run in CI, where docs are built.
+ * These run against a real build. Locally they skip when dist/ is absent, so
+ * `npm test` on a clean checkout does not require a docs build. In CI the
+ * checks job builds the docs first, so an absent dist/ fails the suite.
  */
-const describeBuilt = existsSync(DIST) ? describe : describe.skip;
+const describeBuilt = existsSync(DIST) || process.env.CI ? describe : describe.skip;
 
 describeBuilt('built output', () => {
+  it('has a docs build to check', () => {
+    expect(existsSync(DIST)).toBe(true);
+  });
+
   /**
    * Read the constants as text rather than importing: the definition is ESM
    * that Jest's transform will not load, and reading the literal asserts what
