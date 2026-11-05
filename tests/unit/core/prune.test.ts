@@ -168,6 +168,26 @@ describe('pruneCaches', () => {
     ]);
   });
 
+  it('escapes control characters in a listed key before it goes to the log', async () => {
+    const evil = 'octo/app/refs%2Fheads%2Fmain/k\n::error title=injected::x/v1/cache.tar.zst';
+    s3Mock.on(ListObjectsV2Command).resolves({
+      Contents: [object(evil, 100, daysAgo(10))],
+      IsTruncated: false,
+    });
+    s3Mock.on(DeleteObjectCommand).resolves({});
+
+    await pruneCaches(
+      { storage, template: templateFor() },
+      { olderThanDays: 1, ref: MAIN, dryRun: false, now: NOW }
+    );
+
+    const lines = mockInfo.mock.calls.map(([message]) => message);
+    expect(lines.filter((line) => line.includes('\n'))).toEqual([]);
+    expect(lines.some((line) => line.startsWith('Pruned ') && line.includes('k\\n::error'))).toBe(
+      true
+    );
+  });
+
   it('deletes nothing on a dry run', async () => {
     const template = templateFor();
     s3Mock.on(ListObjectsV2Command).resolves({
@@ -752,6 +772,25 @@ describe('pruneCaches stale multipart uploads', () => {
       `Aborted ${MAIN_KEY('old')} (upload ${'id-' + MAIN_KEY('old')}, 30h old)`
     );
     expect(mockInfo).toHaveBeenCalledWith('Aborted 1 incomplete upload(s).');
+  });
+
+  it('escapes control characters in an upload key before it goes to the log', async () => {
+    const evil = 'octo/app/refs%2Fheads%2Fmain/k\n::error title=injected::x/v1/cache.tar.zst';
+    s3Mock.on(ListMultipartUploadsCommand).resolves({
+      Uploads: [upload(evil, hoursAgo(30))],
+      IsTruncated: false,
+    });
+
+    await pruneCaches(
+      { storage, template: templateFor() },
+      { abortUploadsOlderThanHours: 24, ref: MAIN, dryRun: false, now: NOW }
+    );
+
+    const lines = mockInfo.mock.calls.map(([message]) => message);
+    expect(lines.filter((line) => line.includes('\n'))).toEqual([]);
+    expect(lines.some((line) => line.startsWith('Aborted ') && line.includes('k\\n::error'))).toBe(
+      true
+    );
   });
 
   it('warns with the count of the archive uploads it skips because they have no Initiated time', async () => {

@@ -155,6 +155,18 @@ describe('restoreImpl', () => {
     );
   });
 
+  it('escapes control characters in the matched key before it goes to the log', async () => {
+    mockRestoreFromS3.mockResolvedValue(s3Hit('Linux-npm-\n::error title=injected::x', false));
+
+    await restoreImpl(state, false);
+
+    const lines = mockCoreInfo.mock.calls.map(([message]) => message);
+    expect(lines.some((line) => line.includes('\n'))).toBe(false);
+    expect(lines).toContain(
+      'Cache restored from s3 with key: Linux-npm-\\n::error title=injected::x'
+    );
+  });
+
   it('reports a partial hit as cache-hit false', async () => {
     mockRestoreFromS3.mockResolvedValue(s3Hit('Linux-npm-old', false));
     await expect(restoreImpl(state, false)).resolves.toBe('Linux-npm-old');
