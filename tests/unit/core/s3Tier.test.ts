@@ -1268,6 +1268,23 @@ describe('buildS3Tier', () => {
     expect(mockWarning).toHaveBeenCalledTimes(2);
   });
 
+  it('warns when ${ref} shares a path segment with ${key}', async () => {
+    await buildS3Tier(
+      {
+        ...config,
+        s3KeyPattern: '${GITHUB_REPOSITORY}/${ref}-${key}/${version}/${archive_filename}',
+      },
+      env
+    );
+    expect(mockWarning).toHaveBeenCalledTimes(1);
+    expect(mockWarning).toHaveBeenCalledWith(expect.stringContaining('${ref}'));
+  });
+
+  it('does not warn about a shared segment when the pattern keeps ${ref} apart', async () => {
+    await buildS3Tier(config, env);
+    expect(mockWarning).not.toHaveBeenCalled();
+  });
+
   it('rejects a pattern without ${key}', async () => {
     await expect(
       buildS3Tier({ ...config, s3KeyPattern: '${archive_filename}' }, env)

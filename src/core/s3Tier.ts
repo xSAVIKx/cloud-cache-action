@@ -268,6 +268,11 @@ export async function buildS3Tier(
   for (const warning of template.warnings) {
     log.warning(warning);
   }
+  if (scopedToRef && template.scopeProblem(refs.current) === 'ref-shares-segment') {
+    log.warning(
+      's3-key-pattern puts ${ref} in a path segment with other text, so a restore for one ref can match the cache of another ref. Put ${ref} in a path segment of its own.'
+    );
+  }
   // A pattern without ${ref} gives every ref the same object keys; search them only once.
   const usesRef = scopedToRef && template.objectKey('a', '') !== template.objectKey('b', '');
   const compressionLevel = clampCompressionLevel(config.compressionLevel, compression.method);

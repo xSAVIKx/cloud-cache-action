@@ -105,13 +105,13 @@ Object key: `global-rust-toolchain-v1/<version>/cache.tar.zst`
 - uses: xSAVIKx/cloud-cache-action@v1
   with:
     bucket: my-bucket
-    s3-key-pattern: 'builds/${GITHUB_REPOSITORY}/${ref}/${prefix}${key}/${version}.tar.zst'
+    s3-key-pattern: 'builds/${GITHUB_REPOSITORY}/${ref}/${prefix}${key}/${version}/${archive_filename}'
     prefix: release-v1/
     key: app-bundle
     path: dist/
 ```
 
-Object key: `builds/my-org/my-repo/refs%2Fheads%2Fmain/release-v1/app-bundle/<version>.tar.zst`
+Object key: `builds/my-org/my-repo/refs%2Fheads%2Fmain/release-v1/app-bundle/<version>/cache.tar.zst`
 
 ### 4. Per-workload isolated cache
 
@@ -138,5 +138,11 @@ deletes objects whose whole key matches the pattern. Keep `${GITHUB_REPOSITORY}`
 path segments of their own, separated from `${key}` and `${version}` by `/`: when they share a
 segment, keys from other repositories or refs could match, and the prune action refuses to run
 whenever it cannot tell them apart.
+The pattern must also contain `${archive_filename}`. Without it, the prune action refuses to run.
+
+The same segment rule applies to restore. When `${ref}` shares a segment with `${key}`, for example
+`${ref}-${key}`, the branch `main-linux` with key `abc` writes the same object key as the branch
+`main` with key `linux-abc`. A restore for one ref can then hit the cache of the other ref. The
+action writes a warning when it finds this pattern.
 Starting the pattern with `${ref}` also leaves no fixed listing prefix for pruning every ref, so
 set its `ref` input in that case.

@@ -269,6 +269,14 @@ describe('placeholder removal', () => {
     );
   });
 
+  it('never leaves a trailing slash when ${ref} ends the pattern', () => {
+    const pattern = 'cache/${key}/${version}/${archive_filename}/${ref}';
+
+    expect(compileKeyTemplate({ ...base, pattern, scopedToRef: false }).objectKey('', 'k')).toBe(
+      `cache/k/${VERSION}/cache.tar.zst`
+    );
+  });
+
   it('never leaves a doubled slash when ${ref} sits between ${key} and a following segment', () => {
     const pattern = '${key}/${ref}/${archive_filename}';
 
