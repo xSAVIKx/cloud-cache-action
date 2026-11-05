@@ -89,7 +89,10 @@ If you use `tespkg/actions-cache`, Cloud Cache Action gives these differences:
 
 ### Input differences
 
-- All legacy inputs (`bucket`, `endpoint`, `region`, `insecure`, `accessKey`, `secretKey`, `sessionToken`) remain supported for backward compatibility.
+- All legacy inputs (`bucket`, `endpoint`, `region`, `accessKey`, `secretKey`, `sessionToken`) remain supported for backward compatibility.
+- **No `insecure` input**: The action has no `insecure` input. An `endpoint` without a scheme gets `https://`. To use plain HTTP, put `http://` in `endpoint`, for example `endpoint: http://minio.internal:9000`.
+- **No `port` input**: Put the port in `endpoint`. The action has no `port` input.
+- **No `restore-only` input**: Use `read-only: true` instead. The action ignores `restore-only`, so a step with `restore-only: true` saves.
 - Kebab-case aliases are also supported (`access-key`, `secret-key`, `session-token`, `force-path-style`).
 - **Fallback Behavior**: `use-fallback` is `false` by default in Cloud Cache Action, not `true`. If you want automatic GitHub Actions Cache fallback on S3 errors or cache miss, set `use-fallback: true`.
 
