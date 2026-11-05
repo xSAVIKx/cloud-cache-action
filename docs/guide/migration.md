@@ -104,7 +104,7 @@ Use this table when you set up the repository secrets. The [Storage Providers](.
 | **AWS S3 (Static)** | `AWS_ACCESS_KEY_ID`<br>`AWS_SECRET_ACCESS_KEY` | Specify `region` (e.g. `us-east-1`) |
 | **Google Cloud Storage** | `GCS_HMAC_ACCESS_ID`<br>`GCS_HMAC_SECRET` | `https://storage.googleapis.com`<br>*(Requires HMAC key for dedicated Service Account)* |
 | **Backblaze B2** | `B2_KEY_ID`<br>`B2_APPLICATION_KEY` | `https://s3.<region>.backblazeb2.com` |
-| **Fastly Object Storage** | `FASTLY_ACCESS_KEY`<br>`FASTLY_SECRET_KEY` | `https://object.<region>.fastlystorage.com` |
+| **Fastly Object Storage** | `FASTLY_ACCESS_KEY`<br>`FASTLY_SECRET_KEY` | `https://<region>.object.fastlystorage.app` |
 | **Garage** | `GARAGE_ACCESS_KEY`<br>`GARAGE_SECRET_KEY` | `http://garage.internal:3900` |
 | **SeaweedFS** | `SEAWEED_ACCESS_KEY`<br>`SEAWEED_SECRET_KEY` | `http://seaweedfs.internal:8333` |
 | **MinIO** | `MINIO_ACCESS_KEY`<br>`MINIO_SECRET_KEY` | `http://minio.internal:9000`<br>*(Requires `force-path-style: true`)* |
