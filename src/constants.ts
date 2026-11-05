@@ -116,7 +116,6 @@ export enum State {
   CacheTags = 'CACHE_TAGS',
 
   // The CLI state file records the job that wrote it.
-  CliWorkspace = 'CLI_WORKSPACE',
   CliRepository = 'CLI_REPOSITORY',
 
   // Dual-cache state

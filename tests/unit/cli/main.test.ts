@@ -370,15 +370,81 @@ describe('main', () => {
 
     expect(await main(['save', '--key', 'k1', '--path', 'p'])).toBe(0);
     expect(existsSync(stateFile)).toBe(false);
+  });
 
-    // The state goes also when save fails.
+  it('save keeps the state file when save fails, so a retry still has it', async () => {
+    process.env.CLOUD_CACHE_REPOSITORY = 'o/r';
+    const stateFile = join(dir, 'state.json');
     expect(await main(['restore', '--key', 'k1', '--path', 'p'])).toBe(0);
     saveImpl.mockRejectedValueOnce(new Error('boom'));
     expect(await main(['save', '--key', 'k1', '--path', 'p'])).toBe(1);
+    expect(existsSync(stateFile)).toBe(true);
+
+    expect(await main(['save', '--key', 'k1', '--path', 'p'])).toBe(0);
     expect(existsSync(stateFile)).toBe(false);
   });
 
-  it('save ignores the state of another repository or workspace', async () => {
+  it('save keeps the state file when a failed Bitbucket step skips save', async () => {
+    process.env.BITBUCKET_BUILD_NUMBER = '1';
+    process.env.BITBUCKET_EXIT_CODE = '1';
+    const stateFile = join(dir, 'state.json');
+    writeFileSync(stateFile, JSON.stringify({ [State.CachePrimaryKey]: 'k1' }));
+    expect(await main(['save', '--key', 'k1', '--path', 'p'])).toBe(0);
+    expect(saveImpl).not.toHaveBeenCalled();
+    expect(existsSync(stateFile)).toBe(true);
+  });
+
+  it('save keeps a state file without an owner, which an older CLI wrote', async () => {
+    const stateFile = join(dir, 'state.json');
+    writeFileSync(stateFile, JSON.stringify({ [State.CachePrimaryKey]: 'k1' }));
+    const seen: string[] = [];
+    saveImpl.mockImplementation(async (state) => {
+      seen.push(state.getState(State.CachePrimaryKey));
+      return undefined;
+    });
+    expect(await main(['save', '--key', 'k1', '--path', 'p'])).toBe(0);
+    expect(seen).toEqual(['k1']);
+    expect(stderr).not.toContain('Ignoring the state file');
+  });
+
+  it('save warns about a key mismatch, not about a foreign state, for a state of the same job', async () => {
+    process.env.CLOUD_CACHE_REPOSITORY = 'o/r';
+    restoreImpl.mockImplementation(async (state) => {
+      state.setState(State.CachePrimaryKey, 'k1');
+      return undefined;
+    });
+    expect(await main(['restore', '--key', 'k1', '--path', 'p'])).toBe(0);
+    const seen: string[] = [];
+    saveImpl.mockImplementation(async (state) => {
+      seen.push(state.getState(State.CachePrimaryKey));
+      return undefined;
+    });
+    expect(await main(['save', '--key', 'k2', '--path', 'p'])).toBe(0);
+    expect(seen).toEqual(['k1']);
+    expect(stderr).toContain('The key k2 differs from the key k1');
+    expect(stderr).not.toContain('Ignoring the state file');
+  });
+
+  it('save uses the state of restore when it runs in another workspace', async () => {
+    process.env.CLOUD_CACHE_REPOSITORY = 'o/r';
+    process.env.CLOUD_CACHE_WORKSPACE = join(dir, 'wa');
+    restoreImpl.mockImplementation(async (state) => {
+      state.setState(State.CachePrimaryKey, 'k1');
+      return undefined;
+    });
+    expect(await main(['restore', '--key', 'k1', '--path', 'p'])).toBe(0);
+    process.env.CLOUD_CACHE_WORKSPACE = join(dir, 'wa', 'sub');
+    const seen: string[] = [];
+    saveImpl.mockImplementation(async (state) => {
+      seen.push(state.getState(State.CachePrimaryKey));
+      return undefined;
+    });
+    expect(await main(['save', '--key', 'k1', '--path', 'p'])).toBe(0);
+    expect(seen).toEqual(['k1']);
+    expect(stderr).not.toContain('Ignoring the state file');
+  });
+
+  it('save ignores the state of another repository', async () => {
     const stateFile = join(dir, 'state.json');
     process.env.CLOUD_CACHE_REPOSITORY = 'o/a';
     process.env.CLOUD_CACHE_WORKSPACE = join(dir, 'wa');
@@ -400,16 +466,6 @@ describe('main', () => {
     expect(stderr).toContain(`warning: Ignoring the state file ${stateFile}`);
     expect(stderr).not.toContain('differs');
     expect(existsSync(stateFile)).toBe(false);
-
-    // The same repository in another workspace is also another job.
-    expect(await main(['restore', '--key', 'projA-key', '--path', 'data'])).toBe(0);
-    process.env.CLOUD_CACHE_REPOSITORY = 'o/a';
-    process.env.CLOUD_CACHE_WORKSPACE = join(dir, 'wb');
-    stderr = '';
-    seen.length = 0;
-    expect(await main(['save', '--key', 'projB-key', '--path', 'build'])).toBe(0);
-    expect(seen).toEqual(['']);
-    expect(stderr).toContain('Ignoring the state file');
   });
 
   it('restore and save stop on a busybox tar error', async () => {

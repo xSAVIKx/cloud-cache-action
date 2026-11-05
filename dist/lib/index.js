@@ -61283,7 +61283,6 @@ var State;
     State["CacheMetadata"] = "CACHE_METADATA";
     State["CacheTags"] = "CACHE_TAGS";
     // The CLI state file records the job that wrote it.
-    State["CliWorkspace"] = "CLI_WORKSPACE";
     State["CliRepository"] = "CLI_REPOSITORY";
     // Dual-cache state
     State["CacheDualCache"] = "CACHE_DUAL_CACHE";
