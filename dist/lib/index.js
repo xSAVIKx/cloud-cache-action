@@ -70740,6 +70740,17 @@ class ShortPartError extends Error {
         this.name = 'ShortPartError';
     }
 }
+/**
+ * Thrown when a later part comes from a different object than the first part: another job wrote
+ * the key during the download. The bytes of the two objects must not be mixed, so this is not
+ * retried; the caller treats it as a failed restore.
+ */
+class ObjectChangedError extends Error {
+    constructor(bucket, key, detail) {
+        super(`s3://${bucket}/${key}: the object changed during the download (${detail})`);
+        this.name = 'ObjectChangedError';
+    }
+}
 /** Splits `size` bytes into consecutive ranges of at most `partSize` bytes. */
 function planParts(size, partSize) {
     if (!Number.isInteger(size) || size < 0) {
@@ -70758,9 +70769,32 @@ function planParts(size, partSize) {
 function shouldDownloadInParts(size, partSize) {
     return size > partSize;
 }
-/** Fetches one part and checks that the server honoured the range. */
-async function getObjectRange(client, bucket, key, part, signal) {
-    const response = await client.send(new dist_cjs.GetObjectCommand({ Bucket: bucket, Key: key, Range: `bytes=${part.start}-${part.end}` }), { abortSignal: signal });
+/** The total size in a `Content-Range` value such as `bytes 0-9/25`; undefined when unknown. */
+function contentRangeTotal(value) {
+    const match = /\/(\d+)$/.exec(value ?? '');
+    return match ? Number(match[1]) : undefined;
+}
+/**
+ * Fetches one part and checks that the server honoured the range. With `etag` set, the request
+ * carries `IfMatch` and the response must have the same ETag and the expected total size, so every
+ * part comes from the object that the first part came from.
+ */
+async function getObjectRange(client, bucket, key, part, signal, size, etag) {
+    let response;
+    try {
+        response = await client.send(new dist_cjs.GetObjectCommand({
+            Bucket: bucket,
+            Key: key,
+            Range: `bytes=${part.start}-${part.end}`,
+            ...(etag ? { IfMatch: etag } : {}),
+        }), { abortSignal: signal });
+    }
+    catch (err) {
+        if (err.$metadata?.httpStatusCode === 412) {
+            throw new ObjectChangedError(bucket, key, 'the server refused the If-Match condition');
+        }
+        throw err;
+    }
     const body = response.Body;
     if (!body) {
         throw new Error(`Empty response body received from S3 for key: ${key}`);
@@ -70769,12 +70803,21 @@ async function getObjectRange(client, bucket, key, part, signal) {
         body.destroy();
         throw new RangeNotSupportedError(bucket, key);
     }
+    if (etag && response.ETag !== undefined && response.ETag !== etag) {
+        body.destroy();
+        throw new ObjectChangedError(bucket, key, `ETag ${response.ETag} instead of ${etag}`);
+    }
+    const total = contentRangeTotal(response.ContentRange);
+    if (total !== undefined && total !== size) {
+        body.destroy();
+        throw new ObjectChangedError(bucket, key, `size ${total} instead of ${size}`);
+    }
     const expected = part.end - part.start + 1;
     if (response.ContentLength !== undefined && response.ContentLength !== expected) {
         body.destroy();
         throw new Error(`s3://${bucket}/${key} returned ${response.ContentLength} bytes for range ${part.start}-${part.end}; expected ${expected}`);
     }
-    return { body, metadata: response.Metadata, tagCount: response.TagCount };
+    return { body, etag: response.ETag, metadata: response.Metadata, tagCount: response.TagCount };
 }
 /**
  * Feeds one part's body to `sink` chunk by chunk and confirms the byte count. The sink receives
@@ -70813,6 +70856,8 @@ class PartSource {
     controller = new AbortController();
     parts;
     first;
+    /** The ETag of the first part's response; every later request must match it. */
+    etag;
     constructor(client, bucket, key, options) {
         this.client = client;
         this.bucket = bucket;
@@ -70830,7 +70875,8 @@ class PartSource {
     async open() {
         this.first = this.fetch(this.parts[0]);
         try {
-            const { metadata, tagCount } = await this.first;
+            const { metadata, tagCount, etag } = await this.first;
+            this.etag = etag;
             return { metadata, tagCount };
         }
         catch (err) {
@@ -70862,7 +70908,7 @@ class PartSource {
         this.first?.then((response) => response.body.destroy()).catch(() => undefined);
     }
     fetch(part) {
-        return getObjectRange(this.client, this.bucket, this.key, part, this.controller.signal);
+        return getObjectRange(this.client, this.bucket, this.key, part, this.controller.signal, this.options.size, this.etag);
     }
 }
 /**
