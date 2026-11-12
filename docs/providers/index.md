@@ -1,12 +1,12 @@
 ---
 title: Storage Providers
-description: "Compare the 9 storage providers of Cloud Cache Action, from AWS S3 and Cloudflare R2 to self-hosted MinIO: credentials, endpoint, conditional writes, tags."
+description: "Compare the 10 storage providers of Cloud Cache Action, from AWS S3 and Cloudflare R2 to self-hosted MinIO: credentials, endpoint, conditional writes, tags."
 ---
 
 # Storage Providers
 
-Cloud Cache Action stores caches in any S3-compatible bucket. These pages give the set-up for nine
-providers: five cloud services and four self-hosted servers. The table compares them. Each row
+Cloud Cache Action stores caches in any S3-compatible bucket. These pages give the set-up for ten
+providers: five cloud services, four self-hosted servers and one local test target. The table compares them. Each row
 links to the full set-up page.
 
 The action finds the provider, the region and the addressing style from the `endpoint` URL. To
@@ -23,6 +23,7 @@ override the result, set the `provider` input.
 | [SeaweedFS](./seaweedfs.md) (self-hosted) | Identity in `s3.json` | `http://<host>:8333`, with `provider: seaweedfs` | Enforced (verified) | Verified | `prune` cannot abort incomplete uploads on SeaweedFS 4.46. |
 | [MinIO](./minio.md) (self-hosted) | Service account with a bucket policy | `https://<host>:9000`, with `force-path-style: true` | Enforced (verified) | Verified | `prune` finds no incomplete uploads. Use an ILM rule. |
 | [RustFS](./rustfs.md) (self-hosted) | Dedicated user with a bucket policy | `https://<host>:9000`, with `provider: rustfs` | Enforced (verified) | Verified | Without `provider`, the log shows an endpoint on port 9000 as `minio`. |
+| [AWS Emulator](./aws-emulator.md) (local test target) | New keys at each start, read from its credentials file | `https://127.0.0.1:9297`, with `provider: aws-emulator` | Enforced (verified) | Verified | In memory only, and at most 64 MiB in one bucket. For tests, not for real caches. |
 
 "Verified" means that the integration suite or a provider page measured the behavior. "Not
 stated" means that these docs do not give the behavior for that provider. The sources are

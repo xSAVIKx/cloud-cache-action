@@ -244,8 +244,15 @@ jest.unstable_mockModule('../../../src/archive/checksum', () => ({
   createSha256Tap: () => mockCreateSha256Tap(),
 }));
 
-const { buildS3Tier, findS3Match, listCandidates, restoreFromS3, saveToS3, usableMemory } =
-  await import('../../../src/core/s3Tier');
+const {
+  buildS3Tier,
+  capUploadPartSize,
+  findS3Match,
+  listCandidates,
+  restoreFromS3,
+  saveToS3,
+  usableMemory,
+} = await import('../../../src/core/s3Tier');
 const { buildExplainReport } = await import('../../../src/core/explain');
 type S3Tier = Awaited<ReturnType<typeof buildS3Tier>>;
 
@@ -1199,6 +1206,18 @@ describe('buildS3Tier', () => {
     expect(built.template.objectKey(FEATURE, 'k')).toBe(
       `octo/app/refs%2Fheads%2Ffeature/k/${VERSION}/cache.tar.zst`
     );
+  });
+
+  it('caps the upload part size at the provider limit', async () => {
+    mockCreateStorageContext.mockReturnValue({
+      ...storage,
+      providerConfig: {
+        ...storage.providerConfig,
+        provider: 'aws-emulator',
+        maxPartSize: 16 * 1024 * 1024,
+      },
+    } as StorageContext);
+    expect((await buildS3Tier(config, env)).upload.partSize).toBe(16 * 1024 * 1024);
   });
 
   it('sets the tuning only for transfer-tuning: auto', async () => {
@@ -2331,6 +2350,32 @@ describe('saveToS3 streaming failure timing', () => {
   }, 20_000);
 });
 
+describe('capUploadPartSize', () => {
+  const MiB = 1024 * 1024;
+  const emulator = { provider: 'aws-emulator', maxPartSize: 16 * MiB } as const;
+
+  it('keeps the part size for a provider with no limit', () => {
+    expect(capUploadPartSize(64 * MiB, { provider: 'aws' })).toBe(64 * MiB);
+  });
+
+  it('keeps a part size at or below the limit', () => {
+    expect(capUploadPartSize(16 * MiB, emulator, true)).toBe(16 * MiB);
+    expect(mockWarning).not.toHaveBeenCalled();
+  });
+
+  it('caps the default part size with no warning', () => {
+    expect(capUploadPartSize(64 * MiB, emulator)).toBe(16 * MiB);
+    expect(mockWarning).not.toHaveBeenCalled();
+  });
+
+  it('caps an upload-chunk-size that the workflow set, with a warning', () => {
+    expect(capUploadPartSize(32 * MiB, emulator, true)).toBe(16 * MiB);
+    expect(mockWarning).toHaveBeenCalledWith(
+      expect.stringContaining('provider "aws-emulator" accepts in one request')
+    );
+  });
+});
+
 describe('usableMemory', () => {
   const GiB = 1024 * 1024 * 1024;
   it('uses the free memory without a container limit', () => {
@@ -2505,6 +2550,21 @@ describe('restoreFromS3 parallel download', () => {
     await saveToS3(tier({ storage: r2, tuning: noExplicit }), 'k', ['node_modules']);
     const [, , , , settings] = mockUploadFile.mock.calls[0];
     expect(settings).toEqual({ concurrency: 32, partSize: 16 * MiB });
+  });
+
+  it('caps a tuned upload part at the largest request the provider accepts', async () => {
+    mockGetArchiveSize.mockReturnValue(512 * MiB);
+    const emulator = {
+      ...storage,
+      providerConfig: {
+        ...storage.providerConfig,
+        provider: 'aws-emulator',
+        maxPartSize: 16 * MiB,
+      },
+    } as StorageContext;
+    await saveToS3(tier({ storage: emulator, tuning: noExplicit }), 'k', ['node_modules']);
+    const [, , , , settings] = mockUploadFile.mock.calls[0];
+    expect(settings).toMatchObject({ partSize: 16 * MiB });
   });
 
   it('uses one request for an object no larger than a tuned part', async () => {
