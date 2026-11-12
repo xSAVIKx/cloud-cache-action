@@ -9,7 +9,7 @@ import { SITE_ORIGIN } from '../site.mjs';
       <p class="author-text">
         Created by
         <a href="https://serhiichuk.dev" target="_blank" rel="author noopener">Yurii Serhiichuk</a>.
-        <a :href="`${SITE_ORIGIN}/`">More projects</a>
+        <a :href="`${SITE_ORIGIN}/`" target="_self">More projects</a>
       </p>
     </div>
   </footer>
