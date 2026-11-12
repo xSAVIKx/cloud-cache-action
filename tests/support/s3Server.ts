@@ -1,4 +1,10 @@
-import { CreateBucketCommand, S3Client } from '@aws-sdk/client-s3';
+import {
+  CreateBucketCommand,
+  DeleteObjectsCommand,
+  ListObjectsV2Command,
+  S3Client,
+} from '@aws-sdk/client-s3';
+import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 /** Where the integration suite and CI helpers find their S3 server. */
@@ -12,13 +18,43 @@ export interface TestS3Config {
   required: boolean;
 }
 
+/**
+ * Reads the default profile keys from an AWS shared credentials file. The AWS Emulator writes new
+ * keys to such a file at each start, so CI cannot put fixed keys in the workflow.
+ */
+export function readSharedCredentials(
+  file: string
+): { accessKeyId: string; secretAccessKey: string } | undefined {
+  let profile = '';
+  const values: Record<string, string> = {};
+  for (const line of readFileSync(file, 'utf8').split(/\r?\n/)) {
+    const section = line.match(/^\s*\[([^\]]+)\]/);
+    if (section) {
+      profile = section[1].trim();
+      continue;
+    }
+    const pair = line.match(/^\s*([a-z_]+)\s*=\s*(\S+)/);
+    if (pair && profile === 'default') {
+      values[pair[1]] = pair[2];
+    }
+  }
+  const { aws_access_key_id: accessKeyId, aws_secret_access_key: secretAccessKey } = values;
+  return accessKeyId && secretAccessKey ? { accessKeyId, secretAccessKey } : undefined;
+}
+
 export function getTestS3Config(env: NodeJS.ProcessEnv = process.env): TestS3Config {
+  const provider = env.TEST_S3_PROVIDER || 'seaweedfs';
+  const emulatorKeys =
+    provider === 'aws-emulator' && !env.TEST_S3_ACCESS_KEY && env.AWS_SHARED_CREDENTIALS_FILE
+      ? readSharedCredentials(env.AWS_SHARED_CREDENTIALS_FILE)
+      : undefined;
   return {
     endpoint: env.TEST_S3_ENDPOINT || 'http://127.0.0.1:8333',
     region: env.TEST_S3_REGION || 'us-east-1',
-    accessKeyId: env.TEST_S3_ACCESS_KEY || 'cloudcacheci',
-    secretAccessKey: env.TEST_S3_SECRET_KEY || 'cloudcachecisecret',
-    provider: env.TEST_S3_PROVIDER || 'seaweedfs',
+    accessKeyId: env.TEST_S3_ACCESS_KEY || emulatorKeys?.accessKeyId || 'cloudcacheci',
+    secretAccessKey:
+      env.TEST_S3_SECRET_KEY || emulatorKeys?.secretAccessKey || 'cloudcachecisecret',
+    provider,
     bucket: env.TEST_S3_BUCKET || 'cloud-cache-test',
     required: env.REQUIRE_S3 === '1',
   };
@@ -55,6 +91,38 @@ export async function prepareTestBucket(config: TestS3Config): Promise<boolean> 
       );
     }
     return false;
+  } finally {
+    client.destroy();
+  }
+}
+
+/**
+ * Deletes every object under a prefix. A suite calls this in afterAll, so the bucket does not grow
+ * with each run. The AWS Emulator keeps at most 64 MiB of objects in one bucket.
+ */
+export async function deleteTestPrefix(config: TestS3Config, prefix: string): Promise<void> {
+  const client = createTestS3Client(config);
+  try {
+    let token: string | undefined;
+    do {
+      const page = await client.send(
+        new ListObjectsV2Command({
+          Bucket: config.bucket,
+          Prefix: prefix,
+          ContinuationToken: token,
+        })
+      );
+      const keys = (page.Contents ?? []).flatMap((o) => (o.Key ? [{ Key: o.Key }] : []));
+      if (keys.length > 0) {
+        await client.send(
+          new DeleteObjectsCommand({
+            Bucket: config.bucket,
+            Delete: { Objects: keys, Quiet: true },
+          })
+        );
+      }
+      token = page.IsTruncated ? page.NextContinuationToken : undefined;
+    } while (token);
   } finally {
     client.destroy();
   }

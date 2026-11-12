@@ -1,3 +1,6 @@
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { getTestS3Config, prepareTestBucket } from '../../support/s3Server';
 
 describe('test S3 server config', () => {
@@ -32,6 +35,52 @@ describe('test S3 server config', () => {
       provider: 'garage',
       bucket: 'other',
       required: true,
+    });
+  });
+
+  describe('AWS Emulator keys', () => {
+    let dir: string;
+    let file: string;
+    beforeEach(() => {
+      dir = fs.mkdtempSync(path.join(os.tmpdir(), 's3server-'));
+      file = path.join(dir, 'emulator_credentials');
+      fs.writeFileSync(
+        file,
+        [
+          '[other]',
+          'aws_access_key_id = OTHERKEY',
+          'aws_secret_access_key = OTHERSECRET',
+          '[default]',
+          'aws_access_key_id = EMULATOR0123456789AB',
+          'aws_secret_access_key = 0123456789ABCDEF0123456789ABCDEF01234567',
+          '',
+        ].join('\n')
+      );
+    });
+    afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+    it('reads the default profile from the shared credentials file', () => {
+      const config = getTestS3Config({
+        TEST_S3_PROVIDER: 'aws-emulator',
+        AWS_SHARED_CREDENTIALS_FILE: file,
+      });
+      expect(config.accessKeyId).toBe('EMULATOR0123456789AB');
+      expect(config.secretAccessKey).toBe('0123456789ABCDEF0123456789ABCDEF01234567');
+    });
+
+    it('prefers TEST_S3_ACCESS_KEY over the file', () => {
+      const config = getTestS3Config({
+        TEST_S3_PROVIDER: 'aws-emulator',
+        TEST_S3_ACCESS_KEY: 'explicit',
+        TEST_S3_SECRET_KEY: 'explicit-secret',
+        AWS_SHARED_CREDENTIALS_FILE: file,
+      });
+      expect(config.accessKeyId).toBe('explicit');
+    });
+
+    it('ignores the file for any other provider', () => {
+      const config = getTestS3Config({ AWS_SHARED_CREDENTIALS_FILE: file });
+      expect(config.accessKeyId).toBe('cloudcacheci');
     });
   });
 

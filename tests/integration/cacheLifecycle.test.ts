@@ -10,7 +10,7 @@ import {
   type FixtureRoots,
 } from '../support/fixtureTree';
 import { MemoryState } from '../support/memoryState';
-import { getTestS3Config, prepareTestBucket } from '../support/s3Server';
+import { deleteTestPrefix, getTestS3Config, prepareTestBucket } from '../support/s3Server';
 import { makeTempDir, removeDir, setEnv, writeFiles } from '../support/tempTree';
 
 let compression: CompressionConfig = { method: 'gzip', archiveFilename: 'cache.tar.gz' };
@@ -140,6 +140,12 @@ beforeEach(() => {
   compression = { method: 'gzip', archiveFilename: 'cache.tar.gz' };
   // core.setFailed only sets process.exitCode; clear it so one failure cannot fail later tests.
   process.exitCode = undefined;
+});
+
+afterAll(async () => {
+  if (available) {
+    await deleteTestPrefix(s3, `cloud-cache-it/${runId}/`);
+  }
 });
 
 afterEach(() => {

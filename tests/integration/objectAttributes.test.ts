@@ -22,7 +22,12 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { CompressionConfig } from '../../src/archive/compression';
 import { MemoryState } from '../support/memoryState';
-import { createTestS3Client, getTestS3Config, prepareTestBucket } from '../support/s3Server';
+import {
+  createTestS3Client,
+  deleteTestPrefix,
+  getTestS3Config,
+  prepareTestBucket,
+} from '../support/s3Server';
 import { makeTempDir, removeDir, setEnv, writeFiles } from '../support/tempTree';
 
 const compression: CompressionConfig = { method: 'gzip', archiveFilename: 'cache.tar.gz' };
@@ -195,6 +200,12 @@ beforeEach(() => {
     GITHUB_BASE_REF: undefined,
   });
   process.exitCode = undefined;
+});
+
+afterAll(async () => {
+  if (available) {
+    await deleteTestPrefix(s3, `cloud-cache-it/${runId}/`);
+  }
 });
 
 afterEach(() => {

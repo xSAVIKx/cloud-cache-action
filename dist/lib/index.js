@@ -69569,6 +69569,8 @@ function getArchiveSize(archivePath) {
 // EXTERNAL MODULE: ./node_modules/@aws-sdk/client-s3/dist-cjs/index.js
 var dist_cjs = __nccwpck_require__(3711);
 ;// CONCATENATED MODULE: ./src/storage/providers.ts
+/** The AWS Emulator answers HTTP 413 to a PutObject or UploadPart body above 16 MiB (1.0.322). */
+const AWS_EMULATOR_MAX_PART_SIZE = 16 * 1024 * 1024;
 const KNOWN_PROVIDERS = [
     'aws',
     's3',
@@ -69584,6 +69586,7 @@ const KNOWN_PROVIDERS = [
     'seaweed',
     'minio',
     'rustfs',
+    'aws-emulator',
 ];
 function isKnownProvider(name) {
     return KNOWN_PROVIDERS.includes(name.toLowerCase().trim());
@@ -69615,6 +69618,8 @@ function detectProvider(endpointInput, explicitProvider) {
                 return 'minio';
             case 'rustfs':
                 return 'rustfs';
+            case 'aws-emulator':
+                return 'aws-emulator';
             default:
                 return 'generic-s3';
         }
@@ -69643,6 +69648,10 @@ function detectProvider(endpointInput, explicitProvider) {
     }
     if (ep.includes(':8333')) {
         return 'seaweedfs';
+    }
+    // The AWS Emulator serves every AWS API, S3 included, on https://127.0.0.1:9297 by default.
+    if (ep.includes(':9297')) {
+        return 'aws-emulator';
     }
     // RustFS serves S3 on the same default port as MinIO, so the port alone cannot tell them
     // apart; both take the same defaults here. Set `provider: rustfs` to name it in the log.
@@ -69703,6 +69712,13 @@ function resolveProviderDefaults(endpointInput, regionInput, forcePathStyleInput
             if (forcePathStyle === undefined)
                 forcePathStyle = true;
             break;
+        case 'aws-emulator':
+            // The emulator accepts any region but keeps no separate state per region, and it rejects a
+            // bucket name in the host name, so path-style addressing is required.
+            region = region || 'us-east-1';
+            if (forcePathStyle === undefined)
+                forcePathStyle = true;
+            break;
         case 'minio':
         case 'rustfs':
         case 'generic-s3':
@@ -69717,6 +69733,7 @@ function resolveProviderDefaults(endpointInput, regionInput, forcePathStyleInput
         endpoint,
         region,
         forcePathStyle: Boolean(forcePathStyle),
+        ...(provider === 'aws-emulator' ? { maxPartSize: AWS_EMULATOR_MAX_PART_SIZE } : {}),
     };
 }
 
@@ -71568,13 +71585,28 @@ async function buildS3Tier(config, env, options = {}) {
         download: { concurrency: config.downloadConcurrency, partSize: config.downloadChunkSize },
         upload: {
             concurrency: config.uploadConcurrency,
-            partSize: config.uploadChunkSize ?? constants/* Defaults */.Hw.DefaultUploadChunkSize,
+            partSize: capUploadPartSize(config.uploadChunkSize ?? constants/* Defaults */.Hw.DefaultUploadChunkSize, storage.providerConfig, config.explicitTransfer.uploadChunkSize),
         },
         metadata: config.metadata,
         tags: config.tags,
         compressionLevel,
         tuning: config.transferTuning === 'auto' ? config.explicitTransfer : undefined,
     };
+}
+/**
+ * Caps an upload part at the largest request body the provider accepts. With one part per
+ * request, the cap also limits a single-request upload. A part size the workflow set gets a
+ * warning when the cap changes it.
+ */
+function capUploadPartSize(partSize, provider, explicit = false) {
+    const max = provider.maxPartSize;
+    if (max === undefined || partSize <= max) {
+        return partSize;
+    }
+    if (explicit) {
+        log/* log */.R.warning(`Input "upload-chunk-size" is ${(0,inputUtils/* formatSize */.Xq)(partSize)}, above the ${(0,inputUtils/* formatSize */.Xq)(max)} that provider "${provider.provider}" accepts in one request; using ${(0,inputUtils/* formatSize */.Xq)(max)}.`);
+    }
+    return max;
 }
 /**
  * The memory this process can use. `os.freemem()` is MemAvailable on Linux, so it counts the page
@@ -71612,6 +71644,9 @@ function settingsFor(tier, direction, sizeBytes) {
         freeMemoryBytes: (tier.memory ?? usableMemory)(),
         fixed,
     });
+    if (direction === 'upload') {
+        settings.partSize = capUploadPartSize(settings.partSize, tier.storage.providerConfig);
+    }
     log/* log */.R.info(formatTuning(direction, settings, sizeBytes, fixed));
     return settings;
 }
