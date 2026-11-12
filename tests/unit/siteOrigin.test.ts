@@ -124,15 +124,18 @@ describeBuilt('built output', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('generates the three files that used to be copied verbatim', () => {
+  it('generates the two files that used to be copied verbatim', () => {
     const { url } = siteUrl();
     // If these were still copied from public/, they would not contain the
     // current SITE_URL after a hostname change - they would contain the old one.
-    for (const file of ['llms.txt', 'llms-full.txt', 'robots.txt']) {
+    for (const file of ['llms.txt', 'llms-full.txt']) {
       expect(readFileSync(path.join(DIST, file), 'utf8')).toContain(url);
     }
-    expect(readFileSync(path.join(DIST, 'robots.txt'), 'utf8')).toContain(
-      `Sitemap: ${url}sitemap.xml`
-    );
+  });
+
+  it('does not publish a robots.txt under the project path', () => {
+    // Crawlers read robots.txt only at the origin root. The hub repository
+    // generates that file, so a copy here has no effect.
+    expect(existsSync(path.join(DIST, 'robots.txt'))).toBe(false);
   });
 });
