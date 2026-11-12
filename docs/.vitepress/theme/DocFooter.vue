@@ -1,3 +1,7 @@
+<script setup>
+import { SITE_ORIGIN } from '../site.mjs';
+</script>
+
 <template>
   <footer class="vp-doc-footer-attribution">
     <div class="footer-content">
@@ -5,7 +9,7 @@
       <p class="author-text">
         Created by
         <a href="https://serhiichuk.dev" target="_blank" rel="author noopener">Yurii Serhiichuk</a>.
-        <a href="https://xsavikx.github.io/">More projects</a>
+        <a :href="`${SITE_ORIGIN}/`">More projects</a>
       </p>
     </div>
   </footer>
