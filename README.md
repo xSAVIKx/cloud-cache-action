@@ -64,7 +64,7 @@ The [Getting Started](https://xsavikx.github.io/cloud-cache-action/guide/getting
 Paste this prompt into your coding agent, for example Claude Code, Cursor or Copilot:
 
 ```text
-Migrate all GitHub Actions cache steps in this repository to `xSAVIKx/cloud-cache-action@v1`. Discover all workflow files in `.github/workflows/`, replace `actions/cache@*` (and /restore or /save) preserving all keys, paths, and inputs, detect or ask which storage provider (Cloudflare R2, AWS S3, GCS, MinIO) to configure, and provide a checklist of required GitHub Secrets.
+Migrate all GitHub Actions cache steps in this repository to `xSAVIKx/cloud-cache-action@v1`. Discover all workflow files in `.github/workflows/`, replace `actions/cache@*` (and /restore or /save) preserving all keys, paths, and inputs, detect or ask which storage provider to configure (AWS S3, Cloudflare R2, Google Cloud Storage, Backblaze B2, Fastly Object Storage, or a self-hosted Garage, SeaweedFS, MinIO or RustFS), and provide a checklist of required GitHub Secrets.
 ```
 
 The [Migration](https://xsavikx.github.io/cloud-cache-action/guide/migration.html) guide has the full prompt and the secrets that each provider needs.

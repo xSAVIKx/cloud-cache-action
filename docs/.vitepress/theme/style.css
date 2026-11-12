@@ -72,6 +72,8 @@
   --vp-button-brand-bg: #0369a1;
   --vp-button-brand-hover-bg: #075985;
   --vp-button-brand-active-bg: #0c4a6e;
+  /* The default 0.875em gives 12.25 px code blocks, which are small on a phone. */
+  --vp-code-font-size: 0.9375em;
 }
 
 .dark {
