@@ -16,9 +16,14 @@ permissions:
   contents: write
 
 jobs:
-  release:
-    name: Verify release and move the major tag
+  # Runs all repository code: npm ci, the action build and the CLI build. This job has a
+  # read-only token and no OIDC token. The jobs after it get a write token or an OIDC token, and
+  # they do not install dependencies or run repository code.
+  build:
+    name: Build and verify the release
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     env:
       TAG: ${{ inputs.tag_name || github.event.release.tag_name }}
     steps:
@@ -26,9 +31,6 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ env.TAG }}
-          # All history and tags, so the major tag step can find the highest release.
-          fetch-depth: 0
-          # Nothing before the push step gets a token in .git/config.
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -44,7 +46,6 @@ jobs:
             echo "::error::package.json version ($PKG_VERSION) does not match the release tag ($TAG)"
             exit 1
           fi
-          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
       - run: npm run build
       - name: Verify dist is up to date
         run: |
@@ -53,11 +54,42 @@ jobs:
             git status --porcelain dist
             exit 1
           fi
+      - run: npm run build:cli
+      - run: npm run pack:cli
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-build
+          path: |
+            build/cli/cloud-cache.mjs
+            build/npm
+          if-no-files-found: error
+          retention-days: 7
+
+  # Moves the major tag. This job runs no repository code: it checks out the tag and runs only
+  # git commands.
+  release:
+    name: Move the major tag
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ inputs.tag_name || github.event.release.tag_name }}
+    steps:
+      - name: Checkout the release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.TAG }}
+          # All history and tags, so the major tag step can find the highest release.
+          fetch-depth: 0
+          # Nothing before the push step gets a token in .git/config.
+          persist-credentials: false
       - name: Move the major version tag
         if: ${{ !github.event.release.prerelease }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
+          VERSION="${TAG#v}"
           MAJOR="v${VERSION%%.*}"
           RELEASE_SHA="$(git rev-parse HEAD)"
           REMOTE="https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
@@ -73,38 +105,32 @@ jobs:
           git push --force "$REMOTE" "refs/tags/$MAJOR:refs/tags/$MAJOR"
 
   # Attaches the CLI bundle and its checksum to the release. This job runs after the major tag
-  # step, so a CLI failure cannot block the major tag.
+  # job, so a CLI failure cannot block the major tag. It uses the bundle from the build job and
+  # runs no repository code.
   cli-asset:
     name: Attach the CLI to the release
-    needs: release
+    needs: [build, release]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     env:
       TAG: ${{ inputs.tag_name || github.event.release.tag_name }}
     steps:
-      - name: Checkout the release tag
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          ref: ${{ env.TAG }}
-          persist-credentials: false
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 24
-          cache: npm
-      - run: npm ci --ignore-scripts
-      # The build steps get no token. Only the upload step gets one.
-      - run: npm run build:cli
+          name: release-build
+          path: build
       - name: Write the checksum
         working-directory: build/cli
         run: sha256sum cloud-cache.mjs > SHA256SUMS
       - name: Upload the CLI to the release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$TAG" build/cli/cloud-cache.mjs build/cli/SHA256SUMS --clobber
+        run: gh release upload "$TAG" build/cli/cloud-cache.mjs build/cli/SHA256SUMS --clobber --repo "$GITHUB_REPOSITORY"
 
   # Publishes the CLI to npm when the repository variable NPM_PUBLISH is "true".
   # This job has no npm token. It uses npm trusted publishing (OIDC).
+  # It publishes the package that the build job staged, and it runs no repository code.
   # The maintainer must do two manual steps first:
   # 1. Publish the first version of the package by hand.
   # 2. Configure the trusted publisher for the package on npmjs.com. It must name
@@ -112,28 +138,23 @@ jobs:
   #    `release: published` run reports release.yml, and the publish step then fails.
   npm:
     name: Publish the CLI to npm
-    needs: release
+    needs: [build, release]
     if: vars.NPM_PUBLISH == 'true' && !github.event.release.prerelease
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
-    env:
-      TAG: ${{ inputs.tag_name || github.event.release.tag_name }}
     steps:
-      - name: Checkout the release tag
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          ref: ${{ env.TAG }}
-          persist-credentials: false
+          name: release-build
+          path: build
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
-      - run: npm ci --ignore-scripts
-      - run: npm run build:cli
-      - run: npm run pack:cli
       # Trusted publishing needs npm 11.5.1 or later.
       - run: npm install -g npm@^11.5.1
       - run: npm --version
-      - run: npm publish ./build/npm --provenance --access public
+      # The staged package.json has no scripts. --ignore-scripts makes sure that nothing runs.
+      - run: npm publish ./build/npm --provenance --access public --ignore-scripts
