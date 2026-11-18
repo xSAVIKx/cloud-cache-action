@@ -198,7 +198,7 @@ This is the same format as the `GITHUB_OUTPUT` file of GitHub Actions.
 | ---- | -------------------------------------------------------------------------------- |
 | 0    | Success. A cache miss is also success.                                           |
 | 1    | A failure. For example, a required input is missing, `--fail-on-cache-miss=true` with a miss, or a failure with `--dual-cache-strict=true`. |
-| 2    | A usage error. For example, an unknown command or flag.                          |
+| 2    | A usage error. For example, an unknown command or flag, or `--dual-cache` without the GitHub Actions cache service. |
 
 The CLI fails in the same cases in which the action fails the step. A storage error during restore or save is a warning. The exit code is 0.
 
@@ -235,13 +235,10 @@ To save the cache when the build fails, run `cloud-cache save` in a step that al
 
 ## Limits
 
-- `--use-fallback` and `--dual-cache` need the GitHub Actions cache service. The runner gives this service only to JavaScript and container actions. Outside such an action, the service is not available. This is also true for a `run:` step in GitHub Actions. Do not use these flags with the CLI.
-  - The CLI finds out at once that the service is not available. It reads the same variables as `@actions/cache`: `ACTIONS_CACHE_SERVICE_V2`, `ACTIONS_RESULTS_URL`, `ACTIONS_CACHE_URL` and `GITHUB_SERVER_URL`. It does not call the service, and it does not make a second archive.
-  - When the CLI must use the GitHub cache and the service is not available, it prints one warning: `GitHub Actions Cache is not available: ...`.
-  - With `--use-fallback`, a `restore` asks the GitHub cache only after a miss in S3. That `restore` prints the warning and reports a miss.
-  - With `--dual-cache`, a `restore` with the default `--restore-priority=s3-first` asks the GitHub cache only after a miss in S3. With `github-first`, it asks the GitHub cache first. Each time, it prints the warning and continues.
-  - With `--dual-cache`, a `save` writes to S3 and prints the warning for the GitHub cache.
-  - With `--dual-cache` and `--dual-cache-strict=true`, the warning is an error. `restore` or `save` then stops with exit code 1.
-  - CLI versions 1.11.0 and earlier called the service. Each call waited about 10 seconds and then failed.
+- `--use-fallback` and `--dual-cache` need the GitHub Actions cache service. The runner gives this service only to JavaScript and container actions. Outside such an action, the service is not available. This is also true for a `run:` step in GitHub Actions.
+  - The CLI reads the same variables as `@actions/cache` to find out if the service is available: `ACTIONS_CACHE_SERVICE_V2`, `ACTIONS_RESULTS_URL`, `ACTIONS_CACHE_URL` and `GITHUB_SERVER_URL`.
+  - When the service is not available, `restore`, `save` and `inspect` stop with exit code 2 if one of these flags, or its `CLOUD_CACHE_*` env var, is `true`. The value `false` is accepted.
+  - A `save` that the CLI skips after a failed Bitbucket step does not do this check.
+  - CLI versions 1.11.0 and earlier accepted the flags. Each call to the service waited about 10 seconds and then failed with a warning.
 - `--job-summary` has no effect on the generic platform. The CLI does not write a job summary there. On Bitbucket, the CLI prints a plain-text summary.
 - The CLI reads the repository and the refs from the `CLOUD_CACHE_*` context variables. On Bitbucket, it reads the `BITBUCKET_*` variables. See [Bitbucket Pipelines](./bitbucket.md).

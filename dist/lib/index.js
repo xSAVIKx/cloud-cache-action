@@ -61479,6 +61479,7 @@ class NullStateProvider {
 /* harmony export */   q3: () => (/* binding */ getInputAsArray),
 /* harmony export */   q8: () => (/* binding */ getInputAsEnum)
 /* harmony export */ });
+/* unused harmony export TRUE_VALUES */
 /* harmony import */ var _ci_host__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(6068);
 /* harmony import */ var _ci_log__WEBPACK_IMPORTED_MODULE_1__ = __nccwpck_require__(9098);
 
@@ -61490,6 +61491,7 @@ function getInputAsArray(name, options) {
         .map((s) => s.trim())
         .filter((x) => x !== '');
 }
+/** The values that getInputAsBool reads as true. */
 const TRUE_VALUES = ['true', 'True', 'TRUE'];
 const FALSE_VALUES = ['false', 'False', 'FALSE'];
 function getInputAsBool(name, defaultValue = false, options) {

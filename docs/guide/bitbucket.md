@@ -273,6 +273,6 @@ A group with fewer than 10 warm runs, or with mixed step sizes, is not enough da
 
 ## Limits
 
-- `--use-fallback` and `--dual-cache` need the GitHub Actions cache service. It is not available in Bitbucket Pipelines. See [Limits of the CLI](./cli.md#limits).
+- `--use-fallback` and `--dual-cache` need the GitHub Actions cache service. It is not available in Bitbucket Pipelines, so the CLI stops with exit code 2. See [Limits of the CLI](./cli.md#limits).
 - The npm package is not published yet. Use the release asset.
 - The Docker pipe and the binaries that need no Node.js are not available yet.

@@ -10,7 +10,8 @@ export function getInputAsArray(name: string, options?: InputOptions): string[] 
     .filter((x) => x !== '');
 }
 
-const TRUE_VALUES = ['true', 'True', 'TRUE'];
+/** The values that getInputAsBool reads as true. */
+export const TRUE_VALUES: readonly string[] = ['true', 'True', 'TRUE'];
 const FALSE_VALUES = ['false', 'False', 'FALSE'];
 
 export function getInputAsBool(

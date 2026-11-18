@@ -4,11 +4,12 @@ import { GenericHost } from '../ci/generic';
 import { getHost, setHost } from '../ci/host';
 import { FileStateProvider } from '../ci/stateFile';
 import { State } from '../constants';
+import { gitHubCacheServiceProblem } from '../core/cacheMode';
 import { inspectImpl } from '../core/inspectImpl';
 import { pruneImpl } from '../core/pruneImpl';
 import { restoreImpl } from '../core/restoreImpl';
 import { saveImpl } from '../core/saveImpl';
-import { getInputAsArray } from '../utils/inputUtils';
+import { getInputAsArray, TRUE_VALUES } from '../utils/inputUtils';
 import { type CliArgs, type CliRun, parseCliArgs, shortUsage, UsageError, usage } from './args';
 import { INPUT_DEFAULTS } from './defaults';
 import { expandHashTemplates } from './hashTemplate';
@@ -112,6 +113,34 @@ function resolvePlatform(args: CliRun): 'generic' | 'bitbucket' {
   return process.env.BITBUCKET_BUILD_NUMBER ? 'bitbucket' : 'generic';
 }
 
+/** The inputs that need the GitHub Actions cache service. */
+const GITHUB_TIER_INPUTS = ['dual-cache', 'use-fallback'] as const;
+
+/**
+ * Rejects --dual-cache and --use-fallback when the GitHub Actions cache service is not available.
+ * The GitHub tier would only warn on each call, so a usage error tells the user at once.
+ */
+function rejectGitHubTierInputs(command: CliRun['command']): void {
+  const problem = gitHubCacheServiceProblem();
+  if (problem === undefined) {
+    return;
+  }
+  const host = getHost();
+  const set = GITHUB_TIER_INPUTS.filter(
+    (name) => name in INPUT_DEFAULTS[command] && TRUE_VALUES.includes(host.input(name))
+  );
+  if (set.length === 0) {
+    return;
+  }
+  const names = set
+    .map((name) => `--${name} (CLOUD_CACHE_${name.toUpperCase().replace(/-/g, '_')})`)
+    .join(' and ');
+  throw new UsageError(
+    `${names} ${set.length === 1 ? 'needs' : 'need'} the GitHub Actions cache service. ${problem} ` +
+      'Remove the flag and the env var, or set them to false.'
+  );
+}
+
 /** True when the Bitbucket step failed and the user did not ask to save anyway. */
 function skipSave(args: CliRun, platform: string): boolean {
   if (args.command !== 'save' || platform !== 'bitbucket' || args.saveOnFailure) {
@@ -158,6 +187,7 @@ async function run(args: CliRun): Promise<void> {
   for (const glob of expanded.unmatched) {
     host.log.warning(`The {hash:${glob}} template matched no file under ${workspace}.`);
   }
+  rejectGitHubTierInputs(args.command);
 
   const oidc =
     platform === 'bitbucket'

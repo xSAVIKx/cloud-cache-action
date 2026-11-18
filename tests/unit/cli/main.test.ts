@@ -487,4 +487,73 @@ describe('main', () => {
     // The check appends nothing.
     expect(readFileSync(outputsFile, 'utf8')).toBe('');
   });
+
+  describe('GitHub tier inputs without the GitHub cache service', () => {
+    beforeEach(() => {
+      for (const name of [
+        'ACTIONS_CACHE_URL',
+        'ACTIONS_RESULTS_URL',
+        'ACTIONS_CACHE_SERVICE_V2',
+        'GITHUB_SERVER_URL',
+        'CLOUD_CACHE_DUAL_CACHE',
+        'CLOUD_CACHE_USE_FALLBACK',
+      ]) {
+        delete process.env[name];
+      }
+    });
+
+    it.each([
+      ['restore', '--dual-cache'],
+      ['restore', '--use-fallback'],
+      ['save', '--dual-cache=true'],
+      ['inspect', '--use-fallback'],
+    ])('%s %s exits 2', async (command, flag) => {
+      expect(await main([command, flag])).toBe(2);
+      expect(stderr).toContain('needs the GitHub Actions cache service');
+      expect(stderr).toContain('ACTIONS_CACHE_URL is not set (cache service v1)');
+      for (const impl of [restoreImpl, saveImpl, inspectImpl]) {
+        expect(impl).not.toHaveBeenCalled();
+      }
+    });
+
+    it('names both flags when both are set', async () => {
+      expect(await main(['restore', '--dual-cache', '--use-fallback'])).toBe(2);
+      expect(stderr).toContain(
+        '--dual-cache (CLOUD_CACHE_DUAL_CACHE) and --use-fallback (CLOUD_CACHE_USE_FALLBACK) need'
+      );
+    });
+
+    it.each(['true', 'True', 'TRUE'])('rejects the env var value %s', async (value) => {
+      process.env.CLOUD_CACHE_DUAL_CACHE = value;
+      expect(await main(['restore'])).toBe(2);
+      expect(stderr).toContain('CLOUD_CACHE_DUAL_CACHE');
+      expect(restoreImpl).not.toHaveBeenCalled();
+    });
+
+    it('accepts false', async () => {
+      process.env.CLOUD_CACHE_USE_FALLBACK = 'false';
+      expect(await main(['restore', '--dual-cache=false'])).toBe(0);
+      expect(restoreImpl).toHaveBeenCalledTimes(1);
+    });
+
+    it('uses the version-aware rule of @actions/cache', async () => {
+      // Cache service v1 reads ACTIONS_CACHE_URL. ACTIONS_RESULTS_URL alone is not enough.
+      process.env.ACTIONS_RESULTS_URL = 'https://results.example/';
+      expect(await main(['restore', '--dual-cache'])).toBe(2);
+      process.env.ACTIONS_CACHE_SERVICE_V2 = 'true';
+      expect(await main(['restore', '--dual-cache'])).toBe(0);
+      delete process.env.ACTIONS_RESULTS_URL;
+      delete process.env.ACTIONS_CACHE_SERVICE_V2;
+      process.env.ACTIONS_CACHE_URL = 'https://cache.example/';
+      expect(await main(['restore', '--use-fallback'])).toBe(0);
+      expect(restoreImpl).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not reject a Bitbucket save that is skipped after a failed step', async () => {
+      process.env.BITBUCKET_BUILD_NUMBER = '7';
+      process.env.BITBUCKET_EXIT_CODE = '1';
+      expect(await main(['save', '--dual-cache'])).toBe(0);
+      expect(saveImpl).not.toHaveBeenCalled();
+    });
+  });
 });
