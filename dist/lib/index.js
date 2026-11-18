@@ -70344,6 +70344,26 @@ function resolvePartSize(transfer) {
 function resolveQueueSize(transfer) {
     return Math.max(1, transfer?.concurrency ?? constants/* Defaults */.Hw.DefaultUploadConcurrency);
 }
+/** The Node default read size for a file stream. A smaller read is not useful. */
+const MIN_UPLOAD_READ_SIZE = 64 * 1024;
+/** A read larger than this gave almost no more speed in the local benchmark, but more memory. */
+const MAX_UPLOAD_READ_SIZE = 8 * 1024 * 1024;
+/** One part takes this many reads. */
+const READS_PER_PART = 16;
+/**
+ * The read size for the archive file in a file-mode upload: 1/16 of the part size, from 64 KiB
+ * to 8 MiB. The Node default of 64 KiB needs 16384 reads for 1 GiB. On a busy host, each read
+ * waits for the libuv thread pool and for the event loop, and the reads then limit the upload.
+ *
+ * The read size is not the part size, because of how lib-storage cuts parts from a stream. It
+ * cuts a part only when it holds more than one part of data. It then copies the reads into one
+ * buffer, and the part is a view of that buffer. Each part in flight thus holds `partSize` plus
+ * one read. A read of `partSize` would make each part hold two parts of memory. With 1/16, the
+ * memory that `transferTuning.ts` budgets as `(concurrency + 1) * partSize` grows by 1/16.
+ */
+function uploadReadSize(partSize) {
+    return Math.min(MAX_UPLOAD_READ_SIZE, Math.max(MIN_UPLOAD_READ_SIZE, Math.floor(partSize / READS_PER_PART)));
+}
 /**
  * Awaits `upload.done()`. When it rejects after a multipart upload was created, sends
  * AbortMultipartUpload for it before rethrowing the original error, unchanged.
@@ -70421,8 +70441,8 @@ async function getObjectStream(client, bucket, key) {
 }
 async function uploadFile(client, bucket, key, sourcePath, transfer, options) {
     const stats = external_fs_.statSync(sourcePath);
-    const fileStream = external_fs_.createReadStream(sourcePath);
     const partSize = resolvePartSize(transfer);
+    const fileStream = external_fs_.createReadStream(sourcePath, { highWaterMark: uploadReadSize(partSize) });
     const parallelUpload = new lib_storage_dist_cjs/* Upload */._({
         client,
         params: {

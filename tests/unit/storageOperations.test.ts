@@ -26,6 +26,7 @@ import { Readable } from 'stream';
 const s3Mock = mockClient(S3Client);
 /** 5 MiB parts, so a 12 MiB fixture goes through the multipart path. */
 const MULTIPART = { partSize: 5 * 1024 * 1024 };
+const MiB = 1024 * 1024;
 
 describe('Storage Operations', () => {
   let client: S3Client;
@@ -410,6 +411,72 @@ describe('Storage Operations', () => {
       },
       30_000
     );
+
+    it.each([
+      [5 * MiB, 320 * 1024],
+      [16 * MiB, 1 * MiB],
+      [32 * MiB, 2 * MiB],
+      [64 * MiB, 4 * MiB],
+      [128 * MiB, 8 * MiB],
+      [512 * MiB, 8 * MiB],
+      [512 * 1024, 64 * 1024],
+    ])('reads a file with %s-byte parts in reads of %s bytes', async (partSize, readSize) => {
+      const { uploadReadSize } = await import('../../src/storage/operations');
+      expect(uploadReadSize(partSize)).toBe(readSize);
+    });
+
+    it('never reads more than 1/16 of a part at once, for every valid part size', async () => {
+      const { uploadReadSize } = await import('../../src/storage/operations');
+      for (let partSize = 5 * MiB; partSize <= 128 * MiB; partSize += 1024 * 1024 + 7) {
+        expect(uploadReadSize(partSize)).toBeLessThanOrEqual(partSize / 16);
+        expect(uploadReadSize(partSize)).toBeGreaterThan(64 * 1024);
+      }
+    });
+
+    // lib-storage copies the reads of one part, plus the read that went past the part, into one
+    // buffer, and sends a view of it. The buffer behind each part body is thus what a part in
+    // flight holds in memory. The first part shows the read size that uploadFile used.
+    it('holds at most one part plus one read per part in flight', async () => {
+      const { CompleteMultipartUploadCommand, CreateMultipartUploadCommand, UploadPartCommand } =
+        await import('@aws-sdk/client-s3');
+      const { uploadFile, uploadReadSize } = await import('../../src/storage/operations');
+
+      const partSize = 5 * MiB;
+      const concurrency = 3;
+      const readSize = uploadReadSize(partSize);
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-upload-'));
+      const sampleFile = path.join(tempDir, 'large.bin');
+      fs.writeFileSync(sampleFile, Buffer.alloc(8 * partSize + 12345, 'a'));
+      const held: number[] = [];
+      let inFlightBytes = 0;
+      let peakBytes = 0;
+      s3Mock.on(CreateMultipartUploadCommand).resolves({ UploadId: 'upload-1' });
+      s3Mock.on(UploadPartCommand).callsFake(async (input: { Body: Uint8Array }) => {
+        const backing = input.Body.buffer.byteLength;
+        held.push(backing);
+        inFlightBytes += backing;
+        peakBytes = Math.max(peakBytes, inFlightBytes);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        inFlightBytes -= backing;
+        return { ETag: '"part"' };
+      });
+      s3Mock.on(CompleteMultipartUploadCommand).resolves({ ETag: '"multipart"' });
+
+      try {
+        await uploadFile(client, 'test-bucket', 'large-key', sampleFile, {
+          partSize,
+          concurrency,
+        });
+        expect(held).toHaveLength(9);
+        expect(held[0]).toBe(partSize + readSize);
+        for (const bytes of held) {
+          expect(bytes).toBeLessThanOrEqual(partSize + readSize);
+        }
+        expect(peakBytes).toBeLessThanOrEqual(concurrency * (partSize + readSize));
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    }, 30_000);
 
     it('passes metadata and ifNoneMatch through to a single-part PutObject', async () => {
       const { uploadFile } = await import('../../src/storage/operations');
