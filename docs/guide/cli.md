@@ -99,7 +99,7 @@ cloud-cache restore \
 | ---------------------- | --------------------------- | ---------------------------------------------------------------- |
 | `--state-file <path>`  | `CLOUD_CACHE_STATE_FILE`    | The state file. Default: `<tmpdir>/cloud-cache-state.json`.      |
 | `--outputs-file <path>` | `CLOUD_CACHE_OUTPUTS_FILE` | The outputs file. Without it, the CLI only prints the outputs.   |
-| `--debug`              | `CLOUD_CACHE_DEBUG`         | Prints debug messages. The variable accepts `true` or `1`.       |
+| `--debug`              | `CLOUD_CACHE_DEBUG`         | Prints debug messages. The variable accepts `true`, `1`, `false` or `0`, in any case. Other values stop the CLI with exit code 2. |
 | `--help`               |                             | Prints the help text.                                            |
 | `--version`            |                             | Prints the version.                                              |
 
