@@ -57,7 +57,7 @@ restores the cache and never saves. Only a trusted job on the default branch sav
     access-key: ${{ secrets.CACHE_READ_ACCESS_KEY }}
     secret-key: ${{ secrets.CACHE_READ_SECRET_KEY }}
     read-only: true
-    key: ${{ runner.os }}-build-${{ hashFiles('**/lock') }}
+    key: ${{ runner.os }}-build-${{ hashFiles('**/package-lock.json') }}
     path: node_modules
 ```
 

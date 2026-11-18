@@ -103,7 +103,7 @@ names in your repository and the secret names in your workflow must be the same.
     provider: garage
     access-key: ${{ secrets.GARAGE_ACCESS_KEY }}
     secret-key: ${{ secrets.GARAGE_SECRET_KEY }}
-    key: ${{ runner.os }}-build-${{ hashFiles('**/lock') }}
+    key: ${{ runner.os }}-build-${{ hashFiles('**/package-lock.json') }}
     path: build/
 ```
 

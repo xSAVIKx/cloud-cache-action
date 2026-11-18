@@ -104,7 +104,7 @@ names in your repository and the secret names in your workflow must be the same.
     provider: seaweedfs
     access-key: ${{ secrets.SEAWEED_ACCESS_KEY }}
     secret-key: ${{ secrets.SEAWEED_SECRET_KEY }}
-    key: ${{ runner.os }}-build-${{ hashFiles('**/lock') }}
+    key: ${{ runner.os }}-build-${{ hashFiles('**/package-lock.json') }}
     restore-keys: |
       ${{ runner.os }}-build-
     path: build/

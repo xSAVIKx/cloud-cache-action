@@ -163,7 +163,7 @@ For a persistent MinIO server or cluster on private infrastructure (for example,
     access-key: ${{ secrets.MINIO_ACCESS_KEY }}
     secret-key: ${{ secrets.MINIO_SECRET_KEY }}
     force-path-style: true
-    key: ${{ runner.os }}-build-${{ hashFiles('**/lock') }}
+    key: ${{ runner.os }}-build-${{ hashFiles('**/package-lock.json') }}
     path: build/
 ```
 
