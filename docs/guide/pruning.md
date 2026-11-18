@@ -100,7 +100,7 @@ outcome of `pruned`, the pruned byte total, the step's `durationMs`, and the tal
 
 The line is written once the prune has finished, so a step that fails earlier writes none. Writing
 the file is best-effort: a write error only logs `Could not write metrics to <path>: <reason>` and
-never fails the step. See [Metrics and Timings](./getting-started.md#metrics-and-timings) for the
+never fails the step. See [Metrics and Timings](./how-it-works.md#metrics-and-timings) for the
 fields the other steps emit.
 
 ## What gets pruned

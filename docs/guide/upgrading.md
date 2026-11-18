@@ -79,7 +79,7 @@ inputs writes the same object as v1.2 did. Every addition is opt-in:
   that never fail a save.
 - **[Inspecting a cache lookup](./inspecting.md)**: the new `explain` input (default
   `false`) and the new `inspect` sub-action, neither of which changes what a restore does.
-- **[Metrics and timings](./getting-started.md#metrics-and-timings)**: the new `cache-restore-duration-ms`,
+- **[Metrics and timings](./how-it-works.md#metrics-and-timings)**: the new `cache-restore-duration-ms`,
   `cache-save-duration-ms`, `cache-transfer-duration-ms` and `cache-bytes` outputs, set on every
   path, and the new `metrics-file` input (default `""`, which keeps the previous file-free
   behavior).

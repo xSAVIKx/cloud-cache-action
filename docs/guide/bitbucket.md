@@ -211,7 +211,7 @@ The commands `restore`, `save`, and `inspect` print a plain-text summary at the 
 
 ## Metrics
 
-Each command appends one JSON line to a metrics file. On Bitbucket, the default file is `cloud-cache-metrics.jsonl` in the clone directory. Use `--metrics-file` or `CLOUD_CACHE_METRICS_FILE` to change it. For the common fields, read [Metrics and Timings](./getting-started.md#metrics-and-timings).
+Each command appends one JSON line to a metrics file. On Bitbucket, the default file is `cloud-cache-metrics.jsonl` in the clone directory. Use `--metrics-file` or `CLOUD_CACHE_METRICS_FILE` to change it. For the common fields, read [Metrics and Timings](./how-it-works.md#metrics-and-timings).
 
 On Bitbucket, only the `restore` and `save` records have these extra fields. The CLI leaves out a field when it does not know the value.
 

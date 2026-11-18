@@ -306,6 +306,7 @@ export default defineConfig({
         text: 'Reference',
         items: [
           { text: 'Inputs and Outputs', link: '/guide/reference' },
+          { text: 'How It Works', link: '/guide/how-it-works' },
           { text: 'How Caches Are Stored', link: '/guide/storage' },
           { text: 'Comparison', link: '/guide/comparison' },
           { text: 'Changelog', link: '/changelog' },
