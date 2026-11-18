@@ -351,6 +351,38 @@ describe('main', () => {
     expect(stderr).toBe('');
   });
 
+  it('save stops before the upload when it cannot write the outputs file', async () => {
+    const outputsFile = join(dir, 'missing-dir', 'out.env');
+    expect(await main(['save', '--key', 'k', '--path', 'p', '--outputs-file', outputsFile])).toBe(
+      1
+    );
+    expect(stderr).toContain(`error: Cannot write the outputs file ${outputsFile}: `);
+    expect(stderr).toContain('ENOENT');
+    expect(stderr).toContain('Save did not upload the cache.');
+    expect(saveImpl).not.toHaveBeenCalled();
+    expect(checkTar).not.toHaveBeenCalled();
+  });
+
+  it('save stops before the upload when it cannot write the Bitbucket variables file', async () => {
+    process.env.BITBUCKET_BUILD_NUMBER = '7';
+    const variablesFile = join(dir, 'missing-dir', 'variables');
+    process.env.BITBUCKET_PIPELINES_VARIABLES_PATH = variablesFile;
+    expect(await main(['save', '--key', 'k', '--path', 'p'])).toBe(1);
+    expect(stderr).toContain(`error: Cannot write the variables file ${variablesFile}: `);
+    expect(stderr).toContain('ENOENT');
+    expect(saveImpl).not.toHaveBeenCalled();
+  });
+
+  it('save runs when the outputs file can be written', async () => {
+    const outputsFile = join(dir, 'save-out.env');
+    expect(await main(['save', '--key', 'k', '--path', 'p', '--outputs-file', outputsFile])).toBe(
+      0
+    );
+    expect(saveImpl).toHaveBeenCalledTimes(1);
+    // The check appends nothing.
+    expect(readFileSync(outputsFile, 'utf8')).toBe('');
+  });
+
   it('restore and save stop on a busybox tar error', async () => {
     checkTar.mockImplementation(async () => {
       // The check runs after the host is set.

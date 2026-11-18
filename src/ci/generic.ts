@@ -1,10 +1,9 @@
-import { appendFileSync } from 'node:fs';
 import * as os from 'node:os';
 import { refCandidates } from '../core/refs';
 import type { IStateProvider } from '../state';
 import { runnerOs } from './env';
 import type { CiContext, CiHost, CiLogger, InputOptions, SummaryWriter } from './host';
-import { formatOutput } from './outputsFile';
+import { appendToOutputFile, formatOutput } from './outputsFile';
 import { FileStateProvider } from './stateFile';
 
 export interface GenericHostOptions {
@@ -134,12 +133,18 @@ export class GenericHost implements CiHost {
     this.log.info(`${name}=${text}`);
     const file = this.options.outputsFile;
     if (file) {
-      try {
-        appendFileSync(file, formatOutput(name, text));
-      } catch (error) {
-        const reason = error instanceof Error ? error.message : String(error);
-        throw new Error(`Cannot write the outputs file ${file}: ${reason}`, { cause: error });
-      }
+      appendToOutputFile(file, formatOutput(name, text), 'outputs file');
+    }
+  }
+
+  /**
+   * Throws when the CLI cannot write a file that setOutput writes. Save calls it before the
+   * upload, because save handles a later setOutput error as a warning only.
+   */
+  checkOutputFiles(): void {
+    const file = this.options.outputsFile;
+    if (file) {
+      appendToOutputFile(file, '', 'outputs file');
     }
   }
 

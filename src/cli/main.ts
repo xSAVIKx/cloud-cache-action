@@ -56,6 +56,23 @@ function warnOnStateMismatch(state: FileStateProvider, stateFile: string): void 
 }
 
 /**
+ * Save handles an error during the save as a warning, so a failed write of an output would not
+ * fail the command. Check the output files first, and stop before the upload.
+ */
+function checkOutputFiles(): void {
+  const host = getHost();
+  if (!(host instanceof GenericHost)) {
+    return;
+  }
+  try {
+    host.checkOutputFiles();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`${message}. Save did not upload the cache.`, { cause: error });
+  }
+}
+
+/**
  * Expands the {hash:} templates in key and restore-keys. The value comes from the flag, else from
  * the environment. It returns the expanded values and the templates that matched no file.
  */
@@ -171,6 +188,7 @@ async function runCommand(args: CliRun): Promise<void> {
       return;
     }
     case 'save': {
+      checkOutputFiles();
       await checkTar();
       const state = new FileStateProvider(args.stateFile);
       warnOnStateMismatch(state, args.stateFile);

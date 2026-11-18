@@ -170,6 +170,8 @@ The action sets step outputs. The CLI prints each output to the standard output 
 
 With `--outputs-file`, the CLI also appends each output to that file. The directory of the file must exist. If the CLI cannot write the file, the command fails with this error: `Cannot write the outputs file <path>: <reason>`.
 
+`save` checks the outputs file before it uploads the cache. On Bitbucket, it also checks the file in `BITBUCKET_PIPELINES_VARIABLES_PATH`. If the CLI cannot write one of these files, `save` stops with exit code 1 and uploads nothing. The error ends with `Save did not upload the cache.`
+
 A line has the form `name=value`.
 
 ```text
