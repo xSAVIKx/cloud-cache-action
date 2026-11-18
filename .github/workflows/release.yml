@@ -18,7 +18,7 @@ permissions: {}
 jobs:
   # release-please runs after a green CI run on main, but it can tag a commit whose own CI run
   # failed or was cancelled. This job stops the release unless CI Tests passed on a push of the
-  # tagged commit. It checks out nothing and runs no repository code.
+  # tagged commit to main. It checks out nothing and runs no repository code.
   ci-gate:
     name: Require green CI on the tagged commit
     runs-on: ubuntu-latest
@@ -32,9 +32,10 @@ jobs:
       - name: Find a successful CI Tests run for the tagged commit
         run: |
           RELEASE_SHA="$(gh api "repos/$GITHUB_REPOSITORY/commits/$TAG" --jq .sha)"
-          COUNT="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/test.yml/runs?head_sha=$RELEASE_SHA&event=push&status=success" --jq .total_count)"
+          # Count only a green push run of this SHA on main. A release from another branch fails here.
+          COUNT="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/test.yml/runs?head_sha=$RELEASE_SHA&branch=main&event=push&status=success" --jq '[.workflow_runs[] | select(.head_branch == "main")] | length')"
           if [ "$COUNT" = "0" ]; then
-            echo "::error::CI Tests has no successful push run for $TAG ($RELEASE_SHA). Re-run CI for that commit, then re-run this workflow."
+            echo "::error::CI Tests has no successful push run on main for $TAG ($RELEASE_SHA). Re-run CI for that commit, then re-run this workflow."
             exit 1
           fi
           echo "CI Tests passed on $TAG ($RELEASE_SHA): $COUNT successful run(s)."
