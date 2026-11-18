@@ -45,8 +45,13 @@ jobs:
           cache: npm
       - name: Check Cloudflare R2 credentials
         id: check-secrets
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
         run: |
-          if [ -z "${{ secrets.R2_ACCOUNT_ID }}" ] || [ -z "${{ secrets.R2_ACCESS_KEY_ID }}" ] || [ -z "${{ secrets.R2_SECRET_ACCESS_KEY }}" ] || [ -z "${{ secrets.R2_BUCKET }}" ]; then
+          if [ -z "$R2_ACCOUNT_ID" ] || [ -z "$R2_ACCESS_KEY_ID" ] || [ -z "$R2_SECRET_ACCESS_KEY" ] || [ -z "$R2_BUCKET" ]; then
             echo "has_secrets=false" >> "$GITHUB_OUTPUT"
             echo "::notice::Cloudflare R2 secrets are not configured. Skipping the R2 benchmark."
           else
@@ -85,11 +90,12 @@ jobs:
           cache: npm
       - name: Check AWS credentials
         id: check-secrets
+        env:
+          BUCKET: ${{ secrets.AWS_S3_BUCKET || secrets.AWS_BUCKET }}
+          ROLE: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          ACCESS_KEY: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          SECRET_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         run: |
-          BUCKET="${{ secrets.AWS_S3_BUCKET || secrets.AWS_BUCKET }}"
-          ROLE="${{ secrets.AWS_ROLE_TO_ASSUME }}"
-          ACCESS_KEY="${{ secrets.AWS_ACCESS_KEY_ID }}"
-          SECRET_KEY="${{ secrets.AWS_SECRET_ACCESS_KEY }}"
           if [ -z "$BUCKET" ]; then
             echo "has_secrets=false" >> "$GITHUB_OUTPUT"
             echo "::notice::AWS S3 bucket secret is not configured. Skipping the Amazon S3 benchmark."
@@ -141,10 +147,11 @@ jobs:
           cache: npm
       - name: Check Google Cloud Storage credentials
         id: check-secrets
+        env:
+          ACCESS_ID: ${{ secrets.GCS_HMAC_ACCESS_ID || secrets.GCS_ACCESS_KEY_ID }}
+          SECRET_KEY: ${{ secrets.GCS_HMAC_SECRET || secrets.GCS_SECRET_ACCESS_KEY }}
+          BUCKET: ${{ secrets.GCS_BUCKET }}
         run: |
-          ACCESS_ID="${{ secrets.GCS_HMAC_ACCESS_ID || secrets.GCS_ACCESS_KEY_ID }}"
-          SECRET_KEY="${{ secrets.GCS_HMAC_SECRET || secrets.GCS_SECRET_ACCESS_KEY }}"
-          BUCKET="${{ secrets.GCS_BUCKET }}"
           if [ -z "$ACCESS_ID" ] || [ -z "$SECRET_KEY" ] || [ -z "$BUCKET" ]; then
             echo "has_secrets=false" >> "$GITHUB_OUTPUT"
             echo "::notice::Google Cloud Storage secrets are not configured. Skipping the GCS benchmark."
