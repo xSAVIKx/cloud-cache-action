@@ -435,8 +435,10 @@ describe('Storage Operations', () => {
 
     // lib-storage copies the reads of one part, plus the read that went past the part, into one
     // buffer, and sends a view of it. The buffer behind each part body is thus what a part in
-    // flight holds in memory. The first part shows the read size that uploadFile used.
-    it('holds at most one part plus one read per part in flight', async () => {
+    // flight holds in memory. The first part shows the read size that uploadFile used. This test
+    // counts only the parts inside UploadPart. It does not count the part that lib-storage is
+    // collecting at the same time (the "+ 1" in the transfer tuning budget).
+    it('gives each part in flight a buffer of at most one part plus one read', async () => {
       const { CompleteMultipartUploadCommand, CreateMultipartUploadCommand, UploadPartCommand } =
         await import('@aws-sdk/client-s3');
       const { uploadFile, uploadReadSize } = await import('../../src/storage/operations');

@@ -52,19 +52,20 @@ export const ZSTD_WINDOW_LOG: ZstdWindowLog = 30;
 export const ZSTD_LOW_MEMORY_WINDOW_LOG: ZstdWindowLog = 27;
 
 /**
- * The usable memory below which a save uses the 128 MiB window. With the 1 GiB window, zstd held
- * up to 1.14 GB while it compressed a 1.14 GB tar (165 MB with the 128 MiB window). The upload
- * can take a quarter of the usable memory as well. 1.5 GiB leaves about 1.1 GiB for zstd.
+ * The memory below which a save uses the 128 MiB window. The value is the total memory of the
+ * machine, or the container limit when it is lower (see `windowMemory` in `s3Tier.ts`). With the
+ * 1 GiB window, zstd held about 1.1 GiB of memory while it compressed a 1 GiB tar (about
+ * 169 MiB with the 128 MiB window). A machine with less than 1.5 GiB cannot give zstd 1.1 GiB.
  */
 export const ZSTD_WINDOW_MIN_MEMORY = 1.5 * 1024 * 1024 * 1024;
 
 /**
- * The window for a save with `usableMemoryBytes` of usable memory. The restore command always
+ * The window for a save on a machine or container with `memoryBytes` of memory. The restore command always
  * uses `--long=30`, and that decodes an archive with either window. The archive format and the
  * cache version thus stay the same.
  */
-export function zstdWindowLog(usableMemoryBytes: number): ZstdWindowLog {
-  return usableMemoryBytes < ZSTD_WINDOW_MIN_MEMORY ? ZSTD_LOW_MEMORY_WINDOW_LOG : ZSTD_WINDOW_LOG;
+export function zstdWindowLog(memoryBytes: number): ZstdWindowLog {
+  return memoryBytes < ZSTD_WINDOW_MIN_MEMORY ? ZSTD_LOW_MEMORY_WINDOW_LOG : ZSTD_WINDOW_LOG;
 }
 
 const ZSTD_DECOMPRESS = `zstd -d --long=${ZSTD_WINDOW_LOG}`;
@@ -212,7 +213,14 @@ export function buildExtractCommands(plan: ArchivePlan): ArchiveCommand[] {
     return [
       {
         tool: 'zstd',
-        args: ['-d', '--long=30', '--force', '-o', slashes(tarFile), slashes(plan.archivePath)],
+        args: [
+          '-d',
+          `--long=${ZSTD_WINDOW_LOG}`,
+          '--force',
+          '-o',
+          slashes(tarFile),
+          slashes(plan.archivePath),
+        ],
       },
       {
         tool: plan.tar.path,

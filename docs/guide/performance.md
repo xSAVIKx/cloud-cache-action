@@ -231,7 +231,8 @@ transfer time matters, these settings measured best:
 ```
 
 Memory per transfer is concurrency × chunk size: 64 MiB for the default download and 512 MiB for
-the default upload.
+the default upload. A file-mode upload holds up to one file read more per part: 1/16 of the chunk
+size, at most 8 MiB.
 
 ## Compression
 
@@ -242,11 +243,13 @@ invalidates a cache and never changes restore speed.
 ### The zstd window and memory
 
 A zstd save uses `--long=30`, as `actions/cache` does. This long-distance window is 1 GiB. On a
-large cache it gives a much smaller archive, but zstd can then use about 1.1 GB of memory. When
-the usable memory is less than 1.5 GiB, the save uses `--long=27` (a 128 MiB window, about
-170 MB of memory) and logs one line. The archive can then be larger. A restore always
-decompresses with `--long=30`, and that decodes an archive with either window. The cache key
-and the cache version do not change.
+large cache it gives a much smaller archive, but zstd can then use about 1.1 GiB of memory (a
+measurement on a 1 GiB tar). When the machine has less than 1.5 GiB of total memory, or a
+container limit below 1.5 GiB, the save uses `--long=27` (a 128 MiB window, about 169 MiB of
+memory in the same measurement) and logs one line. The free memory does not decide this,
+because macOS reports only a part of the memory that is free to use. The archive can then be
+larger. A restore always decompresses with `--long=30`, and that decodes an archive with either
+window. The cache key and the cache version do not change.
 
 ### Fixtures
 
