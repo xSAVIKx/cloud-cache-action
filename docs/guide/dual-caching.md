@@ -182,7 +182,7 @@ If your team is migrating from `actions/cache` to Cloudflare R2 or AWS S3:
 
 1. Enable `dual-cache: true` with `restore-priority: github-first`.
 2. Existing builds will continue restoring instantly from GitHub Actions Cache.
-3. In the background, `backfill` saves every cache bundle to your S3 bucket.
+3. The post step of each job saves the cache bundle to your S3 bucket (`dual-cache-strategy: backfill`).
 4. Once your S3 bucket is warmed up, switch `restore-priority: s3-first` or turn off dual-cache.
 
 ---

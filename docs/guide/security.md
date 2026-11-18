@@ -32,8 +32,9 @@ any ref in it. Use the policies below to limit what each credential can do.
 ## Pull requests from forks
 
 GitHub does not give repository secrets to a workflow that a fork pull request starts. The action
-then has no credentials, and the S3 tier cannot connect. Use the GitHub cache tier for these runs,
-or accept a cache miss.
+then has no credentials, and the S3 tier cannot connect. Use the GitHub cache tier for these runs
+(`dual-cache: true` or `use-fallback: true`), or accept a cache miss. See
+[Fork and Dependabot pull requests get no S3 cache](./migration.md#fork-and-dependabot-pull-requests-get-no-s3-cache).
 
 > [!WARNING]
 > Do not use `pull_request_target` to restore a cache in a job that runs code from the pull

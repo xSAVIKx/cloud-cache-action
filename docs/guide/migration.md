@@ -6,7 +6,17 @@ description: "Migrate from actions/cache or tespkg/actions-cache to Cloud Cache 
 
 To migrate from `actions/cache` or `tespkg/actions-cache` to Cloud Cache Action, change the `uses:` line and add a bucket and credentials. Keep your `key`, `path` and `restore-keys` inputs. The cache then goes to your S3-compatible bucket, not to the GitHub Actions cache.
 
-This page gives the manual steps first. A prompt for an AI coding agent and a table of the secrets for each provider follow.
+## Migration checklist
+
+1. Create a private bucket. The [Storage Providers](../providers/index.md) pages give the steps.
+2. Add a rule that deletes old caches. The action never deletes a cache. See [Old caches stay in the bucket](#old-caches-stay-in-the-bucket).
+3. Create a key that can read, write and list objects in the bucket. Add its two values as repository secrets. See [Required secrets by provider](#required-secrets-by-provider).
+4. Change the `uses:` line. Add `bucket`, `endpoint` (or `region` for AWS S3) and the two secrets. See [the example](#manual-migration-from-actions-cache-v4-v5-v6).
+5. Run the workflow two times on the default branch. The first run misses and saves. The second run shows a hit in the job summary. See [Check that it works](./getting-started.md#check-that-it-works).
+
+Before you merge the change, read [What changes after the move](#what-changes-after-the-move). It gives three differences from `actions/cache` that cost time or money if you do not plan for them.
+
+The sections below give the details. A prompt for an AI coding agent is at [the end of the steps](#automated-migration-with-ai-coding-agents).
 
 ## Manual migration from `actions/cache` (v4, v5, v6)
 
@@ -18,7 +28,7 @@ Cloud Cache Action has the same inputs and outputs as `actions/cache`. Change th
 - name: Cache dependencies
   uses: actions/cache@v4
   with:
-    path: node_modules
+    path: ~/.npm
     key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
     restore-keys: |
       ${{ runner.os }}-node-
@@ -37,7 +47,7 @@ Cloud Cache Action has the same inputs and outputs as `actions/cache`. Change th
     secret-key: ${{ secrets.S3_SECRET_KEY }}
 
     # 2. Keep all your existing inputs exactly as they are
-    path: node_modules
+    path: ~/.npm
     key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
     restore-keys: |
       ${{ runner.os }}-node-
@@ -46,6 +56,34 @@ Cloud Cache Action has the same inputs and outputs as `actions/cache`. Change th
 All existing features (`lookup-only`, `fail-on-cache-miss`, `enableCrossOsArchive`, `read-only`) continue to work identically. `save-always` is not supported: use `xSAVIKx/cloud-cache-action/save@v1` with `if: always()` instead.
 
 See [Parity with actions/cache](#parity-with-actions-cache) for the behaviour that has no input.
+
+## What changes after the move
+
+### Old caches stay in the bucket
+
+`actions/cache` removes an entry that no job accessed for 7 days. This action never deletes a cache, so the bucket grows until something deletes the objects. Use one of these:
+
+- **A lifecycle rule of the bucket**, for example an expiry after 30 days. Each provider page gives the steps.
+- **The [`prune` sub-action](./pruning.md)** on a schedule, for example with `older-than-days: 30`.
+
+Both use the time of the save, not the time of the last restore. A restore does not change the object. A 30-day rule thus also deletes a cache that jobs restore each day. The next run then misses and saves the cache again. To keep the caches that jobs use, set `keep-latest` together with `older-than-days` on `prune`. `keep-latest` keeps the newest archives of each ref.
+
+### The first run of each key misses
+
+The migration does not copy the entries of the GitHub Actions cache to the bucket. The first run of each key is a cache miss, and that run saves the cache to the bucket.
+
+To keep the GitHub caches during the switch, set `dual-cache: true` and `restore-priority: github-first` for some days. The restore then asks the GitHub Actions cache first, with your `key`, `path` and `restore-keys`. The post step saves each cache to the bucket. In the job summary, the "Source" column shows `github` or `s3` for each hit. See [Dual Caching, use case 3](./dual-caching.md#use-case-3-zero-downtime-migration-from-the-github-cache-to-cloud-storage).
+
+### Fork and Dependabot pull requests get no S3 cache
+
+With `actions/cache`, a pull request from a fork restores the cache of the base branch. GitHub does not give repository secrets to a fork pull request or to a Dependabot pull request. The S3 restore then fails, and the step logs a warning that starts with `Restoring from s3 failed, so it counts as a cache miss`. The job does not fail.
+
+If these pull requests need a cache, use the GitHub Actions cache for them:
+
+- **`dual-cache: true`** saves each cache to the bucket and to the GitHub Actions cache. A run with no secrets gets the warning for the S3 tier, and then restores from the GitHub Actions cache. See [Dual Caching](./dual-caching.md).
+- **`use-fallback: true`** makes a restore ask the GitHub Actions cache after an S3 error or an S3 miss, and makes a save go to the GitHub Actions cache when the S3 save fails. Runs that have the secrets save only to the bucket. A run with no secrets thus finds only the caches that other runs with no secrets saved to the GitHub Actions cache.
+
+Do not put `bucket` in a secret for these runs. An empty `bucket` fails the step, unless one of the two inputs above is set. See [Pull requests from forks](./security.md#pull-requests-from-forks) for the security rules.
 
 ## Parity with actions/cache
 
