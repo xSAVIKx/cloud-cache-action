@@ -57,7 +57,27 @@ cloud-cache <command> [flags]
 | `inspect` | Shows which cache a restore would pick. It downloads nothing. | `xSAVIKx/cloud-cache-action/inspect`   |
 | `prune`   | Deletes old caches.                                         | `xSAVIKx/cloud-cache-action/prune`       |
 
-Run `cloud-cache --help` to see all flags of all commands, with their defaults.
+Run `cloud-cache --help` to see the commands and the flags of the CLI itself.
+
+Run `cloud-cache <command> --help` to see the flags of one command. The help shows the flags in groups: required, storage, cache, transfer and advanced. Each flag has a short description, its default and its environment variable. The descriptions come from the action manifests.
+
+```text
+$ cloud-cache prune --help
+Usage: cloud-cache prune [flags]
+
+Delete old caches.
+...
+Required:
+  --bucket <value>            The S3 bucket name where cache archives are stored. Env:
+                              CLOUD_CACHE_BUCKET, then AWS_S3_BUCKET or S3_BUCKET.
+...
+```
+
+An unknown flag gives a usage error. When a flag of the command has a near name, the error names it:
+
+```text
+error: unknown flag --buket. The nearest flag of restore is --bucket
+```
 
 ## Inputs: flags and environment variables
 
@@ -71,7 +91,7 @@ The CLI reads each input in this order:
 2. The environment variable.
 3. The default value.
 
-The default values are the same as the `default:` values in the action manifest of the command. For the meaning of each input, read [Inputs and Outputs](./reference.md).
+The default values are the same as the `default:` values in the action manifest of the command. For the meaning of each input, run `cloud-cache <command> --help` or read [Inputs and Outputs](./reference.md).
 
 Follow these rules for flag values:
 

@@ -10,8 +10,10 @@ import { restoreImpl } from '../core/restoreImpl';
 import { saveImpl } from '../core/saveImpl';
 import { getInputAsArray } from '../utils/inputUtils';
 import { type CliArgs, type CliRun, parseCliArgs, shortUsage, UsageError, usage } from './args';
+import { toCliWords, useCliWords } from './cliWords';
 import { INPUT_DEFAULTS } from './defaults';
 import { expandHashTemplates } from './hashTemplate';
+import { commandUsage } from './help';
 import { checkTar } from './tarCheck';
 import { CLI_VERSION } from './version';
 
@@ -125,6 +127,7 @@ async function run(args: CliRun): Promise<void> {
       : new GenericHost(options)
   );
   const host = getHost();
+  useCliWords(host.log);
 
   if (skipSave(args, platform)) {
     host.log.info(
@@ -188,7 +191,8 @@ async function runCommand(args: CliRun): Promise<void> {
 
 /** Prints an unexpected error and returns the exit code 1. */
 function reportError(error: unknown): number {
-  process.stderr.write(`error: ${error instanceof Error ? error.message : String(error)}\n`);
+  const message = error instanceof Error ? error.message : String(error);
+  process.stderr.write(`error: ${toCliWords(message)}\n`);
   return 1;
 }
 
@@ -205,7 +209,7 @@ export async function main(argv: string[]): Promise<number> {
     return reportError(error);
   }
   if ('help' in args) {
-    process.stdout.write(usage());
+    process.stdout.write(args.topic ? commandUsage(args.topic) : usage());
     return 0;
   }
   if ('version' in args) {
