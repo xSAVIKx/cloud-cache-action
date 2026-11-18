@@ -43,6 +43,39 @@ describe('parseCliArgs', () => {
     expect(parse(['save', '--debug=false'], { CLOUD_CACHE_DEBUG: 'true' }).debug).toBe(false);
   });
 
+  it('uses the boolean grammar of the action inputs for flags and flag env vars', () => {
+    for (const value of ['true', 'True', 'TRUE']) {
+      expect(parse(['restore', `--lookup-only=${value}`]).inputs['lookup-only']).toBe('true');
+      expect(parse(['save'], { CLOUD_CACHE_DEBUG: value }).debug).toBe(true);
+    }
+    for (const value of ['false', 'False', 'FALSE']) {
+      expect(parse(['restore', `--lookup-only=${value}`]).inputs['lookup-only']).toBe('false');
+      expect(parse(['save', `--debug=${value}`], { CLOUD_CACHE_DEBUG: 'true' }).debug).toBe(false);
+      expect(parse(['save'], { CLOUD_CACHE_ALLOW_REF_OVERRIDE: value }).allowRefOverride).toBe(
+        false
+      );
+    }
+    expect(parse(['save'], { CLOUD_CACHE_DEBUG: '' }).debug).toBe(false);
+  });
+
+  it('rejects an unknown boolean value with a clear error', () => {
+    expect(() => parse(['save', '--save-on-failure=yes'])).toThrow(
+      '--save-on-failure takes true, True, TRUE, false, False or FALSE, not "yes"'
+    );
+    expect(() => parse(['save'], { CLOUD_CACHE_SAVE_ON_FAILURE: 'yes' })).toThrow(
+      'CLOUD_CACHE_SAVE_ON_FAILURE takes true, True, TRUE, false, False or FALSE, not "yes"'
+    );
+    expect(() => parse(['save'], { CLOUD_CACHE_ALLOW_REF_OVERRIDE: 'on' })).toThrow(UsageError);
+    expect(() => parse(['save'], { CLOUD_CACHE_DEBUG: '1' })).toThrow(/CLOUD_CACHE_DEBUG/);
+  });
+
+  it('tells to use "=" when a bare boolean flag is followed by a boolean word', () => {
+    expect(() => parse(['restore', '--lookup-only', 'true'])).toThrow(
+      '--lookup-only takes its value after "=": use --lookup-only=true'
+    );
+    expect(() => parse(['save', '--debug', 'False'])).toThrow('use --debug=False');
+  });
+
   it('env fills a missing flag', () => {
     const fromEnv = parse(['save'], {
       CLOUD_CACHE_STATE_FILE: '/tmp/s.json',
@@ -115,7 +148,7 @@ describe('parseCliArgs', () => {
       CLOUD_CACHE_PLATFORM: 'generic',
       CLOUD_CACHE_ALLOW_REF_OVERRIDE: 'true',
       CLOUD_CACHE_ROLE_ARN: 'arn:env',
-      CLOUD_CACHE_SAVE_ON_FAILURE: '1',
+      CLOUD_CACHE_SAVE_ON_FAILURE: 'TRUE',
     });
     expect(fromEnv.platform).toBe('generic');
     expect(fromEnv.allowRefOverride).toBe(true);

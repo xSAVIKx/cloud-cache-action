@@ -61381,6 +61381,35 @@ class NullStateProvider {
 
 /***/ }),
 
+/***/ 1665:
+/***/ ((__unused_webpack_module, __webpack_exports__, __nccwpck_require__) => {
+
+/* harmony export */ __nccwpck_require__.d(__webpack_exports__, {
+/* harmony export */   y: () => (/* binding */ parseBoolean)
+/* harmony export */ });
+/* unused harmony export BOOLEAN_VALUES_TEXT */
+/**
+ * The one boolean grammar of the action and the CLI. It is the set that the action inputs accept.
+ * Flags, flag env vars and input env vars of the CLI use the same set.
+ */
+const TRUE_VALUES = ['true', 'True', 'TRUE'];
+const FALSE_VALUES = ['false', 'False', 'FALSE'];
+/** The accepted values, for messages. */
+const BOOLEAN_VALUES_TEXT = 'true, True, TRUE, false, False or FALSE';
+/** Gives true or false for an accepted value, and undefined for every other value. */
+function parseBoolean(value) {
+    if (TRUE_VALUES.includes(value)) {
+        return true;
+    }
+    if (FALSE_VALUES.includes(value)) {
+        return false;
+    }
+    return undefined;
+}
+
+
+/***/ }),
+
 /***/ 632:
 /***/ ((__unused_webpack_module, __webpack_exports__, __nccwpck_require__) => {
 
@@ -61399,6 +61428,8 @@ class NullStateProvider {
 /* harmony export */ });
 /* harmony import */ var _ci_host__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(6068);
 /* harmony import */ var _ci_log__WEBPACK_IMPORTED_MODULE_1__ = __nccwpck_require__(9098);
+/* harmony import */ var _bool__WEBPACK_IMPORTED_MODULE_2__ = __nccwpck_require__(1665);
+
 
 
 function getInputAsArray(name, options) {
@@ -61408,18 +61439,14 @@ function getInputAsArray(name, options) {
         .map((s) => s.trim())
         .filter((x) => x !== '');
 }
-const TRUE_VALUES = ['true', 'True', 'TRUE'];
-const FALSE_VALUES = ['false', 'False', 'FALSE'];
 function getInputAsBool(name, defaultValue = false, options) {
     const value = (0,_ci_host__WEBPACK_IMPORTED_MODULE_0__/* .getHost */ .L)().input(name, options).trim();
     if (!value) {
         return defaultValue;
     }
-    if (TRUE_VALUES.includes(value)) {
-        return true;
-    }
-    if (FALSE_VALUES.includes(value)) {
-        return false;
+    const parsed = (0,_bool__WEBPACK_IMPORTED_MODULE_2__/* .parseBoolean */ .y)(value);
+    if (parsed !== undefined) {
+        return parsed;
     }
     _ci_log__WEBPACK_IMPORTED_MODULE_1__/* .log */ .R.warning(`Input "${name}" must be one of true, True, TRUE, false, False, FALSE; got "${value}". Using "${defaultValue}".`);
     return defaultValue;
@@ -72935,6 +72962,8 @@ async function runInspect(earlyExit = true) {
     }
 }
 
+// EXTERNAL MODULE: ./src/utils/bool.ts
+var bool = __nccwpck_require__(1665);
 ;// CONCATENATED MODULE: ./src/core/pruneSelect.ts
 const DAY_MS = 24 * 60 * 60 * 1000;
 const NO_RULE_MESSAGE = 'Set at least one of "older-than-days", "keep-latest", "max-total-size" or "abort-uploads-older-than-hours": prune has no rule to apply.';
@@ -73262,8 +73291,7 @@ async function pruneCaches(tier, options) {
 
 
 
-const TRUE_VALUES = ['true', 'True', 'TRUE'];
-const FALSE_VALUES = ['false', 'False', 'FALSE'];
+
 /**
  * Unlike `getInputAsBool`, which warns and falls back to a default on an unrecognized value,
  * an unrecognized `dry-run` value must fail the step: silently treating it as `false` would
@@ -73273,11 +73301,9 @@ function parseDryRun(raw) {
     if (raw === '') {
         return false;
     }
-    if (TRUE_VALUES.includes(raw)) {
-        return true;
-    }
-    if (FALSE_VALUES.includes(raw)) {
-        return false;
+    const parsed = (0,bool/* parseBoolean */.y)(raw);
+    if (parsed !== undefined) {
+        return parsed;
     }
     throw new Error(`Invalid "dry-run" value "${raw}": use true or false.`);
 }

@@ -1,5 +1,6 @@
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { BOOLEAN_VALUES_TEXT, parseBoolean } from '../utils/bool';
 import { BOOLEAN_INPUTS, type CliCommand, INPUT_DEFAULTS, MULTILINE_INPUTS } from './defaults';
 
 export interface CliRun {
@@ -51,13 +52,11 @@ function isCommand(value: string): value is CliCommand {
 }
 
 function parseBool(flag: string, value: string): boolean {
-  if (value === 'true') {
-    return true;
+  const parsed = parseBoolean(value);
+  if (parsed === undefined) {
+    throw new UsageError(`--${flag} takes ${BOOLEAN_VALUES_TEXT}, not "${value}"`);
   }
-  if (value === 'false') {
-    return false;
-  }
-  throw new UsageError(`--${flag} takes true or false, not "${value}"`);
+  return parsed;
 }
 
 const CLI_BOOLEAN_FLAGS = new Set<string>([
@@ -74,8 +73,17 @@ function parsePlatform(value: string): Platform {
   return found;
 }
 
-function envBool(value: string | undefined): boolean {
-  return value !== undefined && ['true', '1'].includes(value.trim().toLowerCase());
+/** Reads the env var of a boolean CLI flag. Unset or empty is false. Another value is an error. */
+function envBool(env: NodeJS.ProcessEnv, name: string): boolean {
+  const value = env[name]?.trim();
+  if (!value) {
+    return false;
+  }
+  const parsed = parseBoolean(value);
+  if (parsed === undefined) {
+    throw new UsageError(`${name} takes ${BOOLEAN_VALUES_TEXT}, not "${value}"`);
+  }
+  return parsed;
 }
 
 /**
@@ -128,6 +136,10 @@ export function parseCliArgs(argv: string[], env: NodeJS.ProcessEnv = process.en
     ) {
       if (!CLI_BOOLEAN_FLAGS.has(name) && !(name in defaults)) {
         throw unknownFlag(name, command);
+      }
+      const next = rest[i + 1];
+      if (inline === undefined && next !== undefined && parseBoolean(next) !== undefined) {
+        throw new UsageError(`--${name} takes its value after "=": use --${name}=${next}`);
       }
       const value = parseBool(name, inline ?? 'true');
       if (name === CLI_FLAGS.debug) {
@@ -184,12 +196,12 @@ export function parseCliArgs(argv: string[], env: NodeJS.ProcessEnv = process.en
     stateFile:
       stateFile ?? (env.CLOUD_CACHE_STATE_FILE || join(tmpdir(), 'cloud-cache-state.json')),
     outputsFile: outputsFile ?? (env.CLOUD_CACHE_OUTPUTS_FILE || undefined),
-    debug: debug ?? envBool(env.CLOUD_CACHE_DEBUG),
+    debug: debug ?? envBool(env, 'CLOUD_CACHE_DEBUG'),
     platform: parsePlatform(platform ?? (env.CLOUD_CACHE_PLATFORM || 'auto')),
-    allowRefOverride: allowRefOverride ?? envBool(env.CLOUD_CACHE_ALLOW_REF_OVERRIDE),
+    allowRefOverride: allowRefOverride ?? envBool(env, 'CLOUD_CACHE_ALLOW_REF_OVERRIDE'),
     roleArn: roleArn ?? (env.CLOUD_CACHE_ROLE_ARN || undefined),
     saveOnFailure:
-      command === 'save' && (saveOnFailure ?? envBool(env.CLOUD_CACHE_SAVE_ON_FAILURE)),
+      command === 'save' && (saveOnFailure ?? envBool(env, 'CLOUD_CACHE_SAVE_ON_FAILURE')),
   };
 }
 

@@ -75,7 +75,8 @@ The default values are the same as the `default:` values in the action manifest 
 
 Follow these rules for flag values:
 
-- A boolean flag takes `true` or `false`. For example, `--lookup-only=true`. A flag without a value means `true`.
+- A boolean flag takes `true`, `True`, `TRUE`, `false`, `False` or `FALSE`. Put the value after `=`, for example `--lookup-only=true`. A flag without a value means `true`.
+- A boolean environment variable takes the same values. The action inputs also take these values. For an input variable such as `CLOUD_CACHE_LOOKUP_ONLY`, another value gives a warning, and the CLI uses the default. For a variable of a CLI flag, such as `CLOUD_CACHE_DEBUG`, another value is a usage error.
 - Some inputs take one value for each line: `path`, `restore-keys`, `metadata` and `tags`. Repeat the flag for each line. The CLI joins the values with a newline.
 - Put secrets in environment variables, not in flags. A flag is visible in the process list.
 
@@ -97,7 +98,7 @@ cloud-cache restore \
 | ---------------------- | --------------------------- | ---------------------------------------------------------------- |
 | `--state-file <path>`  | `CLOUD_CACHE_STATE_FILE`    | The state file. Default: `<tmpdir>/cloud-cache-state.json`.      |
 | `--outputs-file <path>` | `CLOUD_CACHE_OUTPUTS_FILE` | The outputs file. Without it, the CLI only prints the outputs.   |
-| `--debug`              | `CLOUD_CACHE_DEBUG`         | Prints debug messages. The variable accepts `true` or `1`.       |
+| `--debug`              | `CLOUD_CACHE_DEBUG`         | Prints debug messages.                                           |
 | `--help`               |                             | Prints the help text.                                            |
 | `--version`            |                             | Prints the version.                                              |
 
