@@ -117,24 +117,52 @@ function addPresetLine(preset: string | undefined, paths: readonly string[] | un
 /** The longest error text, in characters, that one `Error:` line shows. */
 export const MAX_ERROR_LENGTH = 1000;
 
+/** A URL scheme starts here only when no scheme character comes before it (a linear match). */
+const SCHEME = String.raw`(?<![a-z0-9+.-])[a-z][a-z0-9+.-]*:\/\/`;
+
+/** `scheme://user:pass@` -> `scheme://`. It takes all text up to the last `@` before the host. */
+const USER_INFO = new RegExp(String.raw`(${SCHEME})[^\s?#]*@`, 'gi');
+
+/** The authority at the end of a cut text, which can hold part of the user info with no `@`. */
+const CUT_AUTHORITY = new RegExp(String.raw`(${SCHEME})[^\s/?#]*$`, 'i');
+
+/** `http(s)://host/path?query` -> `http(s)://host/path?[query removed]`. A quote, `)` or `,` ends it. */
+const QUERY = /(?<![a-z0-9+.-])(https?:\/\/[^\s?#"'),]*)\?[^\s#"'),]*/gi;
+
 /**
- * Makes an error text safe for the summary page. It removes the user info and the query string of
- * each URL (a presigned or SAS URL holds its signature there), and the value of each signature or
- * credential parameter outside a URL. Then it cuts the text to `MAX_ERROR_LENGTH` characters.
+ * A signature or credential parameter or header outside a URL query: `key=value`, `key%3Dvalue`
+ * (percent-encoded, also after an encoded `?` or `&`), or `key: value` (header text). The value ends at white space, `&`, `%26`, a
+ * comma, a quote or `)`.
+ */
+const SECRET_PARAMETER = new RegExp(
+  String.raw`(?:(?<![a-z0-9-])|(?<=%3F|%26|%253F|%2526))(sig|signature|credential|AWSAccessKeyId|X-Amz-Signature|X-Amz-Credential|X-Amz-Security-Token|X-Goog-Signature|X-Goog-Credential)(=|%3D|%253D|:[ \t]*)(?:(?!%26)[^\s&,"')])+`,
+  'gi'
+);
+
+/** The text of an `Authorization:` header, to the end of the line. */
+const AUTHORIZATION_HEADER = /(?<![a-z0-9-])(authorization:)[^\r\n]*/gi;
+
+/**
+ * Makes an error text safe for the summary page. First it cuts the text to `MAX_ERROR_LENGTH`
+ * characters, so that each rule below runs on a short text. Then it removes the user info of each
+ * URL, the query string of each HTTP URL (a presigned or SAS URL holds its signature there), the
+ * value of each signature or credential parameter or header, and the text of an `Authorization:`
+ * header. The rest of the text stays.
  */
 export function redactError(text: string): string {
-  let redacted = text
-    // scheme://user:pass@host -> scheme://host
-    .replace(/\b([a-z][a-z0-9+.-]*:\/\/)[^\s/?#@]+@/gi, '$1')
-    // scheme://host/path?query -> scheme://host/path?[query removed]
-    .replace(/\b([a-z][a-z0-9+.-]*:\/\/[^\s?#]*)\?[^\s#]*/gi, '$1?[query removed]')
-    .replace(
-      /\b(sig|X-Amz-Signature|X-Amz-Credential|X-Amz-Security-Token)=[^\s&]+/gi,
-      '$1=[removed]'
-    );
-  if (redacted.length > MAX_ERROR_LENGTH) {
-    const more = redacted.length - MAX_ERROR_LENGTH;
-    redacted = `${redacted.slice(0, MAX_ERROR_LENGTH)}... (${more} more characters in the log)`;
+  const cut = text.length > MAX_ERROR_LENGTH;
+  let redacted = cut ? text.slice(0, MAX_ERROR_LENGTH) : text;
+  if (cut) {
+    // The cut can end inside the user info of a URL, before its `@`.
+    redacted = redacted.replace(CUT_AUTHORITY, '$1[cut]');
+  }
+  redacted = redacted
+    .replace(USER_INFO, '$1')
+    .replace(QUERY, '$1?[query removed]')
+    .replace(SECRET_PARAMETER, '$1$2[removed]')
+    .replace(AUTHORIZATION_HEADER, '$1 [removed]');
+  if (cut) {
+    redacted += `... (${text.length - MAX_ERROR_LENGTH} more characters in the log)`;
   }
   return redacted;
 }

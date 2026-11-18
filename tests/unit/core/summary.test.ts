@@ -577,6 +577,21 @@ describe('redactError', () => {
     expect(redactError('see s3://token@bucket/key')).toBe('see s3://bucket/key');
   });
 
+  it('removes all of the user info when the password holds a slash or an @', () => {
+    expect(redactError('GET http://AKIA:abc/def+ghi@host:9000/k failed')).toBe(
+      'GET http://host:9000/k failed'
+    );
+    expect(redactError('GET http://key:p@ss@host/k failed')).toBe('GET http://host/k failed');
+  });
+
+  it('removes a part of the user info that the length cut leaves with no @', () => {
+    const text = `${'x'.repeat(MAX_ERROR_LENGTH - 20)} http://AKIA:secretsecretsecret@host/k`;
+    const redacted = redactError(text);
+    expect(redacted).not.toContain('AKIA');
+    expect(redacted).not.toContain('secret');
+    expect(redacted).toContain('http://[cut]...');
+  });
+
   it('removes the query string of a presigned S3 URL', () => {
     expect(
       redactError(
@@ -585,10 +600,22 @@ describe('redactError', () => {
     ).toBe('GET https://b.s3.amazonaws.com/k?[query removed] returned 403');
   });
 
-  it('removes the query string of an Azure SAS URL, and keeps a fragment out of it', () => {
+  it('removes the query string of an Azure SAS URL', () => {
     expect(
       redactError('PUT https://acct.blob.core.windows.net/c/b?sv=2024&sig=abc%3D&se=2026 failed')
     ).toBe('PUT https://acct.blob.core.windows.net/c/b?[query removed] failed');
+  });
+
+  it('keeps a closing quote and a comma after a URL query', () => {
+    expect(redactError('url "https://h/k?sig=abc", then (https://h/k?a=b), end')).toBe(
+      'url "https://h/k?[query removed]", then (https://h/k?[query removed]), end'
+    );
+  });
+
+  it('keeps the text after a ? that is not in an HTTP URL', () => {
+    expect(redactError('HeadObject s3://bucket/key?v=1 returned 404. Is it there? Check it.')).toBe(
+      'HeadObject s3://bucket/key?v=1 returned 404. Is it there? Check it.'
+    );
   });
 
   it('removes signature and credential values outside a URL', () => {
@@ -601,9 +628,48 @@ describe('redactError', () => {
     );
   });
 
+  it('removes Credential= and Signature= of an Authorization header value', () => {
+    expect(
+      redactError(
+        'header AWS4-HMAC-SHA256 Credential=AKIAEXAMPLE/20261118/us-east-1/s3/aws4_request, SignedHeaders=host, Signature=abcdef was rejected'
+      )
+    ).toBe(
+      'header AWS4-HMAC-SHA256 Credential=[removed], SignedHeaders=host, Signature=[removed] was rejected'
+    );
+  });
+
+  it('removes the text of an Authorization header to the end of the line', () => {
+    expect(redactError('request\nAuthorization: AWS AKIA:c2lnbmF0dXJl\nnext line')).toBe(
+      'request\nAuthorization: [removed]\nnext line'
+    );
+  });
+
+  it('removes the value of an x-amz-security-token header', () => {
+    expect(redactError('x-amz-security-token: FwoGZXIvYXdz, host: h')).toBe(
+      'x-amz-security-token: [removed], host: h'
+    );
+  });
+
+  it('removes X-Goog-Signature, X-Goog-Credential and S3 SigV2 values', () => {
+    expect(
+      redactError(
+        'X-Goog-Signature=a1b2 X-Goog-Credential=svc%40p.iam/2026 AWSAccessKeyId=AKIA Signature=xyz%3D'
+      )
+    ).toBe(
+      'X-Goog-Signature=[removed] X-Goog-Credential=[removed] AWSAccessKeyId=[removed] Signature=[removed]'
+    );
+  });
+
+  it('removes percent-encoded signature values', () => {
+    expect(redactError('bad url https%3A%2F%2Fh%2Fk%3Fsig%3Dabc%26se%3D2026 here')).toBe(
+      'bad url https%3A%2F%2Fh%2Fk%3Fsig%3D[removed]%26se%3D2026 here'
+    );
+    expect(redactError('X-Amz-Signature%253Ddeadbeef')).toBe('X-Amz-Signature%253D[removed]');
+  });
+
   it('keeps a message with no URL and no signature as it is', () => {
     const message =
-      'HeadObject s3://ci-cache/k returned HTTP 403 Forbidden. Check access-key, secret-key and region.';
+      'HeadObject s3://ci-cache/k returned HTTP 403 Forbidden. Check access-key, secret-key and region. The request signature we calculated does not match.';
     expect(redactError(message)).toBe(message);
   });
 
@@ -613,5 +679,21 @@ describe('redactError', () => {
       `${'x'.repeat(MAX_ERROR_LENGTH)}... (25 more characters in the log)`
     );
     expect(redactError('x'.repeat(MAX_ERROR_LENGTH))).toBe('x'.repeat(MAX_ERROR_LENGTH));
+  });
+
+  it('redacts a long dotted text quickly', () => {
+    const dotted = 'a.'.repeat(40_000);
+    const started = performance.now();
+    const redacted = redactError(dotted);
+    // The bound is generous, so a loaded host does not make the test fail.
+    expect(performance.now() - started).toBeLessThan(500);
+    expect(redacted.startsWith('a.'.repeat(MAX_ERROR_LENGTH / 2))).toBe(true);
+  });
+
+  it('redacts a dotted text at the limit, with schemes in it, quickly', () => {
+    const text = 'a.a://'.repeat(Math.floor(MAX_ERROR_LENGTH / 6));
+    const started = performance.now();
+    redactError(text);
+    expect(performance.now() - started).toBeLessThan(500);
   });
 });
