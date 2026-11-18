@@ -197,6 +197,13 @@ BusyBox tar is not supported. Install GNU tar and zstd, for example: apk add tar
 
 ## A step is `skipped` and names `ACTIONS_CACHE_MODE`
 
+The log shows one of these lines:
+
+```text
+Cache restore skipped: ACTIONS_CACHE_MODE is 'none', which does not permit reads.
+Cache save skipped: ACTIONS_CACHE_MODE is 'read', which does not permit writes.
+```
+
 **Cause.** GitHub sets `ACTIONS_CACHE_MODE` from the `cache-mode` workflow key. The value `read`
 skips the save, `write-only` skips the restore, and `none` skips both.
 

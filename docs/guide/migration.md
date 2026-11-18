@@ -68,7 +68,7 @@ See [Parity with actions/cache](#parity-with-actions-cache) for the behaviour th
 - **A lifecycle rule of the bucket**, for example an expiry after 30 days. Each provider page gives the steps.
 - **The [`prune` sub-action](./pruning.md)** on a schedule, for example with `older-than-days: 30`.
 
-Both use the time of the save, not the time of the last restore. A restore does not change the object. A 30-day rule thus also deletes a cache that jobs restore each day. The next run then misses and saves the cache again. To keep the caches that jobs use, set `keep-latest` together with `older-than-days` on `prune`. `keep-latest` keeps the newest archives of each ref.
+Both use the time of the save, not the time of the last restore. A restore does not change the object. A 30-day rule thus also deletes a cache that jobs restore each day. The next run then misses and saves the cache again. To protect the newest caches, set `keep-latest: <N>` together with `older-than-days` on `prune`. `keep-latest` never deletes the N most recently saved archives of each ref.
 
 ### The first run of each key misses
 

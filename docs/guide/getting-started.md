@@ -50,7 +50,7 @@ The step restores the cache. A post step saves the cache when the job succeeds, 
 ### Endpoint and region
 
 - **AWS S3:** do not set `endpoint`. Set `region` to the region of the bucket. See [AWS S3](../providers/aws-s3.md#region).
-- **All other providers:** set `endpoint`. The action finds the provider and the region from the endpoint URL. The [Storage Providers](../providers/index.md) table gives the endpoint form of each provider.
+- **All other providers:** set `endpoint`. The action finds the provider from the endpoint URL and sets a default region. You do not need `region`, except for B2 with an unusual endpoint, or when the provider requires a given region. The [Storage Providers](../providers/index.md) table gives the endpoint form of each provider.
 
 ### Explicit path and key
 
