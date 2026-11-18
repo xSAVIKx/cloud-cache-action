@@ -36,3 +36,11 @@ updates:
           - 'patch'
     commit-message:
       prefix: 'ci'
+
+  # Keeps the image tags and digests in docker-compose.test.yml current.
+  - package-ecosystem: 'docker-compose'
+    directory: '/'
+    schedule:
+      interval: 'weekly'
+    commit-message:
+      prefix: 'ci'
