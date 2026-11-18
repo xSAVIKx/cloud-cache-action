@@ -63,6 +63,7 @@ import { formatSize, isExactKeyMatch } from '../utils/inputUtils';
 import { mapWithConcurrency } from '../utils/concurrency';
 import type { CacheConfig, ExplicitTransferInputs } from './config';
 import {
+  baseUploadPartSize,
   budgetConcurrency,
   formatTuning,
   MAX_S3_PART_SIZE,
@@ -364,19 +365,26 @@ function fitUploadPartLimit(
     needed = largest;
   }
   const partSize = Math.max(settings.partSize, needed);
-  // `auto` tuning raises the part size already; a raise from a set value still gets the warning.
-  const from = tier.uploadChunkSizeSet ? tier.upload.partSize : settings.partSize;
+  // `auto` tuning raises the part size already. A raise warns when the workflow controls a value
+  // that changes: the set part size, the fixed default, or a set concurrency.
+  const concurrencySet = tier.tuning === undefined || tier.tuning.uploadConcurrency;
+  const from = tier.uploadChunkSizeSet
+    ? tier.upload.partSize
+    : tier.tuning?.uploadConcurrency
+      ? baseUploadPartSize(sizeBytes, provider)
+      : settings.partSize;
   if (partSize <= from) {
     return partSize === settings.partSize ? settings : { ...settings, partSize };
   }
   const free = (tier.memory ?? usableMemory)();
   const concurrency = Math.min(settings.concurrency, budgetConcurrency(partSize, free));
+  const startConcurrency = concurrencySet ? tier.upload.concurrency : settings.concurrency;
   const source = tier.uploadChunkSizeSet
     ? `Input "upload-chunk-size" is ${formatSize(from)}`
     : `The upload part size is ${formatSize(from)}`;
   const lowered =
-    concurrency < settings.concurrency
-      ? `, ${concurrency} at a time instead of ${settings.concurrency} to stay within the ${formatSize(memoryBudget(free))} memory budget`
+    concurrency < startConcurrency
+      ? `, ${concurrency} at a time instead of ${startConcurrency} to stay within the ${formatSize(memoryBudget(free))} memory budget`
       : '';
   log.warning(
     `${source}, so the ${formatSize(sizeBytes)} archive needs more than ${MAX_UPLOAD_PARTS.toLocaleString('en-US')} parts, the S3 limit; using ${formatSize(partSize)}${lowered}.`

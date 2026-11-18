@@ -2701,6 +2701,44 @@ describe('restoreFromS3 parallel download', () => {
       ]);
     });
 
+    it('lowers a set concurrency when auto raises the part size: 2 TiB', async () => {
+      mockGetArchiveSize.mockReturnValue(2048 * 1024 * MiB);
+      await saveToS3(
+        tier({
+          upload: { concurrency: 32, partSize: 64 * MiB },
+          tuning: { ...noExplicit, uploadConcurrency: true },
+        }),
+        'k',
+        ['node_modules']
+      );
+      const [, , , , settings] = mockUploadFile.mock.calls[0];
+      // 1 GiB budget / 210 MiB parts = 4 parts, one of them read ahead.
+      expect(settings).toEqual({ concurrency: 3, partSize: 210 * MiB });
+      expect(
+        inBudget(settings as unknown as { concurrency: number; partSize: number }, 1024 * MiB)
+      ).toBe(true);
+      expect(mockInfo).toHaveBeenCalledWith(
+        'Transfer tuning: auto selected 3 (lowered from the set 32) x 210 MiB for the upload of 2048.0 GiB'
+      );
+      expect(partLimitWarning()).toEqual([
+        'The upload part size is 32.00 MB, so the 2.00 TB archive needs more than 10,000 parts, the S3 limit; using 210.00 MB, 3 at a time instead of 32 to stay within the 1.00 GB memory budget.',
+      ]);
+    });
+
+    it('keeps a set concurrency in auto when no raise is needed', async () => {
+      mockGetArchiveSize.mockReturnValue(2 * 1024 * MiB);
+      await saveToS3(
+        tier({
+          upload: { concurrency: 32, partSize: 64 * MiB },
+          tuning: { ...noExplicit, uploadConcurrency: true },
+        }),
+        'k',
+        ['node_modules']
+      );
+      expect(mockUploadFile.mock.calls[0][4]).toEqual({ concurrency: 32, partSize: 32 * MiB });
+      expect(partLimitWarning()).toEqual([]);
+    });
+
     it('keeps exactly 10,000 parts, and raises for one byte more', async () => {
       const set = { upload: { concurrency: 8, partSize: 5 * MiB }, uploadChunkSizeSet: true };
       mockGetArchiveSize.mockReturnValue(10_000 * 5 * MiB);

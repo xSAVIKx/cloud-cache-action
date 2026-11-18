@@ -166,6 +166,17 @@ describe('tuneTransfer', () => {
     });
   });
 
+  it('lowers a set upload concurrency only when the 10,000-part limit raises the part size', () => {
+    expect(
+      tuneTransfer(
+        input({ direction: 'upload', sizeBytes: 2048 * GiB, fixed: { concurrency: 32 } })
+      )
+    ).toEqual({ concurrency: 3, partSize: 210 * MiB });
+    expect(
+      tuneTransfer(input({ direction: 'upload', sizeBytes: 2 * GiB, fixed: { concurrency: 32 } }))
+    ).toEqual({ concurrency: 32, partSize: 32 * MiB });
+  });
+
   it('never goes below one transfer at a time', () => {
     expect(tuneTransfer(input({ freeMemoryBytes: 0 })).concurrency).toBe(1);
   });

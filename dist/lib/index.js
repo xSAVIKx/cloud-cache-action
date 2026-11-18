@@ -71054,6 +71054,16 @@ function downloadRule(sizeBytes, partSize = 16 * MiB) {
 function minUploadPartSize(sizeBytes) {
     return Math.ceil(sizeBytes / MAX_UPLOAD_PARTS / MiB) * MiB;
 }
+/** The upload rule before the 10,000-part raise. */
+function baseUploadRule(sizeBytes, provider) {
+    return provider === 'r2' && sizeBytes >= GiB
+        ? { concurrency: 32, partSize: 16 * MiB }
+        : { concurrency: 16, partSize: sizeBytes <= 256 * MiB ? 16 * MiB : 32 * MiB };
+}
+/** The part size of the `auto` upload rule before the 10,000-part raise. */
+function baseUploadPartSize(sizeBytes, provider) {
+    return baseUploadRule(sizeBytes, provider).partSize;
+}
 /**
  * Uploads: 16 at a time, with 16 MiB parts up to 256 MiB and 32 MiB parts above, so a small
  * archive still gets several parts. R2 gained most from more parts in flight on a large archive,
@@ -71061,9 +71071,7 @@ function minUploadPartSize(sizeBytes) {
  * need more than 10,000 parts.
  */
 function uploadRule(sizeBytes, provider) {
-    let settings = provider === 'r2' && sizeBytes >= GiB
-        ? { concurrency: 32, partSize: 16 * MiB }
-        : { concurrency: 16, partSize: sizeBytes <= 256 * MiB ? 16 * MiB : 32 * MiB };
+    let settings = baseUploadRule(sizeBytes, provider);
     const minPartSize = minUploadPartSize(sizeBytes);
     if (minPartSize > settings.partSize) {
         settings = { ...settings, partSize: minPartSize };
@@ -71086,7 +71094,16 @@ function tuneTransfer(input) {
         ? Math.max(input.fixed?.partSize ?? rule.partSize, minUploadPartSize(input.sizeBytes))
         : (input.fixed?.partSize ?? rule.partSize);
     if (input.fixed?.concurrency !== undefined) {
-        return { concurrency: input.fixed.concurrency, partSize };
+        // A set concurrency stays, except when the 10,000-part limit raised the part size: then the
+        // memory budget lowers it, so that the memory does not grow with the archive.
+        const base = input.fixed.partSize ?? baseUploadPartSize(input.sizeBytes, input.provider);
+        const raised = input.direction === 'upload' && minUploadPartSize(input.sizeBytes) > base;
+        return {
+            concurrency: raised
+                ? Math.min(input.fixed.concurrency, budgetConcurrency(partSize, input.freeMemoryBytes))
+                : input.fixed.concurrency,
+            partSize,
+        };
     }
     const fits = budgetConcurrency(partSize, input.freeMemoryBytes);
     return { concurrency: Math.min(rule.concurrency, fits), partSize };
@@ -71111,7 +71128,12 @@ function formatTuning(direction, settings, sizeBytes, fixed = {}) {
     const size = sizeBytes >= GiB
         ? `${(sizeBytes / GiB).toFixed(1)} GiB`
         : `${(sizeBytes / MiB).toFixed(0)} MiB`;
-    const concurrency = `${settings.concurrency}${fixed.concurrency === undefined ? '' : ' (set)'}`;
+    const concurrencyMark = fixed.concurrency === undefined
+        ? ''
+        : settings.concurrency === fixed.concurrency
+            ? ' (set)'
+            : ` (lowered from the set ${fixed.concurrency})`;
+    const concurrency = `${settings.concurrency}${concurrencyMark}`;
     const mark = fixed.partSize === undefined
         ? ''
         : settings.partSize === fixed.partSize
@@ -71644,18 +71666,25 @@ function fitUploadPartLimit(tier, settings, sizeBytes) {
         needed = largest;
     }
     const partSize = Math.max(settings.partSize, needed);
-    // `auto` tuning raises the part size already; a raise from a set value still gets the warning.
-    const from = tier.uploadChunkSizeSet ? tier.upload.partSize : settings.partSize;
+    // `auto` tuning raises the part size already. A raise warns when the workflow controls a value
+    // that changes: the set part size, the fixed default, or a set concurrency.
+    const concurrencySet = tier.tuning === undefined || tier.tuning.uploadConcurrency;
+    const from = tier.uploadChunkSizeSet
+        ? tier.upload.partSize
+        : tier.tuning?.uploadConcurrency
+            ? baseUploadPartSize(sizeBytes, provider)
+            : settings.partSize;
     if (partSize <= from) {
         return partSize === settings.partSize ? settings : { ...settings, partSize };
     }
     const free = (tier.memory ?? usableMemory)();
     const concurrency = Math.min(settings.concurrency, budgetConcurrency(partSize, free));
+    const startConcurrency = concurrencySet ? tier.upload.concurrency : settings.concurrency;
     const source = tier.uploadChunkSizeSet
         ? `Input "upload-chunk-size" is ${(0,inputUtils/* formatSize */.Xq)(from)}`
         : `The upload part size is ${(0,inputUtils/* formatSize */.Xq)(from)}`;
-    const lowered = concurrency < settings.concurrency
-        ? `, ${concurrency} at a time instead of ${settings.concurrency} to stay within the ${(0,inputUtils/* formatSize */.Xq)(memoryBudget(free))} memory budget`
+    const lowered = concurrency < startConcurrency
+        ? `, ${concurrency} at a time instead of ${startConcurrency} to stay within the ${(0,inputUtils/* formatSize */.Xq)(memoryBudget(free))} memory budget`
         : '';
     log/* log */.R.warning(`${source}, so the ${(0,inputUtils/* formatSize */.Xq)(sizeBytes)} archive needs more than ${MAX_UPLOAD_PARTS.toLocaleString('en-US')} parts, the S3 limit; using ${(0,inputUtils/* formatSize */.Xq)(partSize)}${lowered}.`);
     return { concurrency, partSize };
