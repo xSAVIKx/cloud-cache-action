@@ -59,7 +59,7 @@ cloud-cache <command> [flags]
 
 Run `cloud-cache --help` to see the commands and the flags of the CLI itself.
 
-Run `cloud-cache <command> --help` to see the flags of one command. The help shows the flags in groups: required, storage, cache, transfer and advanced. Each flag has a short description, its default and its environment variable. The descriptions come from the action manifests.
+Run `cloud-cache <command> --help` to see the flags of one command. The help shows the flags in groups: required, storage, cache, transfer, advanced, and the CLI flags. Each flag has a short description, its default and its environment variable. The descriptions come from the action manifests. A note marks the flags that work only in GitHub Actions, and tells what some other flags do on the CLI.
 
 ```text
 $ cloud-cache prune --help
@@ -78,6 +78,8 @@ An unknown flag gives a usage error. When a flag of the command has a near name,
 ```text
 error: unknown flag --buket. The nearest flag of restore is --bucket
 ```
+
+The errors and warnings of a command use the names of the action inputs, for example `Input "upload-chunk-size"`. On the CLI, that input is the flag `--upload-chunk-size`.
 
 ## Inputs: flags and environment variables
 

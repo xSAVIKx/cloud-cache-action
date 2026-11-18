@@ -91,15 +91,48 @@ const CONTEXT_ENV_NAMES: ReadonlySet<string> = new Set([
   'CLOUD_CACHE_EVENT_NAME',
 ]);
 
-/** The env vars that the storage client reads after the input. Source: src/storage/client.ts. */
-const FALLBACK_ENV: Record<string, string> = {
-  bucket: 'AWS_S3_BUCKET or S3_BUCKET',
-  endpoint: 'AWS_ENDPOINT_URL or AWS_ENDPOINT_URL_S3',
-  region: 'AWS_REGION or AWS_DEFAULT_REGION',
-  'access-key': 'AWS_ACCESS_KEY_ID',
-  'secret-key': 'AWS_SECRET_ACCESS_KEY',
-  'session-token': 'AWS_SESSION_TOKEN',
+/**
+ * The env vars that the storage client reads after the input, in order. Source:
+ * createStorageContext in src/storage/client.ts. tests/contract/cliHelp.test.ts checks each one.
+ */
+export const FALLBACK_ENV: Readonly<Record<string, readonly string[]>> = {
+  bucket: ['AWS_S3_BUCKET', 'S3_BUCKET'],
+  endpoint: ['AWS_ENDPOINT_URL', 'AWS_ENDPOINT_URL_S3'],
+  region: ['AWS_REGION', 'AWS_DEFAULT_REGION'],
+  'access-key': ['AWS_ACCESS_KEY_ID'],
+  'secret-key': ['AWS_SECRET_ACCESS_KEY'],
+  'session-token': ['AWS_SESSION_TOKEN'],
 };
+
+const GITHUB_ONLY =
+  'GitHub Actions only: the CLI has no GitHub Actions cache service. Do not set it on the CLI.';
+
+/**
+ * A CLI note after the manifest description. The manifest text is written for a GitHub workflow,
+ * so these notes tell what the flag does on the CLI. tests/contract/cliHelp.test.ts checks that
+ * each key is an input.
+ */
+export const CLI_NOTES: Readonly<Record<string, string>> = {
+  'use-fallback': GITHUB_ONLY,
+  'dual-cache': GITHUB_ONLY,
+  'dual-cache-strategy': GITHUB_ONLY,
+  'dual-cache-strict': GITHUB_ONLY,
+  'restore-priority': GITHUB_ONLY,
+  'job-summary':
+    'On the CLI: no effect on the generic platform. On bitbucket, the CLI prints a text summary.',
+  'fail-on-cache-miss': 'On the CLI: exit with code 1 when no key matches.',
+  'read-only':
+    'On the CLI: save uploads nothing. A restore with this flag keeps it in the state file for save.',
+  'scoped-to-repository': 'On the CLI, the repository comes from CLOUD_CACHE_REPOSITORY.',
+  's3-key-pattern': 'On the CLI, ${GITHUB_REPOSITORY} is the value of CLOUD_CACHE_REPOSITORY.',
+  enableCrossOsArchive: 'On the CLI, this applies to a Windows host.',
+};
+
+/** True when a manifest description gives the default value itself, for example "(default: 20)". */
+export function descriptionGivesDefault(description: string, value: string): boolean {
+  const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`\\bdefault:? ${escaped}(?!\\w|\\.\\d)`, 'i').test(description);
+}
 
 /** The env var that an unset input flag reads, or undefined when the flag has none. */
 export function inputEnvName(name: string): string | undefined {
@@ -112,21 +145,35 @@ const COLUMN = 30;
 /** The largest line length. */
 const WIDTH = 100;
 
-/** Wraps a text to lines that start at COLUMN and end before WIDTH. */
+/** The indent of a word that is too long for the description column, such as a key pattern. */
+const LONG_WORD_INDENT = '    ';
+
+/**
+ * Wraps a text to lines that start at COLUMN and end at WIDTH or before. A word that does not fit
+ * in the column gets a line of its own with a smaller indent, so that the word stays whole.
+ */
 function wrap(text: string): string[] {
+  const indent = ' '.repeat(COLUMN);
   const lines: string[] = [];
   let line = '';
+  const flush = () => {
+    if (line !== '') {
+      lines.push(indent + line);
+      line = '';
+    }
+  };
   for (const word of text.split(' ')) {
-    if (line !== '' && COLUMN + line.length + 1 + word.length > WIDTH) {
-      lines.push(line);
+    if (COLUMN + word.length > WIDTH) {
+      flush();
+      lines.push(LONG_WORD_INDENT + word);
+    } else if (line !== '' && COLUMN + line.length + 1 + word.length > WIDTH) {
+      flush();
       line = word;
     } else {
       line = line === '' ? word : `${line} ${word}`;
     }
   }
-  if (line !== '') {
-    lines.push(line);
-  }
+  flush();
   return lines;
 }
 
@@ -134,14 +181,11 @@ function wrap(text: string): string[] {
 function flagLines(form: string, text: string): string[] {
   const head = `  ${form}`;
   const body = wrap(text);
-  const indent = ' '.repeat(COLUMN);
-  if (head.length < COLUMN - 1) {
-    return [
-      `${head.padEnd(COLUMN)}${body[0] ?? ''}`.trimEnd(),
-      ...body.slice(1).map((l) => indent + l),
-    ];
+  const first = body[0];
+  if (head.length < COLUMN - 1 && first?.startsWith(' '.repeat(COLUMN))) {
+    return [`${head.padEnd(COLUMN)}${first.slice(COLUMN)}`, ...body.slice(1)];
   }
-  return [head, ...body.map((l) => indent + l)];
+  return [head, ...body];
 }
 
 function sentence(text: string): string {
@@ -152,15 +196,16 @@ function sentence(text: string): string {
 export function inputFlagText(command: CliCommand, name: string): string {
   const description = FLAG_DESCRIPTIONS[command][name] ?? '';
   const parts = [sentence(description)];
+  const note = CLI_NOTES[name];
+  if (note !== undefined) {
+    parts.push(note);
+  }
   if (MULTILINE_INPUTS.has(name)) {
     parts.push('Repeatable.');
   }
   // Some descriptions give the default already, for example "(default: true)".
   const value = INPUT_DEFAULTS[command][name];
-  const given =
-    description.toLowerCase().includes(`default: ${value}`.toLowerCase()) ||
-    description.toLowerCase().includes(`default ${value}`.toLowerCase());
-  if (value !== undefined && value !== '' && !given) {
+  if (value !== undefined && value !== '' && !descriptionGivesDefault(description, value)) {
     parts.push(`Default: ${value}.`);
   }
   const env = inputEnvName(name);
@@ -168,7 +213,7 @@ export function inputFlagText(command: CliCommand, name: string): string {
   if (env === undefined) {
     parts.push('Env: none.');
   } else {
-    parts.push(`Env: ${env}${fallback ? `, then ${fallback}` : ''}.`);
+    parts.push(`Env: ${env}${fallback ? `, then ${fallback.join(' or ')}` : ''}.`);
   }
   return parts.join(' ');
 }

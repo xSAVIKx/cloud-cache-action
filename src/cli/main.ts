@@ -10,7 +10,6 @@ import { restoreImpl } from '../core/restoreImpl';
 import { saveImpl } from '../core/saveImpl';
 import { getInputAsArray } from '../utils/inputUtils';
 import { type CliArgs, type CliRun, parseCliArgs, shortUsage, UsageError, usage } from './args';
-import { toCliWords, useCliWords } from './cliWords';
 import { INPUT_DEFAULTS } from './defaults';
 import { expandHashTemplates } from './hashTemplate';
 import { commandUsage } from './help';
@@ -127,7 +126,6 @@ async function run(args: CliRun): Promise<void> {
       : new GenericHost(options)
   );
   const host = getHost();
-  useCliWords(host.log);
 
   if (skipSave(args, platform)) {
     host.log.info(
@@ -191,8 +189,7 @@ async function runCommand(args: CliRun): Promise<void> {
 
 /** Prints an unexpected error and returns the exit code 1. */
 function reportError(error: unknown): number {
-  const message = error instanceof Error ? error.message : String(error);
-  process.stderr.write(`error: ${toCliWords(message)}\n`);
+  process.stderr.write(`error: ${error instanceof Error ? error.message : String(error)}\n`);
   return 1;
 }
 

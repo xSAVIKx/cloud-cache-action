@@ -1,8 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 import { usage } from '../../../src/cli/args';
-import { toCliWords } from '../../../src/cli/cliWords';
 import { editDistance, nearestFlag } from '../../../src/cli/flagHint';
-import { COMMAND_SUMMARIES, commandUsage } from '../../../src/cli/help';
+import { COMMAND_SUMMARIES, commandUsage, inputFlagText } from '../../../src/cli/help';
 
 describe('commandUsage', () => {
   it('prints the purpose, the groups and the CLI flags of restore', () => {
@@ -39,14 +38,25 @@ describe('commandUsage', () => {
     expect(text).toContain('Exit codes: 0 success, 1 failure, 2 usage error.');
   });
 
-  it('keeps each line at 100 characters or fewer, except an unbreakable word', () => {
+  it('keeps each line at 100 characters or fewer', () => {
     for (const command of ['restore', 'save', 'inspect', 'prune'] as const) {
       for (const line of commandUsage(command).split('\n')) {
-        if (line.length > 100) {
-          expect(line.trim()).not.toContain(' ');
-        }
+        expect([line, line.length <= 100]).toEqual([line, true]);
       }
     }
+    // The key pattern default is too long for the column, so it has a line of its own.
+    expect(commandUsage('restore')).toContain(
+      '\n    ${GITHUB_REPOSITORY}/${prefix}${ref}/${key}/${version}/${archive_filename}.\n'
+    );
+  });
+
+  it('marks the GitHub-only flags and tells what other flags do on the CLI', () => {
+    const flat = commandUsage('restore').replace(/\s+/g, ' ');
+    for (const name of ['use-fallback', 'dual-cache', 'restore-priority']) {
+      expect(inputFlagText('restore', name)).toContain('GitHub Actions only');
+    }
+    expect(flat).toContain('On the CLI: no effect on the generic platform.');
+    expect(flat).toContain('On the CLI: exit with code 1 when no key matches.');
   });
 
   it('the full help lists the same command purposes', () => {
@@ -65,49 +75,5 @@ describe('nearestFlag', () => {
       'enableCrossOsArchive'
     );
     expect(nearestFlag('nope', ['bucket', 'key', 'path'])).toBeUndefined();
-  });
-});
-
-describe('toCliWords', () => {
-  it.each([
-    [
-      'Bucket name is required. Please set "bucket" input or AWS_S3_BUCKET environment variable.',
-      'The bucket name is required. Set --bucket, CLOUD_CACHE_BUCKET, AWS_S3_BUCKET or S3_BUCKET.',
-    ],
-    [
-      'Input required and not supplied: path. Set key and path, or set preset.',
-      'The flag --path is required and not set. Set --key and --path, or set --preset.',
-    ],
-    ['Input required and not supplied: key', 'The flag --key is required and not set'],
-    [
-      'Key is not specified. Set key and path, or set preset. Skipping cache save.',
-      'Key is not specified. Set --key and --path, or set --preset, or run restore with the same ' +
-        '--state-file first. Skipping cache save.',
-    ],
-    [
-      'Access denied. The credentials may not be allowed to write to the bucket. Set read-only: true to skip the save.',
-      'Access denied. The credentials may not be allowed to write to the bucket. Set --read-only to skip the save.',
-    ],
-    [
-      'Input "upload-chunk-size" must be an integer between 5242880 and 134217728; got "1". Using 67108864.',
-      '--upload-chunk-size must be an integer between 5242880 and 134217728; got "1". Using 67108864.',
-    ],
-    [
-      'The "ref" input "main" is not a full Git ref.',
-      'The --ref value "main" is not a full Git ref.',
-    ],
-    [
-      'Invalid "metadata" line "x": expected key=value.',
-      'Invalid --metadata line "x": expected key=value.',
-    ],
-    ['"tags" allows at most 10 tags; got 11.', '--tags allows at most 10 tags; got 11.'],
-    ['The key "tags" is not set.', 'The key "tags" is not set.'],
-  ])('%s', (input, output) => {
-    expect(toCliWords(input)).toBe(output);
-  });
-
-  it('leaves other messages as they are', () => {
-    const text = 'Cache restored from key: linux-npm-abc';
-    expect(toCliWords(text)).toBe(text);
   });
 });

@@ -316,25 +316,6 @@ describe('main', () => {
     expect(stderr).toContain('Run cloud-cache <command> --help to see the flags of a command.');
   });
 
-  it('an engine error names the CLI flag, not the action input', async () => {
-    process.env.CLOUD_CACHE_REPOSITORY = 'o/r';
-    restoreImpl.mockImplementation(async () => {
-      getHost().setFailed('Input required and not supplied: key. Set key and path, or set preset.');
-      return undefined;
-    });
-    expect(await main(['restore'])).toBe(1);
-    expect(stderr).toContain(
-      'error: The flag --key is required and not set. Set --key and --path, or set --preset.'
-    );
-
-    stderr = '';
-    pruneImpl.mockImplementation(async () => {
-      throw new Error('Input "retry-count" must be a non-negative integer; got "x".');
-    });
-    expect(await main(['prune'])).toBe(1);
-    expect(stderr).toContain('error: --retry-count must be a non-negative integer; got "x".');
-  });
-
   it('prints the version', async () => {
     expect(await main(['--version'])).toBe(0);
     expect(stdout).toBe('0.0.0-dev\n');
