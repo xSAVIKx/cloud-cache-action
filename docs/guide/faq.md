@@ -76,7 +76,8 @@ then has no credentials and cannot connect. Do not restore a cache with a write 
 
 Set `explain: true` on the restore, or run the `xSAVIKx/cloud-cache-action/inspect@v1`
 sub-action. Both list each object that the lookup checked, and why the restore did not use it.
-See [Inspecting Lookups](./inspecting.md).
+See [Inspecting Lookups](./inspecting.md). For a warning or an error in the log, see
+[Troubleshooting](./troubleshooting.md).
 
 ## How do I make transfers faster?
 

@@ -85,7 +85,7 @@ The examples cache `~/.npm`, not `node_modules`. The command `npm ci` deletes `n
 
 Do the first run on the default branch. A restore searches the current ref, the pull request base branch and the default branch. A cache that a feature branch saved is not visible to other branches.
 
-If the restore logs a warning that starts with `Restoring from s3 failed`, the storage refused the request or the action could not connect. The warning gives the reason.
+If the restore logs a warning that starts with `Restoring from s3 failed`, the storage refused the request or the action could not connect. The warning gives the reason. See [Troubleshooting](./troubleshooting.md) for each warning text, its cause and its fix.
 
 ### Metrics and timings
 
@@ -162,6 +162,7 @@ The post step only runs when the job succeeds. To save a cache even when a later
 
 - [Migrate from actions/cache](./migration.md): the changes for an existing workflow, and the differences that you must know.
 - [Storage Providers](../providers/index.md): the bucket and the key for each provider.
+- [Troubleshooting](./troubleshooting.md): the log text of each common error, with the cause and the fix.
 - [Inspecting Lookups](./inspecting.md): set `explain: true` when a restore misses and you expected a hit.
 - [Performance](./performance.md): the transfer inputs, `transfer-tuning: auto` and the measured times.
 - [How It Works](./how-it-works.md): the phases of a restore and a save, symlinks, metrics and the `action.yml` files.

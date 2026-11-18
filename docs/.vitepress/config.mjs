@@ -274,6 +274,7 @@ export default defineConfig({
           { text: 'Getting Started', link: '/guide/getting-started' },
           { text: 'Cache Presets', link: '/guide/presets' },
           { text: 'Migrate from actions/cache', link: '/guide/migration' },
+          { text: 'Troubleshooting', link: '/guide/troubleshooting' },
           { text: 'Upgrading', link: '/guide/upgrading' },
           { text: 'FAQ', link: '/guide/faq' },
         ],

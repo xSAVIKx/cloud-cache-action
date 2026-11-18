@@ -12,7 +12,7 @@ To migrate from `actions/cache` or `tespkg/actions-cache` to Cloud Cache Action,
 2. Add a rule that deletes old caches. The action never deletes a cache. See [Old caches stay in the bucket](#old-caches-stay-in-the-bucket).
 3. Create a key that can read, write and list objects in the bucket. Add its two values as repository secrets. See [Required secrets by provider](#required-secrets-by-provider).
 4. Change the `uses:` line. Add `bucket`, `endpoint` (or `region` for AWS S3) and the two secrets. See [the example](#manual-migration-from-actions-cache-v4-v5-v6).
-5. Run the workflow two times on the default branch. The first run misses and saves. The second run shows a hit in the job summary. See [Check that it works](./getting-started.md#check-that-it-works).
+5. Run the workflow two times on the default branch. The first run misses and saves. The second run shows a hit in the job summary. See [Check that it works](./getting-started.md#check-that-it-works). If a step logs a warning, see [Troubleshooting](./troubleshooting.md).
 
 Before you merge the change, read [What changes after the move](#what-changes-after-the-move). It gives three differences from `actions/cache` that cost time or money if you do not plan for them.
 
@@ -155,15 +155,7 @@ The action trims the value and ignores its case. A skip logs one info line that 
 
 An S3-only job on one of those low-trust triggers can stop saving after you upgrade to this version. To save from such a job again, set `cache-mode: write` on the job. Only do this when the job cannot run untrusted code, because the read default is there to stop cache poisoning.
 
-**Write denied.** When the storage refuses an S3 write call (`PutObject`, `CreateMultipartUpload`, `UploadPart`, `CompleteMultipartUpload` or `CopyObject`) with `AccessDenied` (or a `403` that is not a credential error), the step logs a warning that the credentials may not be allowed to write to the bucket, and that `read-only: true` skips the save. The job does not fail. With `dual-cache-strict: true`, the step fails, as for every other save error. A `403` for wrong credentials, such as `InvalidAccessKeyId`, `SignatureDoesNotMatch` or `ExpiredToken`, gives the usual warning without the hint. A `403` on a read call, such as the `HeadObject` existence check, also gives no hint: it means a wrong secret or a policy without `s3:ListBucket`, not a read-only key.
-
-**Access errors.** For every S3 `403`, the warning names the S3 call, the object, the HTTP status and the policy action that the call needs. A wrong secret, or a policy without `s3:ListBucket`, makes the first `HeadObject` fail with no response body. The warning then reads, for example:
-
-```text
-Restoring from s3 failed, so it counts as a cache miss: HeadObject s3://<bucket>/<key> returned HTTP 403 Forbidden. Check access-key, secret-key and region, and check that the bucket policy allows s3:ListBucket on the bucket and s3:GetObject on the cache keys. The Security guide lists the permission for each S3 call.
-```
-
-After a tier error, the last restore line is `No cache restored: the s3 tier failed (see the warning above). Keys searched: ...`. The `actions/cache` line `Cache not found for input keys: ...` is only for a true miss. For jobs that must not write, such as pull requests, see the read-only pattern in the [Security guide](./security.md).
+**Access errors.** For an S3 `403` on a restore or a save, see [Troubleshooting](./troubleshooting.md). That page gives the warning text, the cause and the fix. For jobs that must not write, such as pull requests, see the read-only pattern in the [Security guide](./security.md).
 
 **`save-always`.** The action does not support this deprecated input. See [Saving after failed steps](./getting-started.md#saving-after-failed-steps).
 
