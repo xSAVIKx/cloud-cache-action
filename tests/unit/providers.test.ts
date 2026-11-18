@@ -100,6 +100,7 @@ describe('Storage Providers', () => {
       expect(detectProvider(undefined, 'fastly')).toBe('fastly');
       expect(detectProvider(undefined, 'minio')).toBe('minio');
       expect(detectProvider(undefined, 'rustfs')).toBe('rustfs');
+      expect(detectProvider(undefined, 'AWS-Emulator')).toBe('aws-emulator');
       expect(detectProvider(undefined, 'unknown-provider')).toBe('generic-s3');
       expect(detectProvider('https://unrecognized-s3.example.com')).toBe('generic-s3');
     });
@@ -131,6 +132,33 @@ describe('Storage Providers', () => {
       expect(rustfs.forcePathStyle).toBe(true);
       expect(rustfs.region).toBe('us-east-1');
     });
+
+    it('detects the AWS Emulator from its default port and forces path-style addressing', () => {
+      const emulator = resolveProviderDefaults('https://127.0.0.1:9297');
+      expect(emulator).toEqual({
+        provider: 'aws-emulator',
+        endpoint: 'https://127.0.0.1:9297',
+        region: 'us-east-1',
+        forcePathStyle: true,
+        maxPartSize: 16 * 1024 * 1024,
+      });
+    });
+
+    it('sets no part size limit for other providers', () => {
+      expect(resolveProviderDefaults('http://127.0.0.1:9000').maxPartSize).toBeUndefined();
+    });
+
+    it('keeps an explicit region and path-style choice for the AWS Emulator', () => {
+      const emulator = resolveProviderDefaults(
+        'https://127.0.0.1:9300',
+        'eu-west-1',
+        false,
+        'aws-emulator'
+      );
+      expect(emulator.provider).toBe('aws-emulator');
+      expect(emulator.region).toBe('eu-west-1');
+      expect(emulator.forcePathStyle).toBe(false);
+    });
   });
 
   describe('isKnownProvider', () => {
@@ -149,6 +177,7 @@ describe('Storage Providers', () => {
       'seaweed',
       'minio',
       'rustfs',
+      'aws-emulator',
     ])('knows %s', (name) => {
       expect(isKnownProvider(name)).toBe(true);
     });

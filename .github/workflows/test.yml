@@ -95,6 +95,13 @@ jobs:
             region: us-east-1
             access-key: cloudcacheci
             secret-key: cloudcachecisecret
+          # The AWS Emulator writes new keys to AWS_SHARED_CREDENTIALS_FILE at each start, so this
+          # entry has no keys: the tests read that file and the action uses the default chain.
+          - server: aws-emulator
+            endpoint: https://127.0.0.1:9297
+            region: us-east-1
+            access-key: ''
+            secret-key: ''
     env:
       TEST_S3_ENDPOINT: ${{ matrix.endpoint }}
       TEST_S3_REGION: ${{ matrix.region }}
@@ -110,7 +117,16 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Start ${{ matrix.server }}
+        if: matrix.server != 'aws-emulator'
         run: docker compose -f docker-compose.test.yml up -d ${{ matrix.server }}
+      - name: Start the AWS Emulator
+        id: emulator
+        if: matrix.server == 'aws-emulator'
+        uses: xSAVIKx/run-aws-emulator@3a10c6c7da7da236e5d0014a38f85d25f5060a73 # v1.0.1
+        with:
+          # AWS Emulator 1.0.322, image build 1.0.322.1-20261112.14
+          image: ghcr.io/xsavikx/aws-emulator@sha256:150623030d361bed9938b2d71281f3de35f8be9d8ac981f7cfcd85b2fdf8d0fc
+          pull: 'true'
       - name: Bootstrap Garage
         if: matrix.server == 'garage'
         run: bash tests/ci/start-garage.sh
@@ -120,7 +136,11 @@ jobs:
             if node tests/support/s3Server.ts; then exit 0; fi
             sleep 2
           done
-          docker compose -f docker-compose.test.yml logs ${{ matrix.server }}
+          if [ "${{ matrix.server }}" = aws-emulator ]; then
+            docker logs "${{ steps.emulator.outputs.container }}"
+          else
+            docker compose -f docker-compose.test.yml logs ${{ matrix.server }}
+          fi
           exit 1
       - name: Integration tests
         run: npm run test:integration
