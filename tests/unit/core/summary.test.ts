@@ -2,6 +2,8 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as core from '@actions/core';
 import { makeTempDir, removeDir, setEnv } from '../../support/tempTree';
+import { setHost, type CiHost } from '../../../src/ci/host';
+import { TextSummaryWriter } from '../../../src/ci/textSummary';
 import { writeRestoreSummary, writeSaveSummary } from '../../../src/core/summary';
 
 describe('writeRestoreSummary / writeSaveSummary', () => {
@@ -272,5 +274,211 @@ describe('writeRestoreSummary / writeSaveSummary', () => {
     const content = fs.readFileSync(summaryFile, 'utf8');
     expect(content).toContain('<td>a&lt;b&gt;&amp;c</td>');
     expect(content).not.toContain('a<b>');
+  });
+});
+
+describe('the Result column and the error lines', () => {
+  let dir: string;
+  let summaryFile: string;
+  let restoreEnv: () => void;
+
+  beforeEach(() => {
+    dir = makeTempDir('summary-result');
+    summaryFile = path.join(dir, 'step-summary.md');
+    fs.writeFileSync(summaryFile, '');
+    restoreEnv = setEnv({ GITHUB_STEP_SUMMARY: summaryFile });
+    (core.summary as unknown as { _filePath?: string })._filePath = undefined;
+  });
+
+  afterEach(() => {
+    restoreEnv();
+    removeDir(dir);
+  });
+
+  const restoreBase = {
+    jobSummary: true,
+    primaryKey: 'Linux-npm-abc',
+    durationMs: 410,
+  };
+  const restoreHeader =
+    '<tr><th>Result</th><th>Primary key</th><th>Matched key</th><th>Cache hit</th><th>Source</th><th>Size</th><th>Duration</th></tr>';
+  const s3Error =
+    'Restoring from s3 failed, so it counts as a cache miss: HeadObject s3://ci-cache/k returned HTTP 403 Forbidden.';
+
+  it('shows an exact hit', async () => {
+    await writeRestoreSummary({
+      ...restoreBase,
+      matchedKey: 'Linux-npm-abc',
+      cacheHit: true,
+      source: 's3',
+      size: 2048,
+    });
+    const content = fs.readFileSync(summaryFile, 'utf8');
+    expect(content).toContain(restoreHeader);
+    expect(content).toContain(
+      '<tr><td>exact hit</td><td>Linux-npm-abc</td><td>Linux-npm-abc</td><td>true</td><td>s3</td><td>2.00 KB</td><td>0.41 s</td></tr>'
+    );
+    expect(content).not.toContain('Error:');
+  });
+
+  it('shows a restore-key hit as a partial hit', async () => {
+    await writeRestoreSummary({
+      ...restoreBase,
+      matchedKey: 'Linux-npm-old',
+      cacheHit: false,
+      source: 's3',
+      size: 2048,
+    });
+    expect(fs.readFileSync(summaryFile, 'utf8')).toContain(
+      '<tr><td>partial hit (restore key)</td><td>Linux-npm-abc</td><td>Linux-npm-old</td><td>false</td><td>s3</td><td>2.00 KB</td><td>0.41 s</td></tr>'
+    );
+  });
+
+  it('shows a lookup-only match as found', async () => {
+    await writeRestoreSummary({
+      ...restoreBase,
+      matchedKey: 'Linux-npm-abc',
+      cacheHit: true,
+      source: 's3',
+      lookupOnly: true,
+    });
+    expect(fs.readFileSync(summaryFile, 'utf8')).toContain('<tr><td>found (lookup only)</td>');
+  });
+
+  it('shows a normal miss', async () => {
+    await writeRestoreSummary({ ...restoreBase, cacheHit: false, source: 'none', errors: [] });
+    const content = fs.readFileSync(summaryFile, 'utf8');
+    expect(content).toContain(
+      '<tr><td>miss</td><td>Linux-npm-abc</td><td>—</td><td>false</td><td>none</td><td>—</td><td>0.41 s</td></tr>'
+    );
+    expect(content).not.toContain('Error:');
+  });
+
+  it('shows an S3 error that counts as a miss as an error, with the text under the table', async () => {
+    await writeRestoreSummary({
+      ...restoreBase,
+      cacheHit: false,
+      source: 'none',
+      errors: [s3Error],
+    });
+    const content = fs.readFileSync(summaryFile, 'utf8');
+    expect(content).toContain(
+      '<tr><td>error (no cache)</td><td>Linux-npm-abc</td><td>—</td><td>false</td><td>none</td><td>—</td><td>0.41 s</td></tr>'
+    );
+    expect(content).toContain(`</table>\n<p>Error: ${s3Error}</p>`);
+  });
+
+  it('shows a GitHub fallback hit after an S3 error as a hit, and keeps the S3 error', async () => {
+    await writeRestoreSummary({
+      ...restoreBase,
+      matchedKey: 'Linux-npm-abc',
+      cacheHit: true,
+      source: 'github',
+      errors: [s3Error],
+    });
+    const content = fs.readFileSync(summaryFile, 'utf8');
+    expect(content).toContain(
+      '<tr><td>exact hit</td><td>Linux-npm-abc</td><td>Linux-npm-abc</td><td>true</td><td>github</td><td>—</td><td>0.41 s</td></tr>'
+    );
+    expect(content).toContain(`<p>Error: ${s3Error}</p>`);
+  });
+
+  it('shows a restore step that threw as an error, with the escaped message', async () => {
+    await writeRestoreSummary({
+      ...restoreBase,
+      cacheHit: false,
+      source: 'none',
+      failed: true,
+      errors: ['Bucket <name> is required.'],
+    });
+    const content = fs.readFileSync(summaryFile, 'utf8');
+    expect(content).toContain('<tr><td>error (no cache)</td>');
+    expect(content).toContain('<p>Error: Bucket &lt;name&gt; is required.</p>');
+  });
+
+  const saveBase = { jobSummary: true, key: 'Linux-npm-abc', durationMs: 2000 };
+
+  it('shows a save that failed with a warning as an error, with the text under the table', async () => {
+    await writeSaveSummary({
+      ...saveBase,
+      savedTo: [],
+      outcome: 'error',
+      errors: ['Failed to save cache to S3: SlowDown'],
+    });
+    const content = fs.readFileSync(summaryFile, 'utf8');
+    expect(content).toContain(
+      '<tr><th>Result</th><th>Key</th><th>Saved to</th><th>Size</th><th>Duration</th></tr>'
+    );
+    expect(content).toContain(
+      '<tr><td>error (not saved)</td><td>Linux-npm-abc</td><td>none</td><td>—</td><td>2.00 s</td></tr>'
+    );
+    expect(content).toContain('</table>\n<p>Error: Failed to save cache to S3: SlowDown</p>');
+  });
+
+  it.each([
+    [{ savedTo: ['s3'] as Array<'s3'>, outcome: 'saved' as const }, 'saved'],
+    [{ savedTo: ['s3'] as Array<'s3'>, outcome: 'exists' as const }, 'already saved'],
+    [{ savedTo: [], outcome: 'exists' as const, exactHit: true }, 'not necessary (exact hit)'],
+    [{ savedTo: [], outcome: 'skipped' as const, skipReason: 'no paths matched' }, 'no files'],
+    [{ savedTo: [], skipped: 'ACTIONS_CACHE_MODE is read' }, 'skipped'],
+  ])('shows the save Result for %j as %s', async (fields, result) => {
+    await writeSaveSummary({ ...saveBase, ...fields });
+    expect(fs.readFileSync(summaryFile, 'utf8')).toContain(`<tr><td>${result}</td>`);
+  });
+
+  it('names the reason when a tier skipped the save for a reason other than no files', async () => {
+    await writeSaveSummary({
+      ...saveBase,
+      savedTo: [],
+      outcome: 'skipped',
+      skipReason: 'GitHub Actions Cache did not save this key (see the messages above)',
+    });
+    const content = fs.readFileSync(summaryFile, 'utf8');
+    expect(content).toContain('<tr><td>skipped</td>');
+    expect(content).toContain(
+      '<p>Skipped: GitHub Actions Cache did not save this key (see the messages above)</p>'
+    );
+  });
+
+  it('adds no skipped line for no files, because the Result says it', async () => {
+    await writeSaveSummary({
+      ...saveBase,
+      savedTo: [],
+      outcome: 'skipped',
+      skipReason: 'no paths matched',
+    });
+    expect(fs.readFileSync(summaryFile, 'utf8')).not.toContain('Skipped');
+  });
+});
+
+describe('the summary on a host with a text summary (Bitbucket)', () => {
+  afterEach(() => {
+    setHost(undefined);
+  });
+
+  it('prints the Result column and the error line as plain text', async () => {
+    let printed = '';
+    setHost({
+      summary: new TextSummaryWriter((text) => {
+        printed += text;
+      }),
+    } as unknown as CiHost);
+    await writeRestoreSummary({
+      jobSummary: true,
+      primaryKey: 'Linux-npm-abc',
+      cacheHit: false,
+      source: 'none',
+      durationMs: 410,
+      errors: ['Restoring from s3 failed, so it counts as a cache miss: HTTP 403 Forbidden'],
+    });
+    expect(printed).toBe(
+      [
+        '# Cloud cache restore',
+        'Result            Primary key    Matched key  Cache hit  Source  Size  Duration',
+        'error (no cache)  Linux-npm-abc  —            false      none    —     0.41 s',
+        'Error: Restoring from s3 failed, so it counts as a cache miss: HTTP 403 Forbidden',
+        '',
+      ].join('\n')
+    );
   });
 });

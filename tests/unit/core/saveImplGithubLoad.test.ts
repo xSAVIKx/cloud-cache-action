@@ -13,13 +13,17 @@ const mockSetFailed = jest.fn<(message: string) => void>(() => {
   process.exitCode = 1;
 });
 const mockWarning = jest.fn<(message: string) => void>();
+const mockWarningTitle = jest.fn<(title: string | undefined) => void>();
 
 jest.unstable_mockModule('@actions/core', () => ({
   getInput: (name: string) => inputs.get(name) ?? '',
   setOutput: (name: string, value: string) => outputs.set(name, value),
   setFailed: mockSetFailed,
   info: jest.fn(),
-  warning: mockWarning,
+  warning: (message: string, properties?: { title?: string }) => {
+    mockWarning(message);
+    mockWarningTitle(properties?.title);
+  },
   debug: jest.fn(),
   saveState: jest.fn(),
   getState: () => '',
@@ -74,6 +78,7 @@ describe('saveImpl when the GitHub tier chunk does not load', () => {
     expect(mockWarning).toHaveBeenCalledWith(
       expect.stringContaining('Cannot find module ./80.index.js')
     );
+    expect(mockWarningTitle).toHaveBeenCalledWith('Cloud cache save');
     expect(mockSetFailed).not.toHaveBeenCalled();
     expect(outputs.get('cache-saved-sources')).toBe('s3');
   });

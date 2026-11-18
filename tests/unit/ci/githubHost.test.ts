@@ -125,6 +125,11 @@ describe('GitHubActionsHost', () => {
     expect(coreMock.endGroup).toHaveBeenCalledTimes(1);
   });
 
+  it('gives a warning with a title to core.warning as the annotation title', () => {
+    new GitHubActionsHost({}).log.warning('w', 'Cloud cache restore');
+    expect(coreMock.warning).toHaveBeenCalledWith('w', { title: 'Cloud cache restore' });
+  });
+
   it('summary is undefined without GITHUB_STEP_SUMMARY', () => {
     expect(new GitHubActionsHost({}).summary).toBeUndefined();
   });
@@ -151,6 +156,11 @@ describe('getHost and setHost', () => {
   it('log sends each call to the active host', () => {
     log.info('hello');
     expect(coreMock.info).toHaveBeenCalledWith('hello');
+  });
+
+  it('log passes the warning title to the active host', () => {
+    log.warning('careful', 'Cloud cache save');
+    expect(coreMock.warning).toHaveBeenCalledWith('careful', { title: 'Cloud cache save' });
   });
 });
 

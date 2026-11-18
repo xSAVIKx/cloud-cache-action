@@ -11,7 +11,16 @@ import { formatTimings } from './timings';
 import { toError, type RestoreOutcome } from './outcomes';
 import { applyPreset, readPreset } from './presets';
 import { buildS3Tier, restoreFromS3, type S3Tier } from './s3Tier';
-import { writeRestoreSummary } from './summary';
+import { writeRestoreSummary, type RestoreSummaryData } from './summary';
+
+/** The annotation title of each restore warning, so a job with several cache steps shows which one warned. */
+const WARNING_TITLE = 'Cloud cache restore';
+
+/** Logs a warning with the restore title and returns its text, for the job summary. */
+function warn(message: string): string {
+  log.warning(message, WARNING_TITLE);
+  return message;
+}
 
 type Source = 's3' | 'github';
 type Hit = Extract<RestoreOutcome, { kind: 'hit' }>;
@@ -24,8 +33,15 @@ function restoreOrder(config: CacheConfig): Source[] {
   return config.useFallback ? ['s3', 'github'] : ['s3'];
 }
 
-/** S3 setup errors fail the step only when no other tier may serve the restore. */
-async function setUpS3(config: CacheConfig, state: IStateProvider): Promise<S3Tier | undefined> {
+/**
+ * S3 setup errors fail the step only when no other tier may serve the restore. A warned error goes
+ * to `errors`, for the job summary.
+ */
+async function setUpS3(
+  config: CacheConfig,
+  state: IStateProvider,
+  errors: string[]
+): Promise<S3Tier | undefined> {
   try {
     const tier = await buildS3Tier(config);
     getHost().setOutput(Outputs.CacheStorageProvider, tier.storage.providerConfig.provider);
@@ -38,7 +54,7 @@ async function setUpS3(config: CacheConfig, state: IStateProvider): Promise<S3Ti
     if (!otherTierMayServe) {
       throw err;
     }
-    log.warning(`S3 client initialization failed: ${toError(err).message}`);
+    errors.push(warn(`S3 client initialization failed: ${toError(err).message}`));
     return undefined;
   }
 }
@@ -92,6 +108,29 @@ function reportHit(state: IStateProvider, config: CacheConfig, source: Source, h
   return hit.matchedKey;
 }
 
+/**
+ * The line after a normal miss: the bucket, the provider and the refs that the step searched. It
+ * names no endpoint, because the R2 endpoint host holds the account ID.
+ */
+export function searchedLine(config: CacheConfig, s3: S3Tier | undefined): string | undefined {
+  if (!s3) {
+    return undefined;
+  }
+  const refs = s3.restoreRefs.filter((ref) => ref !== '');
+  let line = `Searched s3://${s3.storage.bucket} (provider ${s3.storage.providerConfig.provider})`;
+  if (refs.length > 0) {
+    line += ` under ${refs.join(', then ')}`;
+  }
+  if (restoreOrder(config).includes('github')) {
+    line += ', and GitHub Actions Cache';
+  }
+  line += '.';
+  if (!config.explain) {
+    line += ' Set explain: true to list each candidate.';
+  }
+  return line;
+}
+
 export async function restoreImpl(
   stateProvider: IStateProvider,
   earlyExit?: boolean
@@ -120,10 +159,31 @@ export async function restoreImpl(
     }
     emitMetrics(full, config?.metricsFile ?? '', getHost().context().workspace);
   };
+  // Tier errors that the step warned about. The job summary shows them under the table.
+  const errors: string[] = [];
+  // One summary per step: a miss that then fails on fail-on-cache-miss must not write two.
+  let summarized = false;
+  const summarize = async (
+    data: Omit<RestoreSummaryData, 'jobSummary' | 'primaryKey' | 'preset' | 'paths' | 'lookupOnly'>
+  ): Promise<void> => {
+    if (summarized || config === undefined) {
+      return;
+    }
+    summarized = true;
+    await writeRestoreSummary({
+      jobSummary: config.jobSummary,
+      primaryKey: config.primaryKey,
+      preset: config.preset,
+      paths: config.paths,
+      lookupOnly: config.lookupOnly,
+      ...data,
+    });
+  };
   try {
     if (!isValidEvent()) {
       log.warning(
-        `Event Validation Warning: The event type ${getHost().context().eventName} may not be tied to a branch or tag ref.`
+        `Event Validation Warning: The event type ${getHost().context().eventName} may not be tied to a branch or tag ref.`,
+        WARNING_TITLE
       );
     }
 
@@ -165,16 +225,12 @@ export async function restoreImpl(
         outcome: 'skipped',
         extra: { reason: `ACTIONS_CACHE_MODE=${cacheMode}` },
       });
-      await writeRestoreSummary({
-        jobSummary: config.jobSummary,
-        primaryKey: config.primaryKey,
+      await summarize({
         matchedKey: undefined,
         cacheHit: false,
         source: 'none',
         size: undefined,
         durationMs: Date.now() - start,
-        preset: config.preset,
-        paths: config.paths,
         skipped: `ACTIONS_CACHE_MODE is ${cacheMode}`,
       });
       // The toolkit returns no key for a skipped restore, so actions/cache treats it as a miss.
@@ -186,7 +242,7 @@ export async function restoreImpl(
       return undefined;
     }
 
-    const s3 = await setUpS3(config, stateProvider);
+    const s3 = await setUpS3(config, stateProvider, errors);
     provider = s3?.storage.providerConfig.provider;
     compression = s3?.compression.method;
     region = s3?.storage.providerConfig.region;
@@ -201,7 +257,7 @@ export async function restoreImpl(
         }
         await writeExplainSummary(report, config.jobSummary);
       } catch (err) {
-        log.warning(`Could not explain the cache lookup: ${toError(err).message}`);
+        log.warning(`Could not explain the cache lookup: ${toError(err).message}`, WARNING_TITLE);
       }
     }
     if (config.dualCache) {
@@ -235,17 +291,15 @@ export async function restoreImpl(
             downloadParts: outcome.downloadParts ?? 0,
             outcome: 'hit',
           });
-          await writeRestoreSummary({
-            jobSummary: config.jobSummary,
-            primaryKey: config.primaryKey,
+          await summarize({
             matchedKey,
             cacheHit: outcome.exact,
             source,
             size: outcome.s3?.size,
             durationMs: Date.now() - start,
             metadata: outcome.s3?.metadata,
-            preset: config.preset,
-            paths: config.paths,
+            // A hit from the next tier still shows why the first tier did not serve it.
+            errors,
           });
           return matchedKey;
         }
@@ -257,8 +311,10 @@ export async function restoreImpl(
               cause: outcome.error,
             });
           }
-          log.warning(
-            `Restoring from ${source} failed, so it counts as a cache miss: ${outcome.error.message}`
+          errors.push(
+            warn(
+              `Restoring from ${source} failed, so it counts as a cache miss: ${outcome.error.message}`
+            )
           );
           failedTiers.push(source);
           break;
@@ -282,16 +338,13 @@ export async function restoreImpl(
       downloadParts: 0,
       outcome: 'miss',
     });
-    await writeRestoreSummary({
-      jobSummary: config.jobSummary,
-      primaryKey: config.primaryKey,
+    await summarize({
       matchedKey: undefined,
       cacheHit: false,
       source: 'none',
       size: undefined,
       durationMs: Date.now() - start,
-      preset: config.preset,
-      paths: config.paths,
+      errors,
     });
     if (config.failOnCacheMiss) {
       throw new Error(
@@ -308,10 +361,22 @@ export async function restoreImpl(
       log.info(`No cache restored: ${tiers}. Keys searched: ${keys}`);
     } else {
       log.info(`Cache not found for input keys: ${keys}`);
+      const searched = searchedLine(config, s3);
+      if (searched) {
+        log.info(searched);
+      }
     }
     return undefined;
   } catch (err) {
     getHost().setFailed(toError(err).message);
+    // A step that throws (no bucket, a strict tier error) still writes its row and the error.
+    await summarize({
+      cacheHit: false,
+      source: 'none',
+      durationMs: Date.now() - start,
+      failed: true,
+      errors: [...errors, toError(err).message],
+    });
     report({
       step: 'restore',
       provider,

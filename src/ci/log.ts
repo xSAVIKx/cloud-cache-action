@@ -5,7 +5,7 @@ import { getHost } from './host';
 export const log: CiLogger = {
   debug: (message) => getHost().log.debug(message),
   info: (message) => getHost().log.info(message),
-  warning: (message) => getHost().log.warning(message),
+  warning: (message, title) => getHost().log.warning(message, title),
   error: (message) => getHost().log.error(message),
   startGroup: (title) => getHost().log.startGroup(title),
   endGroup: () => getHost().log.endGroup(),

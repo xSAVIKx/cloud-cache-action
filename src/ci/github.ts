@@ -21,7 +21,7 @@ export class GitHubActionsHost implements CiHost {
   readonly log: CiLogger = {
     debug: (message) => core.debug(message),
     info: (message) => core.info(message),
-    warning: (message) => core.warning(message),
+    warning: (message, title) => (title ? core.warning(message, { title }) : core.warning(message)),
     error: (message) => core.error(message),
     startGroup: (title) => core.startGroup(title),
     endGroup: () => core.endGroup(),

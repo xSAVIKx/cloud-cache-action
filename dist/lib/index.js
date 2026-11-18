@@ -61081,7 +61081,7 @@ class GitHubActionsHost {
     log = {
         debug: (message) => core/* debug */.Yz(message),
         info: (message) => core/* info */.pq(message),
-        warning: (message) => core/* warning */.$e(message),
+        warning: (message, title) => (title ? core/* warning */.$e(message, { title }) : core/* warning */.$e(message)),
         error: (message) => core/* error */.z3(message),
         startGroup: (title) => core/* startGroup */.Oh(title),
         endGroup: () => core/* endGroup */.N4(),
@@ -61157,7 +61157,7 @@ function setHost(host) {
 const log = {
     debug: (message) => (0,_host__WEBPACK_IMPORTED_MODULE_0__/* .getHost */ .L)().log.debug(message),
     info: (message) => (0,_host__WEBPACK_IMPORTED_MODULE_0__/* .getHost */ .L)().log.info(message),
-    warning: (message) => (0,_host__WEBPACK_IMPORTED_MODULE_0__/* .getHost */ .L)().log.warning(message),
+    warning: (message, title) => (0,_host__WEBPACK_IMPORTED_MODULE_0__/* .getHost */ .L)().log.warning(message, title),
     error: (message) => (0,_host__WEBPACK_IMPORTED_MODULE_0__/* .getHost */ .L)().log.error(message),
     startGroup: (title) => (0,_host__WEBPACK_IMPORTED_MODULE_0__/* .getHost */ .L)().log.startGroup(title),
     endGroup: () => (0,_host__WEBPACK_IMPORTED_MODULE_0__/* .getHost */ .L)().log.endGroup(),
@@ -72477,6 +72477,41 @@ async function restoreFromS3Streaming(tier, found, tar, hit) {
 
 
 
+/** The restore Result. A tier error with no hit is an error, not a miss. */
+function restoreResult(data) {
+    if (data.skipped !== undefined) {
+        return 'skipped';
+    }
+    if (data.failed) {
+        return 'error (no cache)';
+    }
+    if (data.matchedKey !== undefined) {
+        if (data.lookupOnly) {
+            return 'found (lookup only)';
+        }
+        return data.cacheHit ? 'exact hit' : 'partial hit (restore key)';
+    }
+    return (data.errors?.length ?? 0) > 0 ? 'error (no cache)' : 'miss';
+}
+/** The save Result. A tier error with no saved tier is an error. */
+function saveResult(data) {
+    if (data.skipped !== undefined) {
+        return 'skipped';
+    }
+    if (data.outcome === 'error' || (data.savedTo.length === 0 && (data.errors?.length ?? 0) > 0)) {
+        return 'error (not saved)';
+    }
+    switch (data.outcome) {
+        case 'saved':
+            return 'saved';
+        case 'exists':
+            return data.exactHit ? 'not necessary (exact hit)' : 'already saved';
+        case 'skipped':
+            return data.skipReason === 'no paths matched' ? 'no files' : 'skipped';
+        default:
+            return data.savedTo.length > 0 ? 'saved' : 'skipped';
+    }
+}
 /** One line that names the preset and the paths it resolved, under the table. */
 function addPresetLine(preset, paths) {
     if (!preset) {
@@ -72484,6 +72519,12 @@ function addPresetLine(preset, paths) {
     }
     const list = (paths ?? []).map((p) => `<code>${escapeHtml(p)}</code>`).join(', ');
     writer().addRaw(`<p>Preset <code>${escapeHtml(preset)}</code>, path ${list}</p>`, true);
+}
+/** One line for each error, under the table. */
+function addErrorLines(errors) {
+    for (const error of errors ?? []) {
+        writer().addRaw(`<p>Error: ${escapeHtml(error)}</p>`, true);
+    }
 }
 /** One line that tells why the step did not ask any tier, under the table. */
 function addSkippedLine(reason) {
@@ -72549,6 +72590,7 @@ async function writeRestoreSummary(data) {
         .addHeading('Cloud cache restore')
         .addTable([
         [
+            { data: 'Result', header: true },
             { data: 'Primary key', header: true },
             { data: 'Matched key', header: true },
             { data: 'Cache hit', header: true },
@@ -72557,6 +72599,7 @@ async function writeRestoreSummary(data) {
             { data: 'Duration', header: true },
         ],
         [
+            restoreResult(data),
             escapeHtml(data.primaryKey),
             data.matchedKey === undefined ? '—' : escapeHtml(data.matchedKey),
             data.skipped === undefined ? String(data.cacheHit) : 'skipped',
@@ -72565,6 +72608,7 @@ async function writeRestoreSummary(data) {
             formatDuration(data.durationMs),
         ],
     ]);
+    addErrorLines(data.errors);
     addSkippedLine(data.skipped);
     addPresetLine(data.preset, data.paths);
     if (data.metadata && Object.keys(data.metadata).length > 0) {
@@ -72582,21 +72626,28 @@ async function writeSaveSummary(data) {
         .addHeading('Cloud cache save')
         .addTable([
         [
+            { data: 'Result', header: true },
             { data: 'Key', header: true },
             { data: 'Saved to', header: true },
             { data: 'Size', header: true },
             { data: 'Duration', header: true },
         ],
         [
+            saveResult(data),
             escapeHtml(data.key),
             formatSavedTo(data),
             formatOptionalSize(data.size),
             formatDuration(data.durationMs),
         ],
     ]);
-    addSkippedLine(data.skipped);
+    addErrorLines(data.errors);
+    addSkippedLine(data.skipped ?? (data.outcome === 'skipped' ? notNoFiles(data.skipReason) : undefined));
     addPresetLine(data.preset, data.paths);
     await flush();
+}
+/** A tier skip reason for the Skipped line. "no files" is already the Result, so it gets no line. */
+function notNoFiles(reason) {
+    return reason === 'no paths matched' ? undefined : reason;
 }
 
 ;// CONCATENATED MODULE: ./src/core/explain.ts
@@ -73666,6 +73717,13 @@ async function applyPreset(config, name, options = {}) {
 
 
 
+/** The annotation title of each restore warning, so a job with several cache steps shows which one warned. */
+const WARNING_TITLE = 'Cloud cache restore';
+/** Logs a warning with the restore title and returns its text, for the job summary. */
+function warn(message) {
+    log/* log */.R.warning(message, WARNING_TITLE);
+    return message;
+}
 /** S3 alone, unless use-fallback or dual-cache adds GitHub Actions Cache. */
 function restoreOrder(config) {
     if (config.dualCache) {
@@ -73673,8 +73731,11 @@ function restoreOrder(config) {
     }
     return config.useFallback ? ['s3', 'github'] : ['s3'];
 }
-/** S3 setup errors fail the step only when no other tier may serve the restore. */
-async function setUpS3(config, state) {
+/**
+ * S3 setup errors fail the step only when no other tier may serve the restore. A warned error goes
+ * to `errors`, for the job summary.
+ */
+async function setUpS3(config, state, errors) {
     try {
         const tier = await buildS3Tier(config);
         (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheStorageProvider, tier.storage.providerConfig.provider);
@@ -73688,7 +73749,7 @@ async function setUpS3(config, state) {
         if (!otherTierMayServe) {
             throw err;
         }
-        log/* log */.R.warning(`S3 client initialization failed: ${(0,outcomes/* toError */.i)(err).message}`);
+        errors.push(warn(`S3 client initialization failed: ${(0,outcomes/* toError */.i)(err).message}`));
         return undefined;
     }
 }
@@ -73727,6 +73788,28 @@ function reportHit(state, config, source, hit) {
         : `Cache restored from ${source} with key: ${hit.matchedKey}`);
     return hit.matchedKey;
 }
+/**
+ * The line after a normal miss: the bucket, the provider and the refs that the step searched. It
+ * names no endpoint, because the R2 endpoint host holds the account ID.
+ */
+function searchedLine(config, s3) {
+    if (!s3) {
+        return undefined;
+    }
+    const refs = s3.restoreRefs.filter((ref) => ref !== '');
+    let line = `Searched s3://${s3.storage.bucket} (provider ${s3.storage.providerConfig.provider})`;
+    if (refs.length > 0) {
+        line += ` under ${refs.join(', then ')}`;
+    }
+    if (restoreOrder(config).includes('github')) {
+        line += ', and GitHub Actions Cache';
+    }
+    line += '.';
+    if (!config.explain) {
+        line += ' Set explain: true to list each candidate.';
+    }
+    return line;
+}
 async function restoreImpl(stateProvider, earlyExit) {
     const start = Date.now();
     let config;
@@ -73752,9 +73835,27 @@ async function restoreImpl(stateProvider, earlyExit) {
         }
         emitMetrics(full, config?.metricsFile ?? '', (0,host/* getHost */.L)().context().workspace);
     };
+    // Tier errors that the step warned about. The job summary shows them under the table.
+    const errors = [];
+    // One summary per step: a miss that then fails on fail-on-cache-miss must not write two.
+    let summarized = false;
+    const summarize = async (data) => {
+        if (summarized || config === undefined) {
+            return;
+        }
+        summarized = true;
+        await writeRestoreSummary({
+            jobSummary: config.jobSummary,
+            primaryKey: config.primaryKey,
+            preset: config.preset,
+            paths: config.paths,
+            lookupOnly: config.lookupOnly,
+            ...data,
+        });
+    };
     try {
         if (!(0,inputUtils/* isValidEvent */.FR)()) {
-            log/* log */.R.warning(`Event Validation Warning: The event type ${(0,host/* getHost */.L)().context().eventName} may not be tied to a branch or tag ref.`);
+            log/* log */.R.warning(`Event Validation Warning: The event type ${(0,host/* getHost */.L)().context().eventName} may not be tied to a branch or tag ref.`, WARNING_TITLE);
         }
         config = await applyPreset(readCacheConfig(), readPreset());
         if (!config.primaryKey) {
@@ -73790,16 +73891,12 @@ async function restoreImpl(stateProvider, earlyExit) {
                 outcome: 'skipped',
                 extra: { reason: `ACTIONS_CACHE_MODE=${cacheMode}` },
             });
-            await writeRestoreSummary({
-                jobSummary: config.jobSummary,
-                primaryKey: config.primaryKey,
+            await summarize({
                 matchedKey: undefined,
                 cacheHit: false,
                 source: 'none',
                 size: undefined,
                 durationMs: Date.now() - start,
-                preset: config.preset,
-                paths: config.paths,
                 skipped: `ACTIONS_CACHE_MODE is ${cacheMode}`,
             });
             // The toolkit returns no key for a skipped restore, so actions/cache treats it as a miss.
@@ -73808,7 +73905,7 @@ async function restoreImpl(stateProvider, earlyExit) {
             }
             return undefined;
         }
-        const s3 = await setUpS3(config, stateProvider);
+        const s3 = await setUpS3(config, stateProvider, errors);
         provider = s3?.storage.providerConfig.provider;
         compression = s3?.compression.method;
         region = s3?.storage.providerConfig.region;
@@ -73826,7 +73923,7 @@ async function restoreImpl(stateProvider, earlyExit) {
                 await writeExplainSummary(report, config.jobSummary);
             }
             catch (err) {
-                log/* log */.R.warning(`Could not explain the cache lookup: ${(0,outcomes/* toError */.i)(err).message}`);
+                log/* log */.R.warning(`Could not explain the cache lookup: ${(0,outcomes/* toError */.i)(err).message}`, WARNING_TITLE);
             }
         }
         if (config.dualCache) {
@@ -73857,17 +73954,15 @@ async function restoreImpl(stateProvider, earlyExit) {
                         downloadParts: outcome.downloadParts ?? 0,
                         outcome: 'hit',
                     });
-                    await writeRestoreSummary({
-                        jobSummary: config.jobSummary,
-                        primaryKey: config.primaryKey,
+                    await summarize({
                         matchedKey,
                         cacheHit: outcome.exact,
                         source,
                         size: outcome.s3?.size,
                         durationMs: Date.now() - start,
                         metadata: outcome.s3?.metadata,
-                        preset: config.preset,
-                        paths: config.paths,
+                        // A hit from the next tier still shows why the first tier did not serve it.
+                        errors,
                     });
                     return matchedKey;
                 }
@@ -73879,7 +73974,7 @@ async function restoreImpl(stateProvider, earlyExit) {
                             cause: outcome.error,
                         });
                     }
-                    log/* log */.R.warning(`Restoring from ${source} failed, so it counts as a cache miss: ${outcome.error.message}`);
+                    errors.push(warn(`Restoring from ${source} failed, so it counts as a cache miss: ${outcome.error.message}`));
                     failedTiers.push(source);
                     break;
                 default: {
@@ -73901,16 +73996,13 @@ async function restoreImpl(stateProvider, earlyExit) {
             downloadParts: 0,
             outcome: 'miss',
         });
-        await writeRestoreSummary({
-            jobSummary: config.jobSummary,
-            primaryKey: config.primaryKey,
+        await summarize({
             matchedKey: undefined,
             cacheHit: false,
             source: 'none',
             size: undefined,
             durationMs: Date.now() - start,
-            preset: config.preset,
-            paths: config.paths,
+            errors,
         });
         if (config.failOnCacheMiss) {
             throw new Error(`Failed to restore cache entry. Exiting as fail-on-cache-miss is set. Input key: ${config.primaryKey}`);
@@ -73925,11 +74017,23 @@ async function restoreImpl(stateProvider, earlyExit) {
         }
         else {
             log/* log */.R.info(`Cache not found for input keys: ${keys}`);
+            const searched = searchedLine(config, s3);
+            if (searched) {
+                log/* log */.R.info(searched);
+            }
         }
         return undefined;
     }
     catch (err) {
         (0,host/* getHost */.L)().setFailed((0,outcomes/* toError */.i)(err).message);
+        // A step that throws (no bucket, a strict tier error) still writes its row and the error.
+        await summarize({
+            cacheHit: false,
+            source: 'none',
+            durationMs: Date.now() - start,
+            failed: true,
+            errors: [...errors, (0,outcomes/* toError */.i)(err).message],
+        });
         report({
             step: 'restore',
             provider,
@@ -73974,6 +74078,18 @@ async function runRestoreOnly(earlyExit = true) {
 
 
 
+/** The annotation title of each save warning, so a job with several cache steps shows which one warned. */
+const saveImpl_WARNING_TITLE = 'Cloud cache save';
+/**
+ * Tier errors that the current save warned about, for the job summary. `saveImpl` empties it at
+ * the start of each step.
+ */
+let stepErrors = [];
+/** Logs a tier error as a warning with the save title, and keeps its text for the job summary. */
+function warnTierError(message) {
+    log/* log */.R.warning(message, saveImpl_WARNING_TITLE);
+    stepErrors.push(message);
+}
 const ACCESS_DENIED_HINT = 'The credentials may not be allowed to write to the bucket. Set read-only: true to skip the save.';
 /**
  * The S3 save error message, with a hint about read-only when S3 denied a write call. A 403 on a
@@ -74010,7 +74126,7 @@ async function saveImpl_setUpS3(config, stateProvider) {
         if (!otherTierMayServe) {
             throw err;
         }
-        log/* log */.R.warning(`S3 client initialization failed during save: ${(0,outcomes/* toError */.i)(err).message}`);
+        warnTierError(`S3 client initialization failed during save: ${(0,outcomes/* toError */.i)(err).message}`);
         return undefined;
     }
 }
@@ -74022,6 +74138,7 @@ async function saveSingleTier(config, s3, s3ExactHit) {
     }
     // A tier error the step only warned about still makes the outcome an error, not a plain skip.
     let warnedError;
+    let skipReason;
     if (s3) {
         const outcome = await saveToS3(s3, config.primaryKey, config.paths);
         switch (outcome.kind) {
@@ -74039,10 +74156,10 @@ async function saveSingleTier(config, s3, s3ExactHit) {
                 };
             case 'skipped':
                 (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheSavedSources, 'none');
-                return { sources: [], outcome: 'skipped' };
+                return { sources: [], outcome: 'skipped', skipReason: outcome.reason };
             case 'error': {
                 const error = s3SaveError(outcome.error);
-                log/* log */.R.warning(`Failed to save cache to S3: ${error.message}`);
+                warnTierError(`Failed to save cache to S3: ${error.message}`);
                 warnedError = error.message;
                 break;
             }
@@ -74062,11 +74179,13 @@ async function saveSingleTier(config, s3, s3ExactHit) {
                 (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheSavedSources, 'github');
                 return { sources: ['github'], outcome: 'saved' };
             case 'error':
-                log/* log */.R.warning(`Failed to save cache to GitHub Actions Cache: ${outcome.error.message}`);
+                warnTierError(`Failed to save cache to GitHub Actions Cache: ${outcome.error.message}`);
                 warnedError = outcome.error.message;
                 break;
             case 'exists':
+                break;
             case 'skipped':
+                skipReason = outcome.reason;
                 break;
             default: {
                 const unreachable = outcome;
@@ -74077,7 +74196,7 @@ async function saveSingleTier(config, s3, s3ExactHit) {
     (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheSavedSources, 'none');
     return warnedError
         ? { sources: [], outcome: 'error', error: warnedError }
-        : { sources: [], outcome: 'skipped' };
+        : { sources: [], outcome: 'skipped', skipReason };
 }
 async function saveBothTiers(config, s3, s3ExactHit, githubExactHit) {
     const present = new Set();
@@ -74090,11 +74209,12 @@ async function saveBothTiers(config, s3, s3ExactHit, githubExactHit) {
     let uploaded = false;
     // A tier error the step only warned about still makes the outcome an error, not a plain skip.
     let warnedError;
+    let skipReason;
     const tierFailed = (tier, error) => {
         if (config.dualCacheStrict) {
             throw new Error(`Saving to ${tier} failed: ${error.message}`, { cause: error });
         }
-        log/* log */.R.warning(`Dual-cache ${tier} save error: ${error.message}`);
+        warnTierError(`Dual-cache ${tier} save error: ${error.message}`);
         warnedError = error.message;
     };
     log/* log */.R.info(`Dual-cache save (strategy: ${config.dualCacheStrategy})`);
@@ -74119,6 +74239,7 @@ async function saveBothTiers(config, s3, s3ExactHit, githubExactHit) {
                 uploaded ||= outcome.kind === 'saved';
                 break;
             case 'skipped':
+                skipReason = outcome.reason;
                 break;
             case 'error':
                 tierFailed('S3', s3SaveError(outcome.error));
@@ -74162,7 +74283,9 @@ async function saveBothTiers(config, s3, s3ExactHit, githubExactHit) {
                     tierFailed('GitHub Actions Cache', outcome.error);
                     break;
                 case 'exists':
+                    break;
                 case 'skipped':
+                    skipReason ??= outcome.reason;
                     break;
                 default: {
                     const unreachable = outcome;
@@ -74177,7 +74300,7 @@ async function saveBothTiers(config, s3, s3ExactHit, githubExactHit) {
     if (sources.length === 0) {
         return warnedError
             ? { sources: [], objectKey, transferMs, outcome: 'error', error: warnedError }
-            : { sources: [], objectKey, transferMs, outcome: 'skipped' };
+            : { sources: [], objectKey, transferMs, outcome: 'skipped', skipReason };
     }
     return {
         size,
@@ -74214,9 +74337,12 @@ async function saveImpl(stateProvider) {
         }
         emitMetrics(full, config?.metricsFile ?? '', (0,host/* getHost */.L)().context().workspace);
     };
+    stepErrors = [];
+    // One summary per step: a throw after the summary must not write a second one.
+    let summarized = false;
     try {
         if (!(0,inputUtils/* isValidEvent */.FR)()) {
-            log/* log */.R.warning(`Event Validation Warning: The event type ${(0,host/* getHost */.L)().context().eventName} may not be tied to a branch or tag ref.`);
+            log/* log */.R.warning(`Event Validation Warning: The event type ${(0,host/* getHost */.L)().context().eventName} may not be tied to a branch or tag ref.`, saveImpl_WARNING_TITLE);
         }
         // In the post step the key and the paths come from state, so the preset does not hash again.
         config = await applyPreset(readCacheConfig(stateProvider), readPreset());
@@ -74243,12 +74369,12 @@ async function saveImpl(stateProvider) {
             return;
         }
         if (!config.primaryKey) {
-            log/* log */.R.warning('Key is not specified. Set key and path, or set preset. Skipping cache save.');
+            log/* log */.R.warning('Key is not specified. Set key and path, or set preset. Skipping cache save.', saveImpl_WARNING_TITLE);
             skip('no key');
             return;
         }
         if (config.paths.length === 0) {
-            log/* log */.R.warning('No paths specified to cache. Set path, or set preset. Skipping save.');
+            log/* log */.R.warning('No paths specified to cache. Set path, or set preset. Skipping save.', saveImpl_WARNING_TITLE);
             skip('no paths');
             return;
         }
@@ -74260,6 +74386,7 @@ async function saveImpl(stateProvider) {
             (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheSavedSources, 'none');
             (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheSaveDurationMs, String(Date.now() - start));
             skip(`ACTIONS_CACHE_MODE=${cacheMode}`);
+            summarized = true;
             await writeSaveSummary({
                 jobSummary: config.jobSummary,
                 key: config.primaryKey,
@@ -74296,6 +74423,7 @@ async function saveImpl(stateProvider) {
             outcome: result.outcome,
             extra: result.error ? { error: result.error } : undefined,
         });
+        summarized = true;
         await writeSaveSummary({
             jobSummary: config.jobSummary,
             key: config.primaryKey,
@@ -74304,6 +74432,11 @@ async function saveImpl(stateProvider) {
             durationMs: Date.now() - start,
             preset: config.preset,
             paths: config.paths,
+            outcome: result.outcome,
+            // An "exists" outcome after an exact restore hit means that no save was necessary.
+            exactHit: s3ExactHit || (config.dualCache && githubExactHit),
+            skipReason: result.skipReason,
+            errors: stepErrors,
         });
         return config.dualCache ? undefined : result.size;
     }
@@ -74322,7 +74455,20 @@ async function saveImpl(stateProvider) {
             (0,host/* getHost */.L)().setFailed(message);
         }
         else {
-            log/* log */.R.warning(`Save cache encountered error: ${message}`);
+            log/* log */.R.warning(`Save cache encountered error: ${message}`, saveImpl_WARNING_TITLE);
+        }
+        // A save that throws (a strict tier error, no bucket) still writes its row and the error.
+        if (config !== undefined && !summarized) {
+            await writeSaveSummary({
+                jobSummary: config.jobSummary,
+                key: config.primaryKey,
+                savedTo: [],
+                durationMs: Date.now() - start,
+                preset: config.preset,
+                paths: config.paths,
+                outcome: 'error',
+                errors: [...stepErrors, message],
+            });
         }
     }
 }

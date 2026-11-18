@@ -176,7 +176,8 @@ describe('GenericHost', () => {
     const quiet = host();
     quiet.log.debug('hidden');
     quiet.log.info('i');
-    quiet.log.warning('w');
+    // The CLI has no annotations, so it prints a warning title nowhere.
+    quiet.log.warning('w', 'Cloud cache restore');
     quiet.log.error('e');
     quiet.log.startGroup('G');
     quiet.log.endGroup();
