@@ -72,7 +72,7 @@ import {
   type ObjectTag,
 } from './objectAttributes';
 import { compileKeyTemplate, type KeyTemplate } from './keyTemplate';
-import { toError, type RestoreOutcome, type SaveOutcome } from './outcomes';
+import { toError, type RejectedObject, type RestoreOutcome, type SaveOutcome } from './outcomes';
 import { computeCacheVersion } from './version';
 
 /** Logged when streaming is requested but the plan needs the BSD-tar-plus-zstd two-step on Windows. */
@@ -492,13 +492,14 @@ async function resolveExpectedSha256(
 }
 
 /**
- * The error outcome of an archive that failed the sha256 check. It names the object only when
- * `replaceable` is true, so that the save of this job can replace that object.
+ * The error outcome of an archive that failed the sha256 check. It names the object and its ETag
+ * only when `replaceable` is true and the lookup gave an ETag, so that a later save can replace
+ * exactly that object.
  */
 function integrityFailure(message: string, found: S3Match, replaceable: boolean): RestoreOutcome {
   const error = new Error(message);
-  return replaceable
-    ? { kind: 'error', error, rejectedObjectKey: found.objectKey }
+  return replaceable && found.etag !== undefined
+    ? { kind: 'error', error, rejected: { objectKey: found.objectKey, etag: found.etag } }
     : { kind: 'error', error };
 }
 
@@ -601,11 +602,11 @@ export async function restoreFromS3(
 
 export interface SaveToS3Options {
   /**
-   * The object key that the restore of this job rejected in the integrity check. When it is the
-   * key that this save writes, the save does not keep that object: it uploads without the
-   * existence check and without `If-None-Match`, and so replaces it.
+   * The object that a restore rejected in the integrity check. When the save finds that object at
+   * its key, with the same ETag, it does not keep it: it uploads without `If-None-Match`, and so
+   * replaces it. Any other object at the key is kept as usual.
    */
-  replaceObjectKey?: string;
+  rejected?: RejectedObject;
 }
 
 export async function saveToS3(
@@ -616,20 +617,25 @@ export async function saveToS3(
 ): Promise<SaveOutcome> {
   const { client, bucket } = tier.storage;
   const objectKey = tier.template.objectKey(tier.saveRef, primaryKey);
-  // Another job can have written a good object after the restore. The upload then replaces one
-  // good cache of this key with another, and no good cache is lost.
-  const replace = options.replaceObjectKey === objectKey;
   try {
+    const existing = await checkObjectExists(client, bucket, objectKey);
+    // Only the object that failed the check is replaced. When another job replaced it in the
+    // meantime, the ETag differs and the save keeps that object. The HEAD and the upload are two
+    // requests, so a write between them can still be replaced by this good archive.
+    const replace =
+      existing !== null &&
+      options.rejected !== undefined &&
+      options.rejected.objectKey === objectKey &&
+      existing.etag !== undefined &&
+      existing.etag === options.rejected.etag;
+    if (existing && !replace) {
+      log.info(`Cache already exists at s3://${bucket}/${objectKey}; not uploading it again.`);
+      return { kind: 'exists', s3: { objectKey, size: existing.size, etag: existing.etag } };
+    }
     if (replace) {
       log.info(
         `Replacing s3://${bucket}/${objectKey}, because it failed the integrity check in the restore of this job.`
       );
-    } else {
-      const existing = await checkObjectExists(client, bucket, objectKey);
-      if (existing) {
-        log.info(`Cache already exists at s3://${bucket}/${objectKey}; not uploading it again.`);
-        return { kind: 'exists', s3: { objectKey, size: existing.size, etag: existing.etag } };
-      }
     }
 
     const { entries } = await resolveCachePaths(patterns, tier.workspace);
@@ -645,15 +651,33 @@ export async function saveToS3(
       if (
         !usesSeparateZstd({ tar, platform: process.platform, compression: tier.compression.method })
       ) {
-        return await saveToS3Streaming(tier, objectKey, entries, tar, primaryKey, replace);
+        return markReplaced(
+          await saveToS3Streaming(tier, objectKey, entries, tar, primaryKey, replace),
+          replace
+        );
       }
       log.info(STREAMING_FALLBACK_MESSAGE);
     }
 
-    return await saveToS3FileMode(tier, objectKey, entries, primaryKey, true, false, replace);
+    return markReplaced(
+      await saveToS3FileMode(tier, objectKey, entries, primaryKey, { replace }),
+      replace
+    );
   } catch (err) {
     return { kind: 'error', error: toError(err) };
   }
+}
+
+/** Marks a saved outcome as a replacement of an object that failed the integrity check. */
+function markReplaced(outcome: SaveOutcome, replace: boolean): SaveOutcome {
+  return replace && outcome.kind === 'saved' ? { ...outcome, replaced: true } : outcome;
+}
+
+/** How `saveToS3FileMode` treats the conditional write; see its description. */
+interface FileModeOptions {
+  retryConflict?: boolean;
+  omitTags?: boolean;
+  replace?: boolean;
 }
 
 /**
@@ -673,9 +697,7 @@ async function saveToS3FileMode(
   objectKey: string,
   entries: readonly string[],
   primaryKey: string,
-  retryConflict = true,
-  omitTags = false,
-  replace = false
+  { retryConflict = true, omitTags = false, replace = false }: FileModeOptions = {}
 ): Promise<SaveOutcome> {
   const { client, bucket } = tier.storage;
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cloud-cache-save-'));
@@ -1205,15 +1227,10 @@ async function saveToS3Streaming(
       // `If-None-Match` does. A streamed body cannot be replayed, so the retry without tags is a
       // file-mode save, which omits them once the flag below is set.
       if (tagging !== undefined && isTaggingUnsupported(err)) {
-        const outcome = await saveToS3FileMode(
-          tier,
-          objectKey,
-          entries,
-          primaryKey,
-          true,
-          true,
-          replace
-        );
+        const outcome = await saveToS3FileMode(tier, objectKey, entries, primaryKey, {
+          omitTags: true,
+          replace,
+        });
         // Only a save that actually succeeded without tags proves the tags were the problem; the
         // same 501 also means an unsupported `If-None-Match`, which that save handles itself.
         if (outcome.kind === 'saved') {
@@ -1242,7 +1259,9 @@ async function saveToS3Streaming(
         log.info(
           `A concurrent write to s3://${bucket}/${objectKey} conflicted with this upload; retrying it once from a temporary archive file.`
         );
-        return await saveToS3FileMode(tier, objectKey, entries, primaryKey, false);
+        return await saveToS3FileMode(tier, objectKey, entries, primaryKey, {
+          retryConflict: false,
+        });
       }
       throw withStderrTail(err, stderrTail.lines());
     }

@@ -249,16 +249,17 @@ describe('restoreImpl', () => {
 
   describe('an S3 object that fails the integrity check', () => {
     const objectKey = 'octo/app/Linux-npm-abc/cache.tar.zst';
-    const rejected = (rejectedObjectKey?: string): RestoreOutcome => ({
+    const stored = JSON.stringify({ objectKey, etag: '"bad"' });
+    const rejected = (key?: string): RestoreOutcome => ({
       kind: 'error',
       error: new Error(`Integrity check failed for s3://bucket/${objectKey}`),
-      rejectedObjectKey,
+      ...(key ? { rejected: { objectKey: key, etag: '"bad"' } } : {}),
     });
 
     it('records the rejected object key for the post step and counts as a miss', async () => {
       mockRestoreFromS3.mockResolvedValue(rejected(objectKey));
       await expect(restoreImpl(state, false)).resolves.toBeUndefined();
-      expect(state.getState(State.CacheS3RejectedKey)).toBe(objectKey);
+      expect(state.getState(State.CacheS3RejectedKey)).toBe(stored);
       expect(state.getState(State.CacheS3ExactHit)).toBe('');
       expect(outputs.get('cache-hit')).toBe('false');
       expect(mockWarning).toHaveBeenCalledWith(expect.stringContaining('Integrity check failed'));
@@ -289,7 +290,20 @@ describe('restoreImpl', () => {
       mockRestoreFromS3.mockResolvedValue(rejected(objectKey));
       mockRestoreFromGitHub.mockResolvedValue(githubHit('Linux-npm-abc', true));
       await expect(restoreImpl(state, false)).resolves.toBe('Linux-npm-abc');
-      expect(state.getState(State.CacheS3RejectedKey)).toBe(objectKey);
+      expect(state.getState(State.CacheS3RejectedKey)).toBe(stored);
+    });
+
+    it('records the object and fails the step in strict dual-cache mode', async () => {
+      // The action skips its post step after a failed restore, so no replacement follows there.
+      inputs.set(Inputs.DualCache, 'true');
+      inputs.set(Inputs.DualCacheStrict, 'true');
+      mockRestoreFromS3.mockResolvedValue(rejected(objectKey));
+      await restoreImpl(state, false);
+      expect(mockSetFailed).toHaveBeenCalledWith(
+        expect.stringContaining('Restoring from s3 failed: Integrity check failed')
+      );
+      expect(mockRestoreFromGitHub).not.toHaveBeenCalled();
+      expect(state.getState(State.CacheS3RejectedKey)).toBe(stored);
     });
   });
 

@@ -8,7 +8,7 @@ import { getCacheMode, isCacheWritable } from './cacheMode';
 import { readCacheConfig, type CacheConfig } from './config';
 import { emitMetrics, hostMetricsFields, type StepMetrics } from './metrics';
 import { formatTimings } from './timings';
-import { toError, type S3ObjectInfo } from './outcomes';
+import { toError, type RejectedObject, type S3ObjectInfo } from './outcomes';
 import { applyPreset, readPreset } from './presets';
 import { buildS3Tier, saveToS3, type S3Tier, type SaveToS3Options } from './s3Tier';
 import { writeSaveSummary } from './summary';
@@ -27,6 +27,29 @@ interface SaveResult {
   outcome: Extract<StepMetrics['outcome'], 'saved' | 'exists' | 'skipped' | 'error'>;
   /** A tier error that was warned away rather than thrown, when nothing was saved. */
   error?: string;
+  /** True when the S3 upload replaced an object that failed the integrity check. */
+  replaced?: boolean;
+}
+
+/**
+ * Reads the object that the restore rejected in the integrity check. A value that does not parse
+ * gives undefined, and the save then keeps any object at its key as usual.
+ */
+function readRejected(stateProvider: IStateProvider): RejectedObject | undefined {
+  const value = stateProvider.getState(State.CacheS3RejectedKey);
+  if (!value) {
+    return undefined;
+  }
+  try {
+    const parsed = JSON.parse(value) as Partial<RejectedObject> | null;
+    if (typeof parsed?.objectKey === 'string' && typeof parsed.etag === 'string') {
+      return { objectKey: parsed.objectKey, etag: parsed.etag };
+    }
+  } catch {
+    // Falls through.
+  }
+  log.debug(`Ignoring the unreadable ${State.CacheS3RejectedKey} state.`);
+  return undefined;
 }
 
 const ACCESS_DENIED_HINT =
@@ -104,6 +127,7 @@ async function saveSingleTier(
           transferMs: outcome.transferMs,
           archiveMs: outcome.archiveMs,
           outcome: outcome.kind,
+          replaced: outcome.kind === 'saved' && outcome.replaced === true ? true : undefined,
         };
       case 'skipped':
         getHost().setOutput(Outputs.CacheSavedSources, 'none');
@@ -169,6 +193,7 @@ async function saveBothTiers(
   // Only an upload this step actually performed makes the outcome "saved"; tiers that already
   // held the key report "exists".
   let uploaded = false;
+  let replaced = false;
   // A tier error the step only warned about still makes the outcome an error, not a plain skip.
   let warnedError: string | undefined;
   const tierFailed = (tier: string, error: Error): void => {
@@ -201,6 +226,7 @@ async function saveBothTiers(
         transferMs = outcome.transferMs;
         archiveMs = outcome.archiveMs;
         uploaded ||= outcome.kind === 'saved';
+        replaced = outcome.kind === 'saved' && outcome.replaced === true;
         break;
       case 'skipped':
         break;
@@ -279,6 +305,7 @@ async function saveBothTiers(
     transferMs,
     archiveMs,
     outcome: uploaded ? 'saved' : 'exists',
+    replaced: replaced ? true : undefined,
   };
 }
 
@@ -374,9 +401,8 @@ export async function saveImpl(stateProvider: IStateProvider): Promise<number | 
     const s3ExactHit = stateProvider.getState(State.CacheS3ExactHit) === 'true';
     const githubExactHit = stateProvider.getState(State.CacheGithubExactHit) === 'true';
     // Set by the restore when the object of the primary key failed the integrity check.
-    const s3Options: SaveToS3Options = {
-      replaceObjectKey: stateProvider.getState(State.CacheS3RejectedKey) || undefined,
-    };
+    const rejected = readRejected(stateProvider);
+    const s3Options: SaveToS3Options = { rejected };
     const s3 = await setUpS3(config, stateProvider);
     provider = s3?.storage.providerConfig.provider;
     compression = s3?.compression.method;
@@ -385,6 +411,11 @@ export async function saveImpl(stateProvider: IStateProvider): Promise<number | 
     const result = config.dualCache
       ? await saveBothTiers(config, s3, s3ExactHit, githubExactHit, s3Options)
       : await saveSingleTier(config, s3, s3ExactHit, s3Options);
+    if (stateProvider.getState(State.CacheS3RejectedKey) && result.sources.includes('s3')) {
+      // S3 now holds a replacement or another object of the key. A second save with the same
+      // state (a CLI state file) must not replace that object again.
+      stateProvider.setState(State.CacheS3RejectedKey, '');
+    }
     getHost().setOutput(Outputs.CacheSaveDurationMs, String(Date.now() - start));
     getHost().setOutput(Outputs.CacheTransferDurationMs, String(result.transferMs ?? 0));
     getHost().setOutput(Outputs.CacheBytes, String(result.size ?? 0));
@@ -399,7 +430,13 @@ export async function saveImpl(stateProvider: IStateProvider): Promise<number | 
       archiveDurationMs: result.archiveMs,
       streaming: config.streaming,
       outcome: result.outcome,
-      extra: result.error ? { error: result.error } : undefined,
+      extra:
+        result.error || result.replaced
+          ? {
+              ...(result.error ? { error: result.error } : {}),
+              ...(result.replaced ? { replaced: true } : {}),
+            }
+          : undefined,
     });
     await writeSaveSummary({
       jobSummary: config.jobSummary,

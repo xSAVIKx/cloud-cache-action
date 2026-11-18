@@ -252,9 +252,9 @@ export async function restoreImpl(
         case 'miss':
           break;
         case 'error':
-          if (source === 's3' && outcome.rejectedObjectKey) {
-            // The post step reads this and replaces the object instead of keeping it.
-            stateProvider.setState(State.CacheS3RejectedKey, outcome.rejectedObjectKey);
+          if (source === 's3' && outcome.rejected) {
+            // The save reads this and replaces the object, if it still has this ETag.
+            stateProvider.setState(State.CacheS3RejectedKey, JSON.stringify(outcome.rejected));
           }
           if (config.dualCache && config.dualCacheStrict) {
             throw new Error(`Restoring from ${source} failed: ${outcome.error.message}`, {

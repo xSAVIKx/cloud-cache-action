@@ -32,7 +32,7 @@ const mockSaveToS3 =
       tier: S3Tier,
       primaryKey: string,
       patterns: readonly string[],
-      options?: { replaceObjectKey?: string }
+      options?: { rejected?: { objectKey: string; etag: string } }
     ) => Promise<SaveOutcome>
   >();
 const mockExistsInGitHub =
@@ -245,7 +245,7 @@ describe('saveImpl', () => {
     it('saves to S3 and reports the object', async () => {
       await expect(saveImpl(state)).resolves.toBe(2048);
       expect(mockSaveToS3).toHaveBeenCalledWith(tier, 'Linux-npm-abc', ['~/.npm'], {
-        replaceObjectKey: undefined,
+        rejected: undefined,
       });
       expect(Object.fromEntries(outputs)).toEqual({
         'cache-storage-provider': 'seaweedfs',
@@ -403,7 +403,7 @@ describe('saveImpl', () => {
       await saveImpl(state);
       expect(mockWarning).not.toHaveBeenCalled();
       expect(mockSaveToS3).toHaveBeenCalledWith(tier, 'Linux-npm-fromrestore', ['~/.npm'], {
-        replaceObjectKey: undefined,
+        rejected: undefined,
       });
       expect(mockWriteSaveSummary).toHaveBeenCalledWith(
         expect.objectContaining({ key: 'Linux-npm-fromrestore', preset: 'npm' })
@@ -428,33 +428,67 @@ describe('saveImpl', () => {
   });
 
   describe('an S3 object that failed the integrity check on restore', () => {
-    const rejectedKey = 'octo/app/Linux-npm-abc/cache.tar.zst';
+    const rejected = { objectKey: 'octo/app/Linux-npm-abc/cache.tar.zst', etag: '"bad"' };
+    const replacedSave: SaveOutcome = { ...s3Saved, replaced: true } as SaveOutcome;
 
-    it('passes the rejected object key to the S3 save, so the save replaces that object', async () => {
-      state.setState(State.CacheS3RejectedKey, rejectedKey);
+    it('passes the rejected object to the S3 save', async () => {
+      state.setState(State.CacheS3RejectedKey, JSON.stringify(rejected));
+      mockSaveToS3.mockResolvedValue(replacedSave);
       await saveImpl(state);
-      expect(mockSaveToS3).toHaveBeenCalledWith(tier, 'Linux-npm-abc', ['~/.npm'], {
-        replaceObjectKey: rejectedKey,
-      });
+      expect(mockSaveToS3).toHaveBeenCalledWith(tier, 'Linux-npm-abc', ['~/.npm'], { rejected });
       expect(outputs.get('cache-saved-sources')).toBe('s3');
     });
 
-    it('only warns, and does not fail the job, when the replacement upload fails', async () => {
-      state.setState(State.CacheS3RejectedKey, rejectedKey);
+    it('clears the state once S3 holds an object of the key, so a second save keeps it', async () => {
+      state.setState(State.CacheS3RejectedKey, JSON.stringify(rejected));
+      mockSaveToS3.mockResolvedValue(replacedSave);
+      await saveImpl(state);
+      expect(state.getState(State.CacheS3RejectedKey)).toBe('');
+      await saveImpl(state);
+      expect(mockSaveToS3).toHaveBeenLastCalledWith(tier, 'Linux-npm-abc', ['~/.npm'], {
+        rejected: undefined,
+      });
+    });
+
+    it('keeps the state after a failed replacement, which only warns', async () => {
+      state.setState(State.CacheS3RejectedKey, JSON.stringify(rejected));
       mockSaveToS3.mockResolvedValue(failure('upload interrupted'));
       await saveImpl(state);
       expect(mockWarning).toHaveBeenCalledWith('Failed to save cache to S3: upload interrupted');
       expect(mockSetFailed).not.toHaveBeenCalled();
       expect(process.exitCode).toBeUndefined();
+      expect(state.getState(State.CacheS3RejectedKey)).toBe(JSON.stringify(rejected));
     });
 
-    it('also passes it to the S3 save in dual-cache mode', async () => {
-      inputs.set(Inputs.DualCache, 'true');
-      state.setState(State.CacheS3RejectedKey, rejectedKey);
+    it('reports the replacement in the metrics', async () => {
+      inputs.set(Inputs.MetricsFile, 'metrics.jsonl');
+      state.setState(State.CacheS3RejectedKey, JSON.stringify(rejected));
+      mockSaveToS3.mockResolvedValue(replacedSave);
+      await saveImpl(state);
+      const [metrics] = mockEmitMetrics.mock.calls[0];
+      expect(metrics).toEqual(
+        expect.objectContaining({ outcome: 'saved', extra: { replaced: true } })
+      );
+    });
+
+    it('ignores a state value that does not parse, and keeps any object', async () => {
+      state.setState(State.CacheS3RejectedKey, 'octo/app/Linux-npm-abc/cache.tar.zst');
       await saveImpl(state);
       expect(mockSaveToS3).toHaveBeenCalledWith(tier, 'Linux-npm-abc', ['~/.npm'], {
-        replaceObjectKey: rejectedKey,
+        rejected: undefined,
       });
+    });
+
+    it('also passes it to the S3 save in dual-cache mode, and reports the replacement', async () => {
+      inputs.set(Inputs.DualCache, 'true');
+      inputs.set(Inputs.MetricsFile, 'metrics.jsonl');
+      state.setState(State.CacheS3RejectedKey, JSON.stringify(rejected));
+      mockSaveToS3.mockResolvedValue(replacedSave);
+      await saveImpl(state);
+      expect(mockSaveToS3).toHaveBeenCalledWith(tier, 'Linux-npm-abc', ['~/.npm'], { rejected });
+      const [metrics] = mockEmitMetrics.mock.calls[0];
+      expect(metrics.extra).toEqual({ replaced: true });
+      expect(state.getState(State.CacheS3RejectedKey)).toBe('');
     });
   });
 

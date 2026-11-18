@@ -36,26 +36,38 @@ mismatch is only detected at the end and files may already have been extracted.
 
 A save does not keep an object that failed the integrity check in the same job. The rules are:
 
-- The rule applies only to the object of the exact primary key. A restore records that object
-  key for the post step of the main action.
-- The post step then skips the existence check and uploads without `If-None-Match`. The new
-  archive replaces the bad object. The log shows `Replacing s3://<bucket>/<key>, because it failed
-  the integrity check in the restore of this job.`
+- The rule applies only to the object of the exact primary key. A restore records the object key
+  and the ETag of that object in the state of the step.
+- The save sends the usual existence check. When the object at the key still has the recorded
+  ETag, the save uploads without `If-None-Match`, and the new archive replaces the bad object.
+  The log shows `Replacing s3://<bucket>/<key>, because it failed the integrity check in the
+  restore of this job.` The metrics line shows `"replaced": true`.
+- When the ETag is different, another job replaced the object after the restore. The save keeps
+  that object. When the object is gone, the save uses the usual conditional create.
+- After the save, S3 holds an object of the key, and the save clears the recorded object. A
+  second save with the same state keeps the new object.
 - A match through `restore-keys` is never replaced. That object has another key, and the job does
   not write that key. The save of the primary key writes a newer object, and a later prefix
   lookup finds the newer object first.
 - The action never deletes the bad object, so a restore needs no `s3:DeleteObject` permission.
-  If another job saved a good object in the meantime, the replacement writes one more good copy
-  of the same key. No good cache is lost.
-- A failed replacement upload is a failed save. The post step logs a warning and does not fail
-  the job, unless `dual-cache: true` and `dual-cache-strict: true` are set.
+- A failed replacement upload is a failed save. The save logs a warning and does not fail the
+  job. The recorded object stays, so a later save with the same state can try again.
 
-The replacement needs the post step of the same job. These cases do not replace the bad object:
+The replacement needs a save that reads the state of the restore:
+
+- The main action: its post step reads the state of its restore.
+- The [CLI](./cli.md): `cloud-cache restore` and then `cloud-cache save` with the same state
+  file.
+
+These cases do not replace the bad object:
 
 - The `restore` and `save` sub-actions. They do not share state, so the `save` sub-action finds
   the existing object and keeps it.
-- A job whose restore failed the step, for example with `fail-on-cache-miss: true`. GitHub runs
-  the post step only when the job succeeds.
+- A job whose restore failed the step, for example with `fail-on-cache-miss: true` or with
+  `dual-cache-strict: true`. GitHub runs the post step only when the job succeeds.
+- An exact match on a fallback ref, for example the default branch in a pull request job. The
+  save writes the key on the ref of the job, which is another object key. The bad object on the
+  fallback ref stays.
 - `read-only: true`, and a `dual-cache-strategy: skip-on-hit` save after an exact GitHub hit.
   These modes do not save to S3.
 - `lookup-only: true`. It does not download the archive, so it does not check it.

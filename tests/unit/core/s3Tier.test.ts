@@ -643,7 +643,7 @@ describe('restoreFromS3', () => {
         error: new Error(
           `Integrity check failed for s3://bucket/${objectKey}: expected sha256 expected-hash, got actual-hash`
         ),
-        rejectedObjectKey: objectKey,
+        rejected: { objectKey, etag: '"k"' },
       });
       expect(mockExtractArchive).not.toHaveBeenCalled();
     });
@@ -656,7 +656,17 @@ describe('restoreFromS3', () => {
       mockSha256File.mockResolvedValue('actual-hash');
       const outcome = await restoreFromS3(tier(), 'k-new', ['k-'], false);
       expect(outcome.kind === 'error' && outcome.error.message).toContain('Integrity check failed');
-      expect(outcome).not.toHaveProperty('rejectedObjectKey');
+      expect(outcome).not.toHaveProperty('rejected');
+    });
+
+    it('names no object to replace when the lookup gave no ETag to pin it', async () => {
+      const objectKey = put(FEATURE, 'k', 1);
+      mockCheckObjectExists.mockResolvedValueOnce({ key: objectKey, size: 101 });
+      mockDownloadFile.mockResolvedValue({ metadata: { 'cloud-cache-sha256': 'expected-hash' } });
+      mockSha256File.mockResolvedValue('actual-hash');
+      const outcome = await restoreFromS3(tier(), 'k', [], false);
+      expect(outcome.kind).toBe('error');
+      expect(outcome).not.toHaveProperty('rejected');
     });
 
     it('names no object to replace for an error that is not an integrity failure', async () => {
@@ -758,15 +768,26 @@ const preconditionFailed = () =>
 
 describe('saveToS3', () => {
   describe('replacing an object that failed the integrity check', () => {
-    it('uploads over the rejected object without the existence check or If-None-Match', async () => {
-      const objectKey = put(FEATURE, 'k', 1);
-      const outcome = await saveToS3(tier(), 'k', ['node_modules'], {
-        replaceObjectKey: objectKey,
+    // The upload writes to the in-memory bucket, so a test can read what the bucket holds.
+    const uploadsToBucket = (etag = '"new"'): void => {
+      mockUploadFile.mockImplementation(async (_client, _bucket, key) => {
+        objects.set(key, { size: 2048, lastModified: new Date(), etag });
+        return { size: 2048, etag };
       });
-      expect(outcome).toMatchObject({ kind: 'saved', s3: { objectKey, etag: '"new"' } });
-      expect(mockCheckObjectExists).not.toHaveBeenCalled();
-      const [, , key, , , options] = mockUploadFile.mock.calls[0];
-      expect(key).toBe(objectKey);
+    };
+    const rejectedAt = (objectKey: string, etag = '"k"') => ({ rejected: { objectKey, etag } });
+
+    it('replaces the rejected object when it still has the rejected ETag', async () => {
+      const objectKey = put(FEATURE, 'k', 1);
+      uploadsToBucket();
+      const outcome = await saveToS3(tier(), 'k', ['node_modules'], rejectedAt(objectKey));
+      expect(outcome).toMatchObject({
+        kind: 'saved',
+        s3: { objectKey, etag: '"new"' },
+        replaced: true,
+      });
+      expect(objects.get(objectKey)?.etag).toBe('"new"');
+      const [, , , , , options] = mockUploadFile.mock.calls[0];
       expect(options).toMatchObject({ metadata: { 'cloud-cache-sha256': 'archive-sha256' } });
       expect(options?.ifNoneMatch).toBeUndefined();
       expect(mockInfo).toHaveBeenCalledWith(
@@ -774,34 +795,86 @@ describe('saveToS3', () => {
       );
     });
 
+    it('keeps the object, and uploads nothing, when another job replaced it after the restore', async () => {
+      const objectKey = put(FEATURE, 'k', 1);
+      objects.set(objectKey, { ...objects.get(objectKey)!, etag: '"good"' });
+      const outcome = await saveToS3(tier(), 'k', ['node_modules'], rejectedAt(objectKey));
+      expect(outcome).toEqual({
+        kind: 'exists',
+        s3: { objectKey, size: 101, etag: '"good"' },
+      });
+      expect(objects.get(objectKey)?.etag).toBe('"good"');
+      expect(mockUploadFile).not.toHaveBeenCalled();
+    });
+
+    it('does not replace again on a second save with the same rejected object', async () => {
+      // The CLI case: two saves read one state file.
+      const objectKey = put(FEATURE, 'k', 1);
+      uploadsToBucket('"first"');
+      await saveToS3(tier(), 'k', ['node_modules'], rejectedAt(objectKey));
+      uploadsToBucket('"second"');
+      const outcome = await saveToS3(tier(), 'k', ['node_modules'], rejectedAt(objectKey));
+      expect(outcome.kind).toBe('exists');
+      expect(objects.get(objectKey)?.etag).toBe('"first"');
+      expect(mockUploadFile).toHaveBeenCalledTimes(1);
+    });
+
+    it('uses the normal conditional create when the rejected object is gone', async () => {
+      const objectKey = `octo/app/refs%2Fheads%2Ffeature/k/${VERSION}/cache.tar.zst`;
+      uploadsToBucket();
+      const outcome = await saveToS3(tier(), 'k', ['node_modules'], rejectedAt(objectKey));
+      expect(outcome.kind).toBe('saved');
+      expect(outcome).not.toHaveProperty('replaced');
+      const [, , , , , options] = mockUploadFile.mock.calls[0];
+      expect(options?.ifNoneMatch).toBe('*');
+    });
+
     it('keeps a good object when the rejected object has another key', async () => {
       const goodKey = put(FEATURE, 'k', 1);
       const otherKey = put(MAIN, 'k', 1);
-      const outcome = await saveToS3(tier(), 'k', ['node_modules'], {
-        replaceObjectKey: otherKey,
-      });
+      const outcome = await saveToS3(tier(), 'k', ['node_modules'], rejectedAt(otherKey));
       expect(outcome).toEqual({
         kind: 'exists',
         s3: { objectKey: goodKey, size: 101, etag: '"k"' },
       });
+      expect(objects.get(otherKey)?.etag).toBe('"k"');
       expect(mockUploadFile).not.toHaveBeenCalled();
     });
 
     it('keeps a good object when no object was rejected', async () => {
-      put(FEATURE, 'k', 1);
+      const objectKey = put(FEATURE, 'k', 1);
       const outcome = await saveToS3(tier(), 'k', ['node_modules'], {});
       expect(outcome.kind).toBe('exists');
+      expect(objects.get(objectKey)?.etag).toBe('"k"');
       expect(mockCreateArchive).not.toHaveBeenCalled();
       expect(mockUploadFile).not.toHaveBeenCalled();
     });
 
-    it('returns a failed replacement upload as an error outcome, which the caller only warns about', async () => {
+    it('keeps the object when the server reports no ETag, because nothing can prove it is the rejected one', async () => {
+      const objectKey = put(FEATURE, 'k', 1);
+      mockCheckObjectExists.mockResolvedValueOnce({ key: objectKey, size: 101 });
+      const outcome = await saveToS3(tier(), 'k', ['node_modules'], rejectedAt(objectKey));
+      expect(outcome.kind).toBe('exists');
+      expect(mockUploadFile).not.toHaveBeenCalled();
+    });
+
+    it('replaces without a condition on a server that does not support conditional writes', async () => {
+      const objectKey = put(FEATURE, 'k', 1);
+      storage.conditionalWriteUnsupported = true;
+      uploadsToBucket();
+      const outcome = await saveToS3(tier(), 'k', ['node_modules'], rejectedAt(objectKey));
+      expect(outcome).toMatchObject({ kind: 'saved', replaced: true });
+      expect(objects.get(objectKey)?.etag).toBe('"new"');
+      expect(mockUploadFile).toHaveBeenCalledTimes(1);
+      expect(mockUploadFile.mock.calls[0][5]?.ifNoneMatch).toBeUndefined();
+    });
+
+    it('returns a failed replacement upload as an error outcome, and the object stays', async () => {
       const objectKey = put(FEATURE, 'k', 1);
       mockUploadFile.mockRejectedValue(new Error('Access Denied'));
-      const outcome = await saveToS3(tier(), 'k', ['node_modules'], {
-        replaceObjectKey: objectKey,
-      });
+      const outcome = await saveToS3(tier(), 'k', ['node_modules'], rejectedAt(objectKey));
       expect(outcome).toEqual({ kind: 'error', error: new Error('Access Denied') });
+      expect(objects.get(objectKey)?.etag).toBe('"k"');
     });
 
     it('streams over the rejected object without If-None-Match, and attaches the checksum by a guarded copy', async () => {
@@ -820,11 +893,13 @@ describe('saveToS3', () => {
         }),
         abort: jest.fn(async () => undefined),
       }));
-      const outcome = await saveToS3(tier({ streaming: true }), 'k', ['node_modules'], {
-        replaceObjectKey: objectKey,
-      });
-      expect(outcome).toMatchObject({ kind: 'saved', s3: { objectKey } });
-      expect(mockCheckObjectExists).not.toHaveBeenCalled();
+      const outcome = await saveToS3(
+        tier({ streaming: true }),
+        'k',
+        ['node_modules'],
+        rejectedAt(objectKey)
+      );
+      expect(outcome).toMatchObject({ kind: 'saved', s3: { objectKey }, replaced: true });
       const options = mockCreateStreamUpload.mock.calls[0][5];
       expect(options?.ifNoneMatch).toBeUndefined();
       expect(mockPutObjectTags).not.toHaveBeenCalled();
@@ -840,6 +915,44 @@ describe('saveToS3', () => {
         },
         { ifMatch: '"streamed"' }
       );
+    });
+
+    it('keeps the replace in the file-mode retry after a streamed upload rejects tagging', async () => {
+      // Without the replace in that retry, the retry sends If-None-Match, gets 412 and keeps the
+      // bad object.
+      const objectKey = put(FEATURE, 'k', 1);
+      mockSpawnArchiveCommand.mockImplementation(() => makeFakeChild());
+      mockWaitForExit.mockImplementation(async (c) => {
+        c.stdout.end(Buffer.from('archive-body'));
+        return 0;
+      });
+      mockCreateStreamUpload.mockReturnValue({
+        done: jest.fn(async () => {
+          throw Object.assign(new Error('NotImplemented'), {
+            name: 'NotImplemented',
+            $metadata: { httpStatusCode: 501 },
+          });
+        }),
+        abort: jest.fn(async () => undefined),
+      });
+      mockUploadFile.mockImplementation(async (_client, _bucket, key, _source, _transfer, opts) => {
+        if (opts?.ifNoneMatch === '*' && objects.has(key)) {
+          throw preconditionFailed();
+        }
+        objects.set(key, { size: 2048, lastModified: new Date(), etag: '"new"' });
+        return { size: 2048, etag: '"new"' };
+      });
+
+      const outcome = await saveToS3(
+        tier({ streaming: true, tags: [{ Key: 'a', Value: 'b' }] }),
+        'k',
+        ['node_modules'],
+        rejectedAt(objectKey)
+      );
+
+      expect(outcome).toMatchObject({ kind: 'saved', replaced: true });
+      expect(objects.get(objectKey)?.etag).toBe('"new"');
+      expect(mockUploadFile.mock.calls[0][5]?.ifNoneMatch).toBeUndefined();
     });
   });
 
@@ -2826,7 +2939,7 @@ describe('restoreFromS3 streaming', () => {
     expect(message).toContain(`Integrity check failed for s3://bucket/${objectKey}`);
     expect(message).toContain('expected sha256 expected-hash');
     expect(message).toContain('files may already have been extracted');
-    expect(outcome).toHaveProperty('rejectedObjectKey', objectKey);
+    expect(outcome).toHaveProperty('rejected', { objectKey, etag: '"k"' });
   });
 
   it('skips verification when the object carries no checksum metadata', async () => {
