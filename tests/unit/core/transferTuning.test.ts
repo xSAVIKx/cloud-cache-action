@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  budgetConcurrency,
   formatTuning,
   minUploadPartSize,
   tuneTransfer,
@@ -170,6 +171,14 @@ describe('tuneTransfer', () => {
   });
 });
 
+describe('budgetConcurrency', () => {
+  it('keeps concurrency + 1 parts within the budget, and at least 1', () => {
+    expect(budgetConcurrency(11 * MiB, 512 * MiB)).toBe(10);
+    expect(budgetConcurrency(105 * MiB, 16 * GiB)).toBe(8);
+    expect(budgetConcurrency(GiB, 16 * GiB)).toBe(1);
+  });
+});
+
 describe('minUploadPartSize', () => {
   it('rounds the smallest part size for 10,000 parts up to whole MiB', () => {
     expect(minUploadPartSize(0)).toBe(0);
@@ -198,6 +207,13 @@ describe('formatTuning', () => {
         partSize: 128 * MiB,
       })
     ).toBe('Transfer tuning: auto selected 7 x 128 MiB (set) for the upload of 2.0 GiB');
+    expect(
+      formatTuning('upload', { concurrency: 16, partSize: 7 * MiB }, 60 * GiB, {
+        partSize: 5 * MiB,
+      })
+    ).toBe(
+      'Transfer tuning: auto selected 16 x 7 MiB (raised from the set 5 MiB) for the upload of 60.0 GiB'
+    );
   });
 
   it('stays free of runtime imports, so any CI front end can use it', () => {

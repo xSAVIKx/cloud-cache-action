@@ -112,6 +112,37 @@ describe('BitbucketHost context', () => {
     expect(err).not.toHaveBeenCalled();
   });
 
+  it('resolves a relative CLOUD_CACHE_WORKSPACE from the current directory', () => {
+    spyOut();
+    const err = spyErr();
+    const cwd = process.cwd();
+    expect(
+      host({ ...BRANCH_ENV, BITBUCKET_CLONE_DIR: cwd, CLOUD_CACHE_WORKSPACE: '.' }).context()
+        .workspace
+    ).toBe(cwd);
+    expect(err).not.toHaveBeenCalled();
+    host({ ...BRANCH_ENV, BITBUCKET_CLONE_DIR: cwd, CLOUD_CACHE_WORKSPACE: 'service-a' }).context();
+    expect(err).toHaveBeenCalledTimes(1);
+  });
+
+  it('compares the directories without case on Windows only', () => {
+    spyOut();
+    const err = spyErr();
+    const platform = Object.getOwnPropertyDescriptor(process, 'platform');
+    const env = { ...BRANCH_ENV, BITBUCKET_CLONE_DIR: '/Build', CLOUD_CACHE_WORKSPACE: '/build' };
+    try {
+      Object.defineProperty(process, 'platform', { value: 'win32' });
+      host(env).context();
+      expect(err).not.toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(process, 'platform', platform as PropertyDescriptor);
+    }
+    if (process.platform !== 'win32') {
+      host(env).context();
+      expect(err).toHaveBeenCalledTimes(1);
+    }
+  });
+
   it('ignores CLOUD_CACHE_EVENT_NAME', () => {
     spyOut();
     expect(host({ ...BRANCH_ENV, CLOUD_CACHE_EVENT_NAME: 'x' }).context().eventName).toBe('push');

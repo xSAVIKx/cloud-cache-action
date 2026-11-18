@@ -71088,20 +71088,36 @@ function tuneTransfer(input) {
     if (input.fixed?.concurrency !== undefined) {
         return { concurrency: input.fixed.concurrency, partSize };
     }
-    const budget = Math.min(MAX_BUFFERED_BYTES, Math.floor(input.freeMemoryBytes / 4));
-    const fits = Math.max(1, Math.floor(budget / partSize) - 1);
+    const fits = budgetConcurrency(partSize, input.freeMemoryBytes);
     return { concurrency: Math.min(rule.concurrency, fits), partSize };
+}
+/** The memory budget for the parts in flight: a quarter of the free memory, at most 1 GiB. */
+function memoryBudget(freeMemoryBytes) {
+    return Math.min(MAX_BUFFERED_BYTES, Math.floor(freeMemoryBytes / 4));
+}
+/**
+ * The highest concurrency for parts of `partSize` within the memory budget. The code that reads
+ * the parts holds one part more than the concurrency. The result is at least 1.
+ */
+function budgetConcurrency(partSize, freeMemoryBytes) {
+    return Math.max(1, Math.floor(memoryBudget(freeMemoryBytes) / partSize) - 1);
 }
 /**
  * `Transfer tuning: auto selected 16 x 16 MiB for the download of 2.0 GiB`. A value that the
- * workflow set is marked `(set)`.
+ * workflow set is marked `(set)`. A set part size that the 10,000-part limit raised is marked
+ * `(raised from the set 5 MiB)`.
  */
 function formatTuning(direction, settings, sizeBytes, fixed = {}) {
     const size = sizeBytes >= GiB
         ? `${(sizeBytes / GiB).toFixed(1)} GiB`
         : `${(sizeBytes / MiB).toFixed(0)} MiB`;
     const concurrency = `${settings.concurrency}${fixed.concurrency === undefined ? '' : ' (set)'}`;
-    const partSize = `${settings.partSize / MiB} MiB${fixed.partSize === undefined ? '' : ' (set)'}`;
+    const mark = fixed.partSize === undefined
+        ? ''
+        : settings.partSize === fixed.partSize
+            ? ' (set)'
+            : ` (raised from the set ${fixed.partSize / MiB} MiB)`;
+    const partSize = `${settings.partSize / MiB} MiB${mark}`;
     return `Transfer tuning: auto selected ${concurrency} x ${partSize} for the ${direction} of ${size}`;
 }
 
@@ -71606,31 +71622,43 @@ function settingsFor(tier, direction, sizeBytes) {
 }
 /**
  * Raises the upload part size so that an archive of `sizeBytes` needs at most 10,000 parts, with
- * one warning. Without this, the SDK uploads 10,000 parts before it fails. The provider limit
- * `maxPartSize` wins over the raise: when no allowed part size is large enough, this throws, and
- * the save fails before the upload starts.
+ * one warning. Without this, the SDK uploads 10,000 parts before it fails. A raise also lowers the
+ * concurrency to the memory budget of `auto` tuning, so that the memory does not grow with the
+ * archive. The provider limit `maxPartSize` wins over the raise: when no allowed part size is
+ * large enough, this throws, and the save fails before the upload starts.
  */
 function fitUploadPartLimit(tier, settings, sizeBytes) {
-    const needed = minUploadPartSize(sizeBytes);
     const { provider, maxPartSize } = tier.storage.providerConfig;
     const largest = Math.min(maxPartSize ?? MAX_S3_PART_SIZE, MAX_S3_PART_SIZE);
+    let needed = minUploadPartSize(sizeBytes);
     if (needed > settings.partSize && needed > largest) {
-        const limit = maxPartSize !== undefined && maxPartSize < MAX_S3_PART_SIZE
-            ? `provider "${provider}" accepts at most ${(0,inputUtils/* formatSize */.Xq)(largest)} in one part`
-            : `S3 accepts at most ${(0,inputUtils/* formatSize */.Xq)(largest)} in one part`;
-        // The save step logs this error as a warning.
-        throw new Error(`The ${(0,inputUtils/* formatSize */.Xq)(sizeBytes)} archive needs upload parts of at least ${(0,inputUtils/* formatSize */.Xq)(needed)} to stay within the S3 limit of ${MAX_UPLOAD_PARTS.toLocaleString('en-US')} parts, but ${limit}. The save stops before the upload.`);
+        // The whole-MiB value is above the limit; the limit itself can still be large enough.
+        const exact = Math.ceil(sizeBytes / MAX_UPLOAD_PARTS);
+        if (exact > largest) {
+            const limit = maxPartSize !== undefined && maxPartSize < MAX_S3_PART_SIZE
+                ? `provider "${provider}" accepts at most ${(0,inputUtils/* formatSize */.Xq)(largest)} in one part`
+                : `S3 accepts at most ${(0,inputUtils/* formatSize */.Xq)(largest)} in one part`;
+            // The save step logs this error as a warning.
+            throw new Error(`The ${(0,inputUtils/* formatSize */.Xq)(sizeBytes)} archive needs upload parts of at least ${(0,inputUtils/* formatSize */.Xq)(exact)} to stay within the S3 limit of ${MAX_UPLOAD_PARTS.toLocaleString('en-US')} parts, but ${limit}. The save stops before the upload.`);
+        }
+        needed = largest;
     }
     const partSize = Math.max(settings.partSize, needed);
     // `auto` tuning raises the part size already; a raise from a set value still gets the warning.
     const from = tier.uploadChunkSizeSet ? tier.upload.partSize : settings.partSize;
-    if (partSize > from) {
-        const source = tier.uploadChunkSizeSet
-            ? `Input "upload-chunk-size" is ${(0,inputUtils/* formatSize */.Xq)(from)}`
-            : `The upload part size is ${(0,inputUtils/* formatSize */.Xq)(from)}`;
-        log/* log */.R.warning(`${source}, so the ${(0,inputUtils/* formatSize */.Xq)(sizeBytes)} archive needs more than ${MAX_UPLOAD_PARTS.toLocaleString('en-US')} parts, the S3 limit; using ${(0,inputUtils/* formatSize */.Xq)(partSize)}.`);
+    if (partSize <= from) {
+        return partSize === settings.partSize ? settings : { ...settings, partSize };
     }
-    return partSize === settings.partSize ? settings : { ...settings, partSize };
+    const free = (tier.memory ?? usableMemory)();
+    const concurrency = Math.min(settings.concurrency, budgetConcurrency(partSize, free));
+    const source = tier.uploadChunkSizeSet
+        ? `Input "upload-chunk-size" is ${(0,inputUtils/* formatSize */.Xq)(from)}`
+        : `The upload part size is ${(0,inputUtils/* formatSize */.Xq)(from)}`;
+    const lowered = concurrency < settings.concurrency
+        ? `, ${concurrency} at a time instead of ${settings.concurrency} to stay within the ${(0,inputUtils/* formatSize */.Xq)(memoryBudget(free))} memory budget`
+        : '';
+    log/* log */.R.warning(`${source}, so the ${(0,inputUtils/* formatSize */.Xq)(sizeBytes)} archive needs more than ${MAX_UPLOAD_PARTS.toLocaleString('en-US')} parts, the S3 limit; using ${(0,inputUtils/* formatSize */.Xq)(partSize)}${lowered}.`);
+    return { concurrency, partSize };
 }
 /**
  * The transfer settings for one object of `sizeBytes`: the tier's settings with `auto` tuning

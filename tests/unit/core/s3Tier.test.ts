@@ -2592,6 +2592,9 @@ describe('restoreFromS3 parallel download', () => {
       expect(partLimitWarning()).toEqual([
         'Input "upload-chunk-size" is 5.00 MB, so the 60.00 GB archive needs more than 10,000 parts, the S3 limit; using 7.00 MB.',
       ]);
+      expect(mockInfo).toHaveBeenCalledWith(
+        'Transfer tuning: auto selected 16 x 7 MiB (raised from the set 5 MiB) for the upload of 60.0 GiB'
+      );
     });
 
     it('raises the default part size, with a warning that names no input', async () => {
@@ -2637,7 +2640,7 @@ describe('restoreFromS3 parallel download', () => {
       );
       expect(outcome).toMatchObject({ kind: 'error' });
       expect((outcome as { error: Error }).error.message).toBe(
-        'The 200.00 GB archive needs upload parts of at least 21.00 MB to stay within the S3 limit of 10,000 parts, but provider "seaweedfs" accepts at most 16.00 MB in one part. The save stops before the upload.'
+        'The 200.00 GB archive needs upload parts of at least 20.48 MB to stay within the S3 limit of 10,000 parts, but provider "seaweedfs" accepts at most 16.00 MB in one part. The save stops before the upload.'
       );
       expect(mockUploadFile).not.toHaveBeenCalled();
     });
@@ -2655,6 +2658,84 @@ describe('restoreFromS3 parallel download', () => {
       );
       const [, , , , settings] = mockUploadFile.mock.calls[0];
       expect(settings).toEqual({ concurrency: 8, partSize: 16 * MiB });
+    });
+
+    const inBudget = (settings: { concurrency: number; partSize: number }, budget: number) =>
+      (settings.concurrency + 1) * settings.partSize <= budget;
+
+    it('lowers the concurrency of a raise in fixed mode to the memory budget: 100 GiB', async () => {
+      mockGetArchiveSize.mockReturnValue(100 * 1024 * MiB);
+      await saveToS3(
+        tier({
+          upload: { concurrency: 32, partSize: 5 * MiB },
+          uploadChunkSizeSet: true,
+          memory: () => 512 * MiB,
+        }),
+        'k',
+        ['node_modules']
+      );
+      const [, , , , settings] = mockUploadFile.mock.calls[0];
+      // 128 MiB budget / 11 MiB parts = 11 parts, one of them read ahead.
+      expect(settings).toEqual({ concurrency: 10, partSize: 11 * MiB });
+      expect(
+        inBudget(settings as unknown as { concurrency: number; partSize: number }, 128 * MiB)
+      ).toBe(true);
+      expect(partLimitWarning()).toEqual([
+        'Input "upload-chunk-size" is 5.00 MB, so the 100.00 GB archive needs more than 10,000 parts, the S3 limit; using 11.00 MB, 10 at a time instead of 32 to stay within the 128.00 MB memory budget.',
+      ]);
+    });
+
+    it('lowers the concurrency of a raise in fixed mode to the memory budget: 1 TiB', async () => {
+      mockGetArchiveSize.mockReturnValue(1024 * 1024 * MiB);
+      await saveToS3(tier({ upload: { concurrency: 32, partSize: 64 * MiB } }), 'k', [
+        'node_modules',
+      ]);
+      const [, , , , settings] = mockUploadFile.mock.calls[0];
+      // 1 GiB budget / 105 MiB parts = 9 parts, one of them read ahead.
+      expect(settings).toEqual({ concurrency: 8, partSize: 105 * MiB });
+      expect(
+        inBudget(settings as unknown as { concurrency: number; partSize: number }, 1024 * MiB)
+      ).toBe(true);
+      expect(partLimitWarning()).toEqual([
+        'The upload part size is 64.00 MB, so the 1.00 TB archive needs more than 10,000 parts, the S3 limit; using 105.00 MB, 8 at a time instead of 32 to stay within the 1.00 GB memory budget.',
+      ]);
+    });
+
+    it('keeps exactly 10,000 parts, and raises for one byte more', async () => {
+      const set = { upload: { concurrency: 8, partSize: 5 * MiB }, uploadChunkSizeSet: true };
+      mockGetArchiveSize.mockReturnValue(10_000 * 5 * MiB);
+      await saveToS3(tier(set), 'k', ['node_modules']);
+      expect(mockUploadFile.mock.calls[0][4]).toEqual({ concurrency: 8, partSize: 5 * MiB });
+      expect(partLimitWarning()).toEqual([]);
+
+      mockGetArchiveSize.mockReturnValue(10_000 * 5 * MiB + 1);
+      await saveToS3(tier(set), 'k', ['node_modules']);
+      expect(mockUploadFile.mock.calls[1][4]).toEqual({ concurrency: 8, partSize: 6 * MiB });
+      expect(partLimitWarning()).toHaveLength(1);
+    });
+
+    it('fails before the upload above the 5 GiB part limit of S3', async () => {
+      mockGetArchiveSize.mockReturnValue(50 * 1024 * 1024 * MiB);
+      const outcome = await saveToS3(tier(), 'k', ['node_modules']);
+      expect((outcome as { error: Error }).error.message).toBe(
+        'The 50.00 TB archive needs upload parts of at least 5.12 GB to stay within the S3 limit of 10,000 parts, but S3 accepts at most 5.00 GB in one part. The save stops before the upload.'
+      );
+      expect(mockUploadFile).not.toHaveBeenCalled();
+    });
+
+    it('uses a provider limit that is not whole MiB when the limit fits', async () => {
+      mockGetArchiveSize.mockReturnValue(159_000_000_000);
+      const capped = {
+        ...storage,
+        providerConfig: { ...storage.providerConfig, maxPartSize: 16_000_000 },
+      } as StorageContext;
+      await saveToS3(
+        tier({ storage: capped, upload: { concurrency: 8, partSize: 8 * MiB } }),
+        'k',
+        ['node_modules']
+      );
+      // 15,900,000-byte parts fit; 16 MiB, the whole-MiB value, is above the limit.
+      expect(mockUploadFile.mock.calls[0][4]).toEqual({ concurrency: 8, partSize: 16_000_000 });
     });
 
     it('does not change a streaming upload, which has no size', async () => {

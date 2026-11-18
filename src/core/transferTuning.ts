@@ -92,14 +92,27 @@ export function tuneTransfer(input: TuningInput): TransferSettings {
   if (input.fixed?.concurrency !== undefined) {
     return { concurrency: input.fixed.concurrency, partSize };
   }
-  const budget = Math.min(MAX_BUFFERED_BYTES, Math.floor(input.freeMemoryBytes / 4));
-  const fits = Math.max(1, Math.floor(budget / partSize) - 1);
+  const fits = budgetConcurrency(partSize, input.freeMemoryBytes);
   return { concurrency: Math.min(rule.concurrency, fits), partSize };
+}
+
+/** The memory budget for the parts in flight: a quarter of the free memory, at most 1 GiB. */
+export function memoryBudget(freeMemoryBytes: number): number {
+  return Math.min(MAX_BUFFERED_BYTES, Math.floor(freeMemoryBytes / 4));
+}
+
+/**
+ * The highest concurrency for parts of `partSize` within the memory budget. The code that reads
+ * the parts holds one part more than the concurrency. The result is at least 1.
+ */
+export function budgetConcurrency(partSize: number, freeMemoryBytes: number): number {
+  return Math.max(1, Math.floor(memoryBudget(freeMemoryBytes) / partSize) - 1);
 }
 
 /**
  * `Transfer tuning: auto selected 16 x 16 MiB for the download of 2.0 GiB`. A value that the
- * workflow set is marked `(set)`.
+ * workflow set is marked `(set)`. A set part size that the 10,000-part limit raised is marked
+ * `(raised from the set 5 MiB)`.
  */
 export function formatTuning(
   direction: 'upload' | 'download',
@@ -112,6 +125,12 @@ export function formatTuning(
       ? `${(sizeBytes / GiB).toFixed(1)} GiB`
       : `${(sizeBytes / MiB).toFixed(0)} MiB`;
   const concurrency = `${settings.concurrency}${fixed.concurrency === undefined ? '' : ' (set)'}`;
-  const partSize = `${settings.partSize / MiB} MiB${fixed.partSize === undefined ? '' : ' (set)'}`;
+  const mark =
+    fixed.partSize === undefined
+      ? ''
+      : settings.partSize === fixed.partSize
+        ? ' (set)'
+        : ` (raised from the set ${fixed.partSize / MiB} MiB)`;
+  const partSize = `${settings.partSize / MiB} MiB${mark}`;
   return `Transfer tuning: auto selected ${concurrency} x ${partSize} for the ${direction} of ${size}`;
 }

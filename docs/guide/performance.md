@@ -60,8 +60,12 @@ every S3-compatible provider rejects smaller parts.
 
 S3 accepts at most 10,000 parts in one upload, so 5 MiB parts hold at most 48.8 GiB and 64 MiB
 parts hold at most 625 GiB. When a file-mode save would need more parts, the action raises the
-part size to the smallest whole MiB that fits and logs one warning. If a provider limit on the
-part size stops the raise, the save fails before the upload starts. A streaming save does not
+part size to the smallest whole MiB that fits and logs one warning. The raise also lowers the
+concurrency, when necessary, so that `(concurrency + 1) × part size` fits the memory budget of
+automatic tuning: a quarter of the memory that the process can use, at most 1 GiB. The
+concurrency does not go below 1, so the memory does not grow with the archive size. The warning
+gives the new part size and the new concurrency. If a provider limit on the part size stops the
+raise, the save fails before the upload starts. A streaming save does not
 know the archive size in advance, so it keeps the part size. It fails after 10,000 parts. For a
 streaming save of a larger archive, set a larger `upload-chunk-size`.
 

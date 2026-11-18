@@ -83,7 +83,12 @@ export class BitbucketHost extends GenericHost {
       // BITBUCKET_CLONE_DIR is the workspace on Bitbucket, as bitbucket.md documents.
       const workspace = env.CLOUD_CACHE_WORKSPACE;
       const cloneDir = env.BITBUCKET_CLONE_DIR;
-      if (workspace && cloneDir && resolve(workspace) !== resolve(cloneDir)) {
+      // Windows paths do not depend on case.
+      const same = (a: string, b: string): boolean =>
+        process.platform === 'win32'
+          ? resolve(a).toLowerCase() === resolve(b).toLowerCase()
+          : resolve(a) === resolve(b);
+      if (workspace && cloneDir && !same(workspace, cloneDir)) {
         this.log.warning(
           `CLOUD_CACHE_WORKSPACE ignored on Bitbucket. Relative paths and {hash:} globs use BITBUCKET_CLONE_DIR (${cloneDir}).`
         );
