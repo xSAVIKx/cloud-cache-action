@@ -44,6 +44,10 @@ A save does not keep an object that failed the integrity check in the same job. 
   restore of this job.` The metrics line shows `"replaced": true`.
 - When the ETag is different, another job replaced the object after the restore. The save keeps
   that object. When the object is gone, the save uses the usual conditional create.
+- The check and the upload are two requests. When another job writes the key between them, this
+  save can overwrite that object. Both objects are good archives of the same key.
+- When the provider returns no ETag for the bad object, the restore records nothing, and the save
+  does not replace the object.
 - After the save, S3 holds an object of the key, and the save clears the recorded object. A
   second save with the same state keeps the new object.
 - A match through `restore-keys` is never replaced. That object has another key, and the job does
