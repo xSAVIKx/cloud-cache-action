@@ -61289,6 +61289,8 @@ var State;
     State["CacheDualCacheStrict"] = "CACHE_DUAL_CACHE_STRICT";
     State["CacheS3ExactHit"] = "CACHE_S3_EXACT_HIT";
     State["CacheGithubExactHit"] = "CACHE_GITHUB_EXACT_HIT";
+    /** The S3 object key whose archive failed the integrity check on restore, for the post step. */
+    State["CacheS3RejectedKey"] = "CACHE_S3_REJECTED_KEY";
     State["CacheHitSource"] = "CACHE_HIT_SOURCE";
     State["CacheJobSummary"] = "CACHE_JOB_SUMMARY";
     State["CacheMetricsFile"] = "CACHE_METRICS_FILE";
@@ -71717,6 +71719,16 @@ async function resolveExpectedSha256(tier, objectKey, metadata, tagCount) {
         return undefined;
     }
 }
+/**
+ * The error outcome of an archive that failed the sha256 check. It names the object only when
+ * `replaceable` is true, so that the save of this job can replace that object.
+ */
+function integrityFailure(message, found, replaceable) {
+    const error = new Error(message);
+    return replaceable
+        ? { kind: 'error', error, rejectedObjectKey: found.objectKey }
+        : { kind: 'error', error };
+}
 async function restoreFromS3(tier, primaryKey, restoreKeys, lookupOnly) {
     let match;
     const lookupStart = Date.now();
@@ -71745,6 +71757,9 @@ async function restoreFromS3(tier, primaryKey, restoreKeys, lookupOnly) {
         hit.downloadParts = parts;
     };
     const where = found.ref ? ` on ${found.ref}` : '';
+    // Only the object of the exact primary key may be replaced by this job's save. A restore-key
+    // match belongs to another key, and this job never writes that key.
+    const replaceable = found.exact && found.matchedKey === primaryKey;
     log/* log */.R.info(`S3 cache ${found.exact ? 'hit' : 'partial hit'} for key "${found.matchedKey}"${where} (${(0,inputUtils/* formatSize */.Xq)(found.size)})`);
     if (tier.streaming) {
         try {
@@ -71754,7 +71769,7 @@ async function restoreFromS3(tier, primaryKey, restoreKeys, lookupOnly) {
                 platform: process.platform,
                 compression: tier.compression.method,
             })) {
-                return await restoreFromS3Streaming(tier, found, tar, hit);
+                return await restoreFromS3Streaming(tier, found, tar, hit, replaceable);
             }
             log/* log */.R.info(STREAMING_FALLBACK_MESSAGE);
         }
@@ -71774,10 +71789,7 @@ async function restoreFromS3(tier, primaryKey, restoreKeys, lookupOnly) {
             // The download hashes the bytes as they arrive; read the file again only when it did not.
             const actualSha256 = sha256 ?? (await sha256File(archivePath));
             if (actualSha256 !== expectedSha256) {
-                return {
-                    kind: 'error',
-                    error: new Error(`Integrity check failed for s3://${bucket}/${found.objectKey}: expected sha256 ${expectedSha256}, got ${actualSha256}`),
-                };
+                return integrityFailure(`Integrity check failed for s3://${bucket}/${found.objectKey}: expected sha256 ${expectedSha256}, got ${actualSha256}`, found, replaceable);
             }
         }
         else {
@@ -71800,14 +71812,22 @@ async function restoreFromS3(tier, primaryKey, restoreKeys, lookupOnly) {
         external_node_fs_.rmSync(tempDir, { recursive: true, force: true });
     }
 }
-async function saveToS3(tier, primaryKey, patterns) {
+async function saveToS3(tier, primaryKey, patterns, options = {}) {
     const { client, bucket } = tier.storage;
     const objectKey = tier.template.objectKey(tier.saveRef, primaryKey);
+    // Another job can have written a good object after the restore. The upload then replaces one
+    // good cache of this key with another, and no good cache is lost.
+    const replace = options.replaceObjectKey === objectKey;
     try {
-        const existing = await checkObjectExists(client, bucket, objectKey);
-        if (existing) {
-            log/* log */.R.info(`Cache already exists at s3://${bucket}/${objectKey}; not uploading it again.`);
-            return { kind: 'exists', s3: { objectKey, size: existing.size, etag: existing.etag } };
+        if (replace) {
+            log/* log */.R.info(`Replacing s3://${bucket}/${objectKey}, because it failed the integrity check in the restore of this job.`);
+        }
+        else {
+            const existing = await checkObjectExists(client, bucket, objectKey);
+            if (existing) {
+                log/* log */.R.info(`Cache already exists at s3://${bucket}/${objectKey}; not uploading it again.`);
+                return { kind: 'exists', s3: { objectKey, size: existing.size, etag: existing.etag } };
+            }
         }
         const { entries } = await resolveCachePaths(patterns, tier.workspace);
         if (entries.length === 0) {
@@ -71817,11 +71837,11 @@ async function saveToS3(tier, primaryKey, patterns) {
         if (tier.streaming) {
             const tar = await findTar();
             if (!usesSeparateZstd({ tar, platform: process.platform, compression: tier.compression.method })) {
-                return await saveToS3Streaming(tier, objectKey, entries, tar, primaryKey);
+                return await saveToS3Streaming(tier, objectKey, entries, tar, primaryKey, replace);
             }
             log/* log */.R.info(STREAMING_FALLBACK_MESSAGE);
         }
-        return await saveToS3FileMode(tier, objectKey, entries, primaryKey);
+        return await saveToS3FileMode(tier, objectKey, entries, primaryKey, true, false, replace);
     }
     catch (err) {
         return { kind: 'error', error: (0,outcomes/* toError */.i)(err) };
@@ -71836,9 +71856,10 @@ async function saveToS3(tier, primaryKey, patterns) {
  * rather than duplicated, so both paths agree on precondition handling. `retryConflict: false`
  * is passed by that 409 fallback, which already is the one retry, and `omitTags: true` by the
  * fallback a streamed tagged upload takes, which must not send tags again without latching the
- * tier-wide flag first.
+ * tier-wide flag first. `replace: true` sends no condition, so the upload replaces the object
+ * that failed the integrity check (see `SaveToS3Options`).
  */
-async function saveToS3FileMode(tier, objectKey, entries, primaryKey, retryConflict = true, omitTags = false) {
+async function saveToS3FileMode(tier, objectKey, entries, primaryKey, retryConflict = true, omitTags = false, replace = false) {
     const { client, bucket } = tier.storage;
     const tempDir = external_node_fs_.mkdtempSync(external_node_path_.join(external_node_os_.tmpdir(), 'cloud-cache-save-'));
     try {
@@ -71861,7 +71882,7 @@ async function saveToS3FileMode(tier, objectKey, entries, primaryKey, retryConfl
         });
         const transferStart = Date.now();
         const transferMs = () => Date.now() - transferStart;
-        const sendCondition = !tier.storage.conditionalWriteUnsupported;
+        const sendCondition = !tier.storage.conditionalWriteUnsupported && !replace;
         const attemptConditionalUpload = async (tagging) => {
             try {
                 return await attemptUpload('*', tagging);
@@ -72160,7 +72181,7 @@ function withStderrTail(err, tail) {
  * first, so lib-storage can never send the final PutObject/CompleteMultipartUpload for a
  * truncated archive. `If-None-Match` would otherwise keep such a bad object forever.
  */
-async function saveToS3Streaming(tier, objectKey, entries, tar, primaryKey) {
+async function saveToS3Streaming(tier, objectKey, entries, tar, primaryKey, replace = false) {
     const { client, bucket } = tier.storage;
     const tempDir = external_node_fs_.mkdtempSync(external_node_path_.join(external_node_os_.tmpdir(), 'cloud-cache-save-'));
     let child;
@@ -72223,7 +72244,8 @@ async function saveToS3Streaming(tier, objectKey, entries, tar, primaryKey) {
         // otherwise leave its eventual rejection unhandled, which is fatal on Node 24). The `finalized`
         // binding itself is untouched, so the real await below still observes its outcome.
         finalized.catch(() => undefined);
-        const sendCondition = !tier.storage.conditionalWriteUnsupported;
+        // A replace sends no condition. The checksum then goes on by the guarded copy.
+        const sendCondition = !tier.storage.conditionalWriteUnsupported && !replace;
         const transferStart = Date.now();
         log/* log */.R.info(`Streaming upload to s3://${bucket}/${objectKey}...`);
         const tagging = tier.storage.objectTaggingUnsupported ? undefined : encodeTagging(tier.tags);
@@ -72270,7 +72292,7 @@ async function saveToS3Streaming(tier, objectKey, entries, tar, primaryKey) {
             // `If-None-Match` does. A streamed body cannot be replayed, so the retry without tags is a
             // file-mode save, which omits them once the flag below is set.
             if (tagging !== undefined && isTaggingUnsupported(err)) {
-                const outcome = await saveToS3FileMode(tier, objectKey, entries, primaryKey, true, true);
+                const outcome = await saveToS3FileMode(tier, objectKey, entries, primaryKey, true, true, replace);
                 // Only a save that actually succeeded without tags proves the tags were the problem; the
                 // same 501 also means an unsupported `If-None-Match`, which that save handles itself.
                 if (outcome.kind === 'saved') {
@@ -72384,7 +72406,7 @@ async function openArchiveStream(tier, found) {
  * Streaming restore (Task 8): pipes the GetObject body through the sha256 tap into a spawned
  * tar extract reading from stdin, so nothing touches disk except the extracted files themselves.
  */
-async function restoreFromS3Streaming(tier, found, tar, hit) {
+async function restoreFromS3Streaming(tier, found, tar, hit, replaceable) {
     const { bucket } = tier.storage;
     let body;
     let child;
@@ -72437,10 +72459,7 @@ async function restoreFromS3Streaming(tier, found, tar, hit) {
         if (expectedSha256) {
             const actualSha256 = tap.digest();
             if (actualSha256 !== expectedSha256) {
-                return {
-                    kind: 'error',
-                    error: new Error(`Integrity check failed for s3://${bucket}/${found.objectKey}: expected sha256 ${expectedSha256}, got ${actualSha256}; files may already have been extracted`),
-                };
+                return integrityFailure(`Integrity check failed for s3://${bucket}/${found.objectKey}: expected sha256 ${expectedSha256}, got ${actualSha256}; files may already have been extracted`, found, replaceable);
             }
         }
         else {
@@ -73874,6 +73893,10 @@ async function restoreImpl(stateProvider, earlyExit) {
                 case 'miss':
                     break;
                 case 'error':
+                    if (source === 's3' && outcome.rejectedObjectKey) {
+                        // The post step reads this and replaces the object instead of keeping it.
+                        stateProvider.setState(constants/* State */.Uw.CacheS3RejectedKey, outcome.rejectedObjectKey);
+                    }
                     if (config.dualCache && config.dualCacheStrict) {
                         throw new Error(`Restoring from ${source} failed: ${outcome.error.message}`, {
                             cause: outcome.error,
@@ -74014,7 +74037,7 @@ async function saveImpl_setUpS3(config, stateProvider) {
         return undefined;
     }
 }
-async function saveSingleTier(config, s3, s3ExactHit) {
+async function saveSingleTier(config, s3, s3ExactHit, s3Options) {
     if (s3ExactHit) {
         log/* log */.R.info(`Cache hit occurred on the primary key ${config.primaryKey}, not saving cache.`);
         (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheSavedSources, 'none');
@@ -74023,7 +74046,7 @@ async function saveSingleTier(config, s3, s3ExactHit) {
     // A tier error the step only warned about still makes the outcome an error, not a plain skip.
     let warnedError;
     if (s3) {
-        const outcome = await saveToS3(s3, config.primaryKey, config.paths);
+        const outcome = await saveToS3(s3, config.primaryKey, config.paths, s3Options);
         switch (outcome.kind) {
             case 'saved':
             case 'exists':
@@ -74079,7 +74102,7 @@ async function saveSingleTier(config, s3, s3ExactHit) {
         ? { sources: [], outcome: 'error', error: warnedError }
         : { sources: [], outcome: 'skipped' };
 }
-async function saveBothTiers(config, s3, s3ExactHit, githubExactHit) {
+async function saveBothTiers(config, s3, s3ExactHit, githubExactHit, s3Options) {
     const present = new Set();
     let size;
     let objectKey;
@@ -74106,7 +74129,7 @@ async function saveBothTiers(config, s3, s3ExactHit, githubExactHit) {
         present.add('s3');
     }
     else if (!skipBoth && s3) {
-        const outcome = await saveToS3(s3, config.primaryKey, config.paths);
+        const outcome = await saveToS3(s3, config.primaryKey, config.paths, s3Options);
         switch (outcome.kind) {
             case 'saved':
             case 'exists':
@@ -74273,13 +74296,17 @@ async function saveImpl(stateProvider) {
         }
         const s3ExactHit = stateProvider.getState(constants/* State */.Uw.CacheS3ExactHit) === 'true';
         const githubExactHit = stateProvider.getState(constants/* State */.Uw.CacheGithubExactHit) === 'true';
+        // Set by the restore when the object of the primary key failed the integrity check.
+        const s3Options = {
+            replaceObjectKey: stateProvider.getState(constants/* State */.Uw.CacheS3RejectedKey) || undefined,
+        };
         const s3 = await saveImpl_setUpS3(config, stateProvider);
         provider = s3?.storage.providerConfig.provider;
         compression = s3?.compression.method;
         region = s3?.storage.providerConfig.region;
         const result = config.dualCache
-            ? await saveBothTiers(config, s3, s3ExactHit, githubExactHit)
-            : await saveSingleTier(config, s3, s3ExactHit);
+            ? await saveBothTiers(config, s3, s3ExactHit, githubExactHit, s3Options)
+            : await saveSingleTier(config, s3, s3ExactHit, s3Options);
         (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheSaveDurationMs, String(Date.now() - start));
         (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheTransferDurationMs, String(result.transferMs ?? 0));
         (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheBytes, String(result.size ?? 0));

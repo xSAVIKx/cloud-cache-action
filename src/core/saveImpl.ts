@@ -10,7 +10,7 @@ import { emitMetrics, hostMetricsFields, type StepMetrics } from './metrics';
 import { formatTimings } from './timings';
 import { toError, type S3ObjectInfo } from './outcomes';
 import { applyPreset, readPreset } from './presets';
-import { buildS3Tier, saveToS3, type S3Tier } from './s3Tier';
+import { buildS3Tier, saveToS3, type S3Tier, type SaveToS3Options } from './s3Tier';
 import { writeSaveSummary } from './summary';
 
 /** What got saved where, so the caller can build the job summary and its own return value. */
@@ -79,7 +79,8 @@ async function setUpS3(
 async function saveSingleTier(
   config: CacheConfig,
   s3: S3Tier | undefined,
-  s3ExactHit: boolean
+  s3ExactHit: boolean,
+  s3Options: SaveToS3Options
 ): Promise<SaveResult> {
   if (s3ExactHit) {
     log.info(`Cache hit occurred on the primary key ${config.primaryKey}, not saving cache.`);
@@ -90,7 +91,7 @@ async function saveSingleTier(
   // A tier error the step only warned about still makes the outcome an error, not a plain skip.
   let warnedError: string | undefined;
   if (s3) {
-    const outcome = await saveToS3(s3, config.primaryKey, config.paths);
+    const outcome = await saveToS3(s3, config.primaryKey, config.paths, s3Options);
     switch (outcome.kind) {
       case 'saved':
       case 'exists':
@@ -157,7 +158,8 @@ async function saveBothTiers(
   config: CacheConfig,
   s3: S3Tier | undefined,
   s3ExactHit: boolean,
-  githubExactHit: boolean
+  githubExactHit: boolean,
+  s3Options: SaveToS3Options
 ): Promise<SaveResult> {
   const present = new Set<'s3' | 'github'>();
   let size: number | undefined;
@@ -188,7 +190,7 @@ async function saveBothTiers(
   if (s3ExactHit) {
     present.add('s3');
   } else if (!skipBoth && s3) {
-    const outcome = await saveToS3(s3, config.primaryKey, config.paths);
+    const outcome = await saveToS3(s3, config.primaryKey, config.paths, s3Options);
     switch (outcome.kind) {
       case 'saved':
       case 'exists':
@@ -371,14 +373,18 @@ export async function saveImpl(stateProvider: IStateProvider): Promise<number | 
 
     const s3ExactHit = stateProvider.getState(State.CacheS3ExactHit) === 'true';
     const githubExactHit = stateProvider.getState(State.CacheGithubExactHit) === 'true';
+    // Set by the restore when the object of the primary key failed the integrity check.
+    const s3Options: SaveToS3Options = {
+      replaceObjectKey: stateProvider.getState(State.CacheS3RejectedKey) || undefined,
+    };
     const s3 = await setUpS3(config, stateProvider);
     provider = s3?.storage.providerConfig.provider;
     compression = s3?.compression.method;
     region = s3?.storage.providerConfig.region;
 
     const result = config.dualCache
-      ? await saveBothTiers(config, s3, s3ExactHit, githubExactHit)
-      : await saveSingleTier(config, s3, s3ExactHit);
+      ? await saveBothTiers(config, s3, s3ExactHit, githubExactHit, s3Options)
+      : await saveSingleTier(config, s3, s3ExactHit, s3Options);
     getHost().setOutput(Outputs.CacheSaveDurationMs, String(Date.now() - start));
     getHost().setOutput(Outputs.CacheTransferDurationMs, String(result.transferMs ?? 0));
     getHost().setOutput(Outputs.CacheBytes, String(result.size ?? 0));

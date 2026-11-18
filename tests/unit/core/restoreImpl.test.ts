@@ -247,6 +247,52 @@ describe('restoreImpl', () => {
     );
   });
 
+  describe('an S3 object that fails the integrity check', () => {
+    const objectKey = 'octo/app/Linux-npm-abc/cache.tar.zst';
+    const rejected = (rejectedObjectKey?: string): RestoreOutcome => ({
+      kind: 'error',
+      error: new Error(`Integrity check failed for s3://bucket/${objectKey}`),
+      rejectedObjectKey,
+    });
+
+    it('records the rejected object key for the post step and counts as a miss', async () => {
+      mockRestoreFromS3.mockResolvedValue(rejected(objectKey));
+      await expect(restoreImpl(state, false)).resolves.toBeUndefined();
+      expect(state.getState(State.CacheS3RejectedKey)).toBe(objectKey);
+      expect(state.getState(State.CacheS3ExactHit)).toBe('');
+      expect(outputs.get('cache-hit')).toBe('false');
+      expect(mockWarning).toHaveBeenCalledWith(expect.stringContaining('Integrity check failed'));
+      expect(mockSetFailed).not.toHaveBeenCalled();
+    });
+
+    it('records nothing when the failed object is not the exact primary key', async () => {
+      mockRestoreFromS3.mockResolvedValue(rejected(undefined));
+      await restoreImpl(state, false);
+      expect(state.values.has(State.CacheS3RejectedKey)).toBe(false);
+    });
+
+    it('records nothing for another S3 error', async () => {
+      mockRestoreFromS3.mockResolvedValue(failure('download interrupted'));
+      await restoreImpl(state, false);
+      expect(state.values.has(State.CacheS3RejectedKey)).toBe(false);
+    });
+
+    it('still fails the step when fail-on-cache-miss is set', async () => {
+      inputs.set(Inputs.FailOnCacheMiss, 'true');
+      mockRestoreFromS3.mockResolvedValue(rejected(objectKey));
+      await restoreImpl(state, false);
+      expect(mockSetFailed).toHaveBeenCalledWith(expect.stringContaining('fail-on-cache-miss'));
+    });
+
+    it('still moves on to GitHub in non-strict dual-cache mode', async () => {
+      inputs.set(Inputs.DualCache, 'true');
+      mockRestoreFromS3.mockResolvedValue(rejected(objectKey));
+      mockRestoreFromGitHub.mockResolvedValue(githubHit('Linux-npm-abc', true));
+      await expect(restoreImpl(state, false)).resolves.toBe('Linux-npm-abc');
+      expect(state.getState(State.CacheS3RejectedKey)).toBe(objectKey);
+    });
+  });
+
   it('keeps the actions/cache text for a true miss', async () => {
     await restoreImpl(state, false);
     expect(mockCoreInfo).toHaveBeenCalledWith(

@@ -32,6 +32,37 @@ tried next, `fail-on-cache-miss: true` fails the step as it would for any miss, 
 [streaming](#streaming-archives-experimental), the archive is hashed while it is extracted, so a
 mismatch is only detected at the end and files may already have been extracted.
 
+### Replacing an object that failed the check
+
+A save does not keep an object that failed the integrity check in the same job. The rules are:
+
+- The rule applies only to the object of the exact primary key. A restore records that object
+  key for the post step of the main action.
+- The post step then skips the existence check and uploads without `If-None-Match`. The new
+  archive replaces the bad object. The log shows `Replacing s3://<bucket>/<key>, because it failed
+  the integrity check in the restore of this job.`
+- A match through `restore-keys` is never replaced. That object has another key, and the job does
+  not write that key. The save of the primary key writes a newer object, and a later prefix
+  lookup finds the newer object first.
+- The action never deletes the bad object, so a restore needs no `s3:DeleteObject` permission.
+  If another job saved a good object in the meantime, the replacement writes one more good copy
+  of the same key. No good cache is lost.
+- A failed replacement upload is a failed save. The post step logs a warning and does not fail
+  the job, unless `dual-cache: true` and `dual-cache-strict: true` are set.
+
+The replacement needs the post step of the same job. These cases do not replace the bad object:
+
+- The `restore` and `save` sub-actions. They do not share state, so the `save` sub-action finds
+  the existing object and keeps it.
+- A job whose restore failed the step, for example with `fail-on-cache-miss: true`. GitHub runs
+  the post step only when the job succeeds.
+- `read-only: true`, and a `dual-cache-strategy: skip-on-hit` save after an exact GitHub hit.
+  These modes do not save to S3.
+- `lookup-only: true`. It does not download the archive, so it does not check it.
+
+In these cases, run a job that restores and saves with the main action, or delete the object
+with the [`prune` sub-action](./pruning.md) or a lifecycle rule.
+
 Objects with no checksum at all skip verification: caches from v1.1, or objects whose tagging or
 metadata write the provider rejected. This is not a breaking change. An action older than v1.6
 that restores a cache saved as a tag finds no checksum metadata. It skips the integrity check the

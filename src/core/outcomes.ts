@@ -24,7 +24,15 @@ export type RestoreOutcome =
       extractMs?: number;
     }
   | { kind: 'miss' }
-  | { kind: 'error'; error: Error };
+  | {
+      kind: 'error';
+      error: Error;
+      /**
+       * Set when the object of the exact primary key failed the sha256 integrity check. A save
+       * of the primary key in the same job may replace this object (see saveToS3).
+       */
+      rejectedObjectKey?: string;
+    };
 
 /** What one cache tier did during save. `transferMs` is the S3 upload alone. */
 export type SaveOutcome =

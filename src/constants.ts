@@ -122,6 +122,8 @@ export enum State {
   CacheDualCacheStrict = 'CACHE_DUAL_CACHE_STRICT',
   CacheS3ExactHit = 'CACHE_S3_EXACT_HIT',
   CacheGithubExactHit = 'CACHE_GITHUB_EXACT_HIT',
+  /** The S3 object key whose archive failed the integrity check on restore, for the post step. */
+  CacheS3RejectedKey = 'CACHE_S3_REJECTED_KEY',
   CacheHitSource = 'CACHE_HIT_SOURCE',
   CacheJobSummary = 'CACHE_JOB_SUMMARY',
   CacheMetricsFile = 'CACHE_METRICS_FILE',

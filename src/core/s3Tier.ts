@@ -491,6 +491,17 @@ async function resolveExpectedSha256(
   }
 }
 
+/**
+ * The error outcome of an archive that failed the sha256 check. It names the object only when
+ * `replaceable` is true, so that the save of this job can replace that object.
+ */
+function integrityFailure(message: string, found: S3Match, replaceable: boolean): RestoreOutcome {
+  const error = new Error(message);
+  return replaceable
+    ? { kind: 'error', error, rejectedObjectKey: found.objectKey }
+    : { kind: 'error', error };
+}
+
 export async function restoreFromS3(
   tier: S3Tier,
   primaryKey: string,
@@ -524,6 +535,9 @@ export async function restoreFromS3(
     hit.downloadParts = parts;
   };
   const where = found.ref ? ` on ${found.ref}` : '';
+  // Only the object of the exact primary key may be replaced by this job's save. A restore-key
+  // match belongs to another key, and this job never writes that key.
+  const replaceable = found.exact && found.matchedKey === primaryKey;
   log.info(
     `S3 cache ${found.exact ? 'hit' : 'partial hit'} for key "${found.matchedKey}"${where} (${formatSize(found.size)})`
   );
@@ -538,7 +552,7 @@ export async function restoreFromS3(
           compression: tier.compression.method,
         })
       ) {
-        return await restoreFromS3Streaming(tier, found, tar, hit);
+        return await restoreFromS3Streaming(tier, found, tar, hit, replaceable);
       }
       log.info(STREAMING_FALLBACK_MESSAGE);
     } catch (err) {
@@ -558,12 +572,11 @@ export async function restoreFromS3(
       // The download hashes the bytes as they arrive; read the file again only when it did not.
       const actualSha256 = sha256 ?? (await sha256File(archivePath));
       if (actualSha256 !== expectedSha256) {
-        return {
-          kind: 'error',
-          error: new Error(
-            `Integrity check failed for s3://${bucket}/${found.objectKey}: expected sha256 ${expectedSha256}, got ${actualSha256}`
-          ),
-        };
+        return integrityFailure(
+          `Integrity check failed for s3://${bucket}/${found.objectKey}: expected sha256 ${expectedSha256}, got ${actualSha256}`,
+          found,
+          replaceable
+        );
       }
     } else {
       log.debug(
@@ -586,18 +599,37 @@ export async function restoreFromS3(
   }
 }
 
+export interface SaveToS3Options {
+  /**
+   * The object key that the restore of this job rejected in the integrity check. When it is the
+   * key that this save writes, the save does not keep that object: it uploads without the
+   * existence check and without `If-None-Match`, and so replaces it.
+   */
+  replaceObjectKey?: string;
+}
+
 export async function saveToS3(
   tier: S3Tier,
   primaryKey: string,
-  patterns: readonly string[]
+  patterns: readonly string[],
+  options: SaveToS3Options = {}
 ): Promise<SaveOutcome> {
   const { client, bucket } = tier.storage;
   const objectKey = tier.template.objectKey(tier.saveRef, primaryKey);
+  // Another job can have written a good object after the restore. The upload then replaces one
+  // good cache of this key with another, and no good cache is lost.
+  const replace = options.replaceObjectKey === objectKey;
   try {
-    const existing = await checkObjectExists(client, bucket, objectKey);
-    if (existing) {
-      log.info(`Cache already exists at s3://${bucket}/${objectKey}; not uploading it again.`);
-      return { kind: 'exists', s3: { objectKey, size: existing.size, etag: existing.etag } };
+    if (replace) {
+      log.info(
+        `Replacing s3://${bucket}/${objectKey}, because it failed the integrity check in the restore of this job.`
+      );
+    } else {
+      const existing = await checkObjectExists(client, bucket, objectKey);
+      if (existing) {
+        log.info(`Cache already exists at s3://${bucket}/${objectKey}; not uploading it again.`);
+        return { kind: 'exists', s3: { objectKey, size: existing.size, etag: existing.etag } };
+      }
     }
 
     const { entries } = await resolveCachePaths(patterns, tier.workspace);
@@ -613,12 +645,12 @@ export async function saveToS3(
       if (
         !usesSeparateZstd({ tar, platform: process.platform, compression: tier.compression.method })
       ) {
-        return await saveToS3Streaming(tier, objectKey, entries, tar, primaryKey);
+        return await saveToS3Streaming(tier, objectKey, entries, tar, primaryKey, replace);
       }
       log.info(STREAMING_FALLBACK_MESSAGE);
     }
 
-    return await saveToS3FileMode(tier, objectKey, entries, primaryKey);
+    return await saveToS3FileMode(tier, objectKey, entries, primaryKey, true, false, replace);
   } catch (err) {
     return { kind: 'error', error: toError(err) };
   }
@@ -633,7 +665,8 @@ export async function saveToS3(
  * rather than duplicated, so both paths agree on precondition handling. `retryConflict: false`
  * is passed by that 409 fallback, which already is the one retry, and `omitTags: true` by the
  * fallback a streamed tagged upload takes, which must not send tags again without latching the
- * tier-wide flag first.
+ * tier-wide flag first. `replace: true` sends no condition, so the upload replaces the object
+ * that failed the integrity check (see `SaveToS3Options`).
  */
 async function saveToS3FileMode(
   tier: S3Tier,
@@ -641,7 +674,8 @@ async function saveToS3FileMode(
   entries: readonly string[],
   primaryKey: string,
   retryConflict = true,
-  omitTags = false
+  omitTags = false,
+  replace = false
 ): Promise<SaveOutcome> {
   const { client, bucket } = tier.storage;
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cloud-cache-save-'));
@@ -677,7 +711,7 @@ async function saveToS3FileMode(
 
     const transferStart = Date.now();
     const transferMs = (): number => Date.now() - transferStart;
-    const sendCondition = !tier.storage.conditionalWriteUnsupported;
+    const sendCondition = !tier.storage.conditionalWriteUnsupported && !replace;
     const attemptConditionalUpload = async (tagging: string | undefined) => {
       try {
         return await attemptUpload('*', tagging);
@@ -1049,7 +1083,8 @@ async function saveToS3Streaming(
   objectKey: string,
   entries: readonly string[],
   tar: TarTool,
-  primaryKey: string
+  primaryKey: string,
+  replace = false
 ): Promise<SaveOutcome> {
   const { client, bucket } = tier.storage;
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cloud-cache-save-'));
@@ -1115,7 +1150,8 @@ async function saveToS3Streaming(
     // binding itself is untouched, so the real await below still observes its outcome.
     finalized.catch(() => undefined);
 
-    const sendCondition = !tier.storage.conditionalWriteUnsupported;
+    // A replace sends no condition. The checksum then goes on by the guarded copy.
+    const sendCondition = !tier.storage.conditionalWriteUnsupported && !replace;
     const transferStart = Date.now();
     log.info(`Streaming upload to s3://${bucket}/${objectKey}...`);
     const tagging = tier.storage.objectTaggingUnsupported ? undefined : encodeTagging(tier.tags);
@@ -1169,7 +1205,15 @@ async function saveToS3Streaming(
       // `If-None-Match` does. A streamed body cannot be replayed, so the retry without tags is a
       // file-mode save, which omits them once the flag below is set.
       if (tagging !== undefined && isTaggingUnsupported(err)) {
-        const outcome = await saveToS3FileMode(tier, objectKey, entries, primaryKey, true, true);
+        const outcome = await saveToS3FileMode(
+          tier,
+          objectKey,
+          entries,
+          primaryKey,
+          true,
+          true,
+          replace
+        );
         // Only a save that actually succeeded without tags proves the tags were the problem; the
         // same 501 also means an unsupported `If-None-Match`, which that save handles itself.
         if (outcome.kind === 'saved') {
@@ -1314,7 +1358,8 @@ async function restoreFromS3Streaming(
   tier: S3Tier,
   found: S3Match,
   tar: TarTool,
-  hit: RestoreOutcome
+  hit: RestoreOutcome,
+  replaceable: boolean
 ): Promise<RestoreOutcome> {
   const { bucket } = tier.storage;
   let body: Readable | undefined;
@@ -1370,12 +1415,11 @@ async function restoreFromS3Streaming(
     if (expectedSha256) {
       const actualSha256 = tap.digest();
       if (actualSha256 !== expectedSha256) {
-        return {
-          kind: 'error',
-          error: new Error(
-            `Integrity check failed for s3://${bucket}/${found.objectKey}: expected sha256 ${expectedSha256}, got ${actualSha256}; files may already have been extracted`
-          ),
-        };
+        return integrityFailure(
+          `Integrity check failed for s3://${bucket}/${found.objectKey}: expected sha256 ${expectedSha256}, got ${actualSha256}; files may already have been extracted`,
+          found,
+          replaceable
+        );
       }
     } else {
       log.debug(
