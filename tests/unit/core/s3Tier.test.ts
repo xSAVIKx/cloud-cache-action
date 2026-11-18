@@ -1220,6 +1220,31 @@ describe('buildS3Tier', () => {
     expect((await buildS3Tier(config, env)).upload.partSize).toBe(16 * 1024 * 1024);
   });
 
+  it('warns about a capped upload-chunk-size only in a step that uploads', async () => {
+    mockCreateStorageContext.mockReturnValue({
+      ...storage,
+      providerConfig: {
+        ...storage.providerConfig,
+        provider: 'aws-emulator',
+        maxPartSize: 16 * 1024 * 1024,
+      },
+    } as StorageContext);
+    const explicit = {
+      ...config,
+      uploadChunkSize: 32 * 1024 * 1024,
+      explicitTransfer: { ...config.explicitTransfer, uploadChunkSize: true },
+    };
+    const capWarning = expect.stringContaining('accepts in one request');
+
+    expect((await buildS3Tier(explicit, env)).upload.partSize).toBe(16 * 1024 * 1024);
+    expect(mockWarning).not.toHaveBeenCalledWith(capWarning);
+
+    expect((await buildS3Tier(explicit, env, { uploads: true })).upload.partSize).toBe(
+      16 * 1024 * 1024
+    );
+    expect(mockWarning).toHaveBeenCalledWith(capWarning);
+  });
+
   it('sets the tuning only for transfer-tuning: auto', async () => {
     expect((await buildS3Tier(config, env)).tuning).toBeUndefined();
     const explicitTransfer = { ...config.explicitTransfer, uploadConcurrency: true };

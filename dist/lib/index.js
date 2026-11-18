@@ -71585,7 +71585,7 @@ async function buildS3Tier(config, env, options = {}) {
         download: { concurrency: config.downloadConcurrency, partSize: config.downloadChunkSize },
         upload: {
             concurrency: config.uploadConcurrency,
-            partSize: capUploadPartSize(config.uploadChunkSize ?? constants/* Defaults */.Hw.DefaultUploadChunkSize, storage.providerConfig, config.explicitTransfer.uploadChunkSize),
+            partSize: capUploadPartSize(config.uploadChunkSize ?? constants/* Defaults */.Hw.DefaultUploadChunkSize, storage.providerConfig, config.explicitTransfer.uploadChunkSize && options.uploads === true),
         },
         metadata: config.metadata,
         tags: config.tags,
@@ -74036,6 +74036,7 @@ async function saveImpl_setUpS3(config, stateProvider) {
     try {
         const tier = await buildS3Tier(config, process.env, {
             compression: stateProvider.getState(constants/* State */.Uw.CacheCompression),
+            uploads: true,
         });
         (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheStorageProvider, tier.storage.providerConfig.provider);
         return tier;

@@ -140,6 +140,11 @@ export interface S3Match {
 export interface BuildS3TierOptions {
   /** Compression method the restore step used; detected again when absent or unknown. */
   compression?: string;
+  /**
+   * True when this step uploads (a save). Only then does a capped `upload-chunk-size` get a
+   * warning, so restore and inspect steps stay quiet.
+   */
+  uploads?: boolean;
 }
 
 /** True when a failed conditional upload means another job already won the write. */
@@ -287,7 +292,7 @@ export async function buildS3Tier(
       partSize: capUploadPartSize(
         config.uploadChunkSize ?? Defaults.DefaultUploadChunkSize,
         storage.providerConfig,
-        config.explicitTransfer.uploadChunkSize
+        config.explicitTransfer.uploadChunkSize && options.uploads === true
       ),
     },
     metadata: config.metadata,
