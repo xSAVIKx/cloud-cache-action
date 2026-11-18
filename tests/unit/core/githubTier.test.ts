@@ -1,4 +1,4 @@
-import { jest } from '@jest/globals';
+import { afterAll, beforeEach, describe, expect, it, jest } from '@jest/globals';
 
 type RestoreCache = (
   paths: string[],
@@ -25,6 +25,41 @@ jest.unstable_mockModule('@actions/cache', () => ({
 const { existsInGitHub, restoreFromGitHub, saveToGitHub } = await import(
   '../../../src/core/githubTier'
 );
+const { GitHubCacheUnavailableError } = await import('../../../src/core/cacheMode');
+
+const SERVICE_ENV = [
+  'ACTIONS_CACHE_URL',
+  'ACTIONS_RESULTS_URL',
+  'ACTIONS_CACHE_SERVICE_V2',
+  'GITHUB_SERVER_URL',
+] as const;
+const savedServiceEnv = Object.fromEntries(SERVICE_ENV.map((name) => [name, process.env[name]]));
+
+/** Sets the service variables of a run, and removes the others. */
+function setServiceEnv(env: Partial<Record<(typeof SERVICE_ENV)[number], string>>): void {
+  for (const name of SERVICE_ENV) {
+    if (env[name] === undefined) {
+      delete process.env[name];
+    } else {
+      process.env[name] = env[name];
+    }
+  }
+}
+
+// The env of a JavaScript action on github.com with cache service v2.
+const GITHUB_COM_V2 = {
+  ACTIONS_RESULTS_URL: 'https://results.example/',
+  ACTIONS_CACHE_SERVICE_V2: 'true',
+};
+
+beforeEach(() => {
+  mockRestoreCache.mockReset();
+  mockSaveCache.mockReset();
+  setServiceEnv(GITHUB_COM_V2);
+});
+afterAll(() => {
+  setServiceEnv(savedServiceEnv);
+});
 
 describe('restoreFromGitHub', () => {
   it('reports an exact hit and passes every option through', async () => {
@@ -144,5 +179,82 @@ describe('saveToGitHub', () => {
     mockSaveCache.mockRejectedValue(error);
     const outcome = await saveToGitHub(['a'], 'k', undefined, false);
     expect(outcome).toEqual({ kind: 'error', error });
+  });
+});
+
+describe('without the GitHub Actions cache service', () => {
+  const NO_SERVICE = /^GitHub Actions Cache is not available: ACTIONS_CACHE_URL is not set/;
+
+  beforeEach(() => {
+    setServiceEnv({});
+  });
+
+  it('restore returns the error at once and does not call @actions/cache', async () => {
+    const outcome = await restoreFromGitHub(['a'], 'k', [], false, false);
+    expect(outcome.kind).toBe('error');
+    expect(outcome.kind === 'error' && outcome.error.message).toMatch(NO_SERVICE);
+    expect(outcome.kind === 'error' && outcome.error).toBeInstanceOf(GitHubCacheUnavailableError);
+    expect(mockRestoreCache).not.toHaveBeenCalled();
+  });
+
+  it('the existence check throws at once', async () => {
+    await expect(existsInGitHub(['a'], 'k', false)).rejects.toThrow(GitHubCacheUnavailableError);
+    expect(mockRestoreCache).not.toHaveBeenCalled();
+  });
+
+  it('save returns the error at once and makes no archive', async () => {
+    const outcome = await saveToGitHub(['a'], 'k', undefined, false);
+    expect(outcome.kind === 'error' && outcome.error.message).toMatch(NO_SERVICE);
+    expect(mockSaveCache).not.toHaveBeenCalled();
+  });
+
+  it('cache service v2 needs ACTIONS_RESULTS_URL', async () => {
+    setServiceEnv({ ACTIONS_CACHE_SERVICE_V2: 'true', ACTIONS_CACHE_URL: 'https://cache/' });
+    const outcome = await saveToGitHub(['a'], 'k', undefined, false);
+    expect(outcome.kind === 'error' && outcome.error.message).toContain(
+      'ACTIONS_RESULTS_URL is not set (cache service v2)'
+    );
+    expect(mockSaveCache).not.toHaveBeenCalled();
+  });
+
+  it('cache service v1 needs ACTIONS_CACHE_URL, also when ACTIONS_RESULTS_URL is set', async () => {
+    setServiceEnv({ ACTIONS_RESULTS_URL: 'https://results/' });
+    await expect(existsInGitHub(['a'], 'k', false)).rejects.toThrow(
+      'ACTIONS_CACHE_URL is not set (cache service v1)'
+    );
+  });
+
+  it('GHES always uses v1, so it needs ACTIONS_CACHE_URL', async () => {
+    setServiceEnv({ ...GITHUB_COM_V2, GITHUB_SERVER_URL: 'https://ghes.example.com' });
+    await expect(existsInGitHub(['a'], 'k', false)).rejects.toThrow(
+      'ACTIONS_CACHE_URL is not set (cache service v1)'
+    );
+  });
+});
+
+describe('with the GitHub Actions cache service, as in the action on a runner', () => {
+  it.each([
+    ['github.com, cache service v2', GITHUB_COM_V2],
+    ['github.com, cache service v1', { ACTIONS_CACHE_URL: 'https://cache/' }],
+    ['GHE.com, cache service v2', { ...GITHUB_COM_V2, GITHUB_SERVER_URL: 'https://octo.ghe.com' }],
+    [
+      'GHES, cache service v1',
+      {
+        ACTIONS_CACHE_URL: 'https://cache/',
+        ACTIONS_CACHE_SERVICE_V2: 'true',
+        GITHUB_SERVER_URL: 'https://ghes.example.com',
+      },
+    ],
+  ])('%s calls @actions/cache', async (_name, env) => {
+    setServiceEnv(env);
+    mockRestoreCache.mockResolvedValue('k');
+    mockSaveCache.mockResolvedValue(1);
+    await expect(restoreFromGitHub(['a'], 'k', [], false, false)).resolves.toMatchObject({
+      kind: 'hit',
+    });
+    await expect(existsInGitHub(['a'], 'k', false)).resolves.toBe(true);
+    await expect(saveToGitHub(['a'], 'k', undefined, false)).resolves.toEqual({ kind: 'saved' });
+    expect(mockRestoreCache).toHaveBeenCalledTimes(2);
+    expect(mockSaveCache).toHaveBeenCalledTimes(1);
   });
 });

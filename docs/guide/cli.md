@@ -235,9 +235,13 @@ To save the cache when the build fails, run `cloud-cache save` in a step that al
 
 ## Limits
 
-- `--use-fallback` and `--dual-cache` need the GitHub Actions cache service. This service is not available outside GitHub Actions. Do not use these flags with the CLI.
-  - With `--use-fallback`, a `restore` that misses in S3 asks the GitHub service. It waits about 10 seconds, prints a warning, and reports a miss.
-  - With `--dual-cache`, a `restore` also asks the GitHub service, with the same delay and warning. The S3 result is used.
-  - With `--dual-cache`, a `save` writes to S3 and prints a warning for the GitHub cache. With `--dual-cache-strict=true`, that `save` fails with exit code 1.
+- `--use-fallback` and `--dual-cache` need the GitHub Actions cache service. The runner gives this service only to JavaScript and container actions. Outside such an action, the service is not available. This is also true for a `run:` step in GitHub Actions. Do not use these flags with the CLI.
+  - The CLI finds out at once that the service is not available. It reads the same variables as `@actions/cache`: `ACTIONS_CACHE_SERVICE_V2`, `ACTIONS_RESULTS_URL`, `ACTIONS_CACHE_URL` and `GITHUB_SERVER_URL`. It does not call the service, and it does not make a second archive.
+  - When the CLI must use the GitHub cache and the service is not available, it prints one warning: `GitHub Actions Cache is not available: ...`.
+  - With `--use-fallback`, a `restore` asks the GitHub cache only after a miss in S3. That `restore` prints the warning and reports a miss.
+  - With `--dual-cache`, a `restore` with the default `--restore-priority=s3-first` asks the GitHub cache only after a miss in S3. With `github-first`, it asks the GitHub cache first. Each time, it prints the warning and continues.
+  - With `--dual-cache`, a `save` writes to S3 and prints the warning for the GitHub cache.
+  - With `--dual-cache-strict=true`, the warning is an error. `restore` or `save` then stops with exit code 1.
+  - CLI versions 1.11.0 and earlier called the service. Each call waited about 10 seconds and then failed.
 - `--job-summary` has no effect on the generic platform. The CLI does not write a job summary there. On Bitbucket, the CLI prints a plain-text summary.
 - The CLI reads the repository and the refs from the `CLOUD_CACHE_*` context variables. On Bitbucket, it reads the `BITBUCKET_*` variables. See [Bitbucket Pipelines](./bitbucket.md).
