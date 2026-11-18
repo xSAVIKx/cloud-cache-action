@@ -351,6 +351,26 @@ describe('main', () => {
     expect(stderr).toBe('');
   });
 
+  it('restore and save stop on a busybox tar error', async () => {
+    checkTar.mockImplementation(async () => {
+      // The check runs after the host is set.
+      expect(getHost()).toBeInstanceOf(GenericHost);
+      throw new Error(BUSYBOX_ERROR);
+    });
+
+    expect(await main(['restore', '--key', 'k', '--path', 'p'])).toBe(1);
+    expect(await main(['save', '--key', 'k', '--path', 'p'])).toBe(1);
+    expect(stderr).toContain(`error: ${BUSYBOX_ERROR}`);
+    expect(restoreImpl).not.toHaveBeenCalled();
+    expect(saveImpl).not.toHaveBeenCalled();
+    expect(checkTar).toHaveBeenCalledTimes(2);
+
+    // inspect and prune do not run tar, so they do not check it.
+    expect(await main(['inspect'])).toBe(0);
+    expect(await main(['prune'])).toBe(0);
+    expect(checkTar).toHaveBeenCalledTimes(2);
+  });
+
   it('save flags win over the state of restore, with one warning', async () => {
     process.env.CLOUD_CACHE_REPOSITORY = 'o/r';
     const stateFile = join(dir, 'state.json');
@@ -453,25 +473,5 @@ describe('main', () => {
     expect(saveImpl).toHaveBeenCalledTimes(1);
     // The check appends nothing.
     expect(readFileSync(outputsFile, 'utf8')).toBe('');
-  });
-
-  it('restore and save stop on a busybox tar error', async () => {
-    checkTar.mockImplementation(async () => {
-      // The check runs after the host is set.
-      expect(getHost()).toBeInstanceOf(GenericHost);
-      throw new Error(BUSYBOX_ERROR);
-    });
-
-    expect(await main(['restore', '--key', 'k', '--path', 'p'])).toBe(1);
-    expect(await main(['save', '--key', 'k', '--path', 'p'])).toBe(1);
-    expect(stderr).toContain(`error: ${BUSYBOX_ERROR}`);
-    expect(restoreImpl).not.toHaveBeenCalled();
-    expect(saveImpl).not.toHaveBeenCalled();
-    expect(checkTar).toHaveBeenCalledTimes(2);
-
-    // inspect and prune do not run tar, so they do not check it.
-    expect(await main(['inspect'])).toBe(0);
-    expect(await main(['prune'])).toBe(0);
-    expect(checkTar).toHaveBeenCalledTimes(2);
   });
 });
