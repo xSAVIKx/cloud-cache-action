@@ -413,6 +413,10 @@ describe('main', () => {
       ])
     ).toBe(0);
     expect(seen).toEqual(['', '', 'ci/', 'true', '3', 'true']);
+    // The flags change the state for this process only. A second save reads the restore state.
+    expect(JSON.parse(readFileSync(stateFile, 'utf8'))).toEqual(restored);
+    expect(await main(['save'])).toBe(0);
+    expect(seen).toEqual(['false', '{}', 'ci/', 'true', '3', 'true']);
     expect(warnings()).toEqual([
       `warning: The flags --read-only, --metadata differ from the values in the state file ${stateFile}. The flags win. The other values come from the state.`,
     ]);
@@ -421,6 +425,14 @@ describe('main', () => {
     stderr = '';
     writeFileSync(stateFile, JSON.stringify(restored));
     expect(await main(['save', '--prefix', 'other/'])).toBe(0);
+    expect(seen).toEqual(['false', '{}', '', 'true', '3', '']);
+    expect(warnings()).toHaveLength(1);
+    expect(warnings()[0]).toContain('The flags --prefix differ');
+
+    // Restore writes the default prefix as an empty value. A save prefix still wins over it.
+    stderr = '';
+    writeFileSync(stateFile, JSON.stringify({ ...restored, [State.CachePrefix]: '' }));
+    expect(await main(['save', '--prefix', 'ci/'])).toBe(0);
     expect(seen).toEqual(['false', '{}', '', 'true', '3', '']);
     expect(warnings()).toHaveLength(1);
     expect(warnings()[0]).toContain('The flags --prefix differ');
@@ -462,6 +474,7 @@ describe('main', () => {
     expect(await main(['save', '--key', 'k', '--path', 'p'])).toBe(1);
     expect(stderr).toContain(`error: Cannot write the variables file ${variablesFile}: `);
     expect(stderr).toContain('ENOENT');
+    expect(stderr).toContain('Save did not upload the cache.');
     expect(saveImpl).not.toHaveBeenCalled();
   });
 

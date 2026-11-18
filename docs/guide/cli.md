@@ -160,7 +160,7 @@ Set `CLOUD_CACHE_REF` in every job that uses a scoped cache.
 - Use the same `--state-file` for `restore` and `save` if the two commands run with different `TMPDIR` values.
 - Each `restore` starts with an empty state file. It removes the state of the previous restore.
 - After a `restore`, `save` takes the key and the paths from the state file, not from its flags. If `--key` or `--path` differ from the state, `save` prints a warning that names both values. The state from restore wins.
-- For the other settings that `restore` writes to the state file, a flag on the `save` command line wins. Examples are `--read-only`, `--metadata`, `--tags`, `--prefix` and `--job-summary`. `save` prints one warning that names each flag with a value that differs from the state. A setting that you do not give as a flag comes from the state. An environment variable is not a flag. The state wins over it.
+- For the other settings that `restore` writes to the state file, a flag on the `save` command line wins. Examples are `--read-only`, `--metadata`, `--tags`, `--prefix` and `--job-summary`. `save` prints one warning that names each flag with a value that differs from the state. A setting that you do not give as a flag comes from the state. An environment variable is not a flag. The state wins over it. The flags do not change the state file, so a second `save` reads the state of `restore` again.
 - If a winning flag changes the object key (`--prefix`, `--s3-key-pattern`, `--scoped-to-repository` or `--scoped-to-ref`), `save` ignores the exact hit of `restore`. That hit was for another object.
 - Use one state file for each cache, and for each job that runs at the same time on one machine.
 - If the file does not exist, `save` works as if no restore ran.
@@ -241,7 +241,7 @@ To save the cache when the build fails, run `cloud-cache save` in a step that al
   - With `--use-fallback`, a `restore` asks the GitHub cache only after a miss in S3. That `restore` prints the warning and reports a miss.
   - With `--dual-cache`, a `restore` with the default `--restore-priority=s3-first` asks the GitHub cache only after a miss in S3. With `github-first`, it asks the GitHub cache first. Each time, it prints the warning and continues.
   - With `--dual-cache`, a `save` writes to S3 and prints the warning for the GitHub cache.
-  - With `--dual-cache-strict=true`, the warning is an error. `restore` or `save` then stops with exit code 1.
+  - With `--dual-cache` and `--dual-cache-strict=true`, the warning is an error. `restore` or `save` then stops with exit code 1.
   - CLI versions 1.11.0 and earlier called the service. Each call waited about 10 seconds and then failed.
 - `--job-summary` has no effect on the generic platform. The CLI does not write a job summary there. On Bitbucket, the CLI prints a plain-text summary.
 - The CLI reads the repository and the refs from the `CLOUD_CACHE_*` context variables. On Bitbucket, it reads the `BITBUCKET_*` variables. See [Bitbucket Pipelines](./bitbucket.md).

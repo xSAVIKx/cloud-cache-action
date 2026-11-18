@@ -1,7 +1,7 @@
 import { getHost } from '../ci/host';
+import type { FileStateProvider } from '../ci/stateFile';
 import { State } from '../constants';
 import { parseMetadata, parseTags } from '../core/objectAttributes';
-import type { IStateProvider } from '../state';
 
 /** True when the flag value gives the same setting as the value in the state file. */
 type Same = (flag: string, persisted: string) => boolean;
@@ -52,25 +52,31 @@ const OBJECT_KEY_FLAGS: ReadonlySet<string> = new Set([
 
 /**
  * Lets a flag on the save command line win over the value that restore kept in the state file.
- * It clears that value in the state, so save reads the flag. A value that no flag gives still
- * comes from the state. When a flag changes the S3 object key, the exact hit of restore was for
- * another object, so it clears that hit too. It prints one warning that names the flags that won.
+ * It clears that value for this process only, so save reads the flag. The file does not change,
+ * so a later save reads the state of restore again. A value that no flag gives still comes from
+ * the state. When a flag changes the S3 object key, the exact hit of restore was for another
+ * object, so it clears that hit too. It prints one warning that names the flags that won.
  */
 export function applySaveFlags(
-  state: IStateProvider,
+  state: Pick<FileStateProvider, 'getState' | 'override'>,
   flags: Record<string, string>,
   stateFile: string
 ): void {
+  // Without a restore, the state is empty and every setting comes from the flags already.
+  if (state.getState(State.CachePrimaryKey) === '') {
+    return;
+  }
   const won: string[] = [];
   for (const [flag, key, same] of PERSISTED_FLAGS) {
     const value = flags[flag];
-    const persisted = state.getState(key);
-    if (value === undefined || persisted === '' || same(value, persisted)) {
+    // Restore writes every setting, also an empty one such as the default prefix. So an empty
+    // value is a value to compare, not a missing one.
+    if (value === undefined || same(value, state.getState(key))) {
       continue;
     }
-    state.setState(key, '');
+    state.override(key, '');
     if (OBJECT_KEY_FLAGS.has(flag)) {
-      state.setState(State.CacheS3ExactHit, '');
+      state.override(State.CacheS3ExactHit, '');
     }
     won.push(`--${flag}`);
   }

@@ -61381,8 +61381,8 @@ function gitHubCacheServiceProblem(env = process.env) {
         return undefined;
     }
     return (`GitHub Actions Cache is not available: ${name} is not set (cache service ${v2 ? 'v2' : 'v1'}). ` +
-        'The runner sets it only for JavaScript and container actions, so the CLI outside such an ' +
-        'action cannot use --dual-cache or --use-fallback.');
+        'The runner sets it only for JavaScript and container actions. A run: step and other CI ' +
+        'systems do not have it.');
 }
 /** True when the runner gives the GitHub Actions cache service to this process. */
 function isGitHubCacheServiceAvailable(env = process.env) {

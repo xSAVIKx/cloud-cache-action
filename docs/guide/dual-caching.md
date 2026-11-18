@@ -200,6 +200,8 @@ If your team is migrating from `actions/cache` to Cloudflare R2 or AWS S3:
 
 ::: warning What `dual-cache-strict` can see
 Strict mode catches every S3 error. For the GitHub Actions Cache tier it only sees the failures `@actions/cache` reports: the library logs and swallows most cache service errors itself. When it does not save a key, because another job is creating the same entry, the cache mode forbids writes, or the service failed, the step logs the library's message, does not list `github` in `cache-saved-sources`, and does not fail. When none of `path` matches anything on disk, both tiers report the save as skipped instead of an error, so strict mode no longer fails the step for that case.
+
+When the runner gives no cache service to the step, the GitHub tier reports an error at once and does not call the service. The variable `ACTIONS_RESULTS_URL` (cache service v2) or `ACTIONS_CACHE_URL` (v1) is then not set. Strict mode then fails the step, during restore and during save. Without strict mode, the step prints one warning and continues with S3.
 :::
 
 ### Outputs
