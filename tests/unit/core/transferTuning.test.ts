@@ -35,6 +35,21 @@ describe('tuneTransfer', () => {
     expect(tuneTransfer(input({ sizeBytes: 0 }))).toEqual({ concurrency: 1, partSize: 16 * MiB });
   });
 
+  it('counts the download parts from a part size that the workflow set', () => {
+    expect(tuneTransfer(input({ sizeBytes: 20 * MiB, fixed: { partSize: MiB } }))).toEqual({
+      concurrency: 16,
+      partSize: MiB,
+    });
+    expect(tuneTransfer(input({ sizeBytes: 100 * MiB, fixed: { partSize: 4 * MiB } }))).toEqual({
+      concurrency: 16,
+      partSize: 4 * MiB,
+    });
+    expect(tuneTransfer(input({ sizeBytes: 20 * MiB, fixed: { partSize: 8 * MiB } }))).toEqual({
+      concurrency: 3,
+      partSize: 8 * MiB,
+    });
+  });
+
   it('uploads up to 256 MiB in 16 MiB parts, 16 at a time', () => {
     expect(tuneTransfer(input({ direction: 'upload', sizeBytes: 128 * MiB }))).toEqual({
       concurrency: 16,

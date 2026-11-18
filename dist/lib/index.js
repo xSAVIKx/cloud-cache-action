@@ -71040,10 +71040,10 @@ const MAX_S3_PART_SIZE = 5 * GiB;
 const MAX_BUFFERED_BYTES = 1 * GiB;
 /**
  * Downloads: 16 MiB parts, 16 at a time. Every provider reached its top group with 128 MiB or
- * more in flight; the 8 x 8 MiB default was the slowest or close to it at every size.
+ * more in flight; the 8 x 8 MiB default was the slowest or close to it at every size. The
+ * concurrency is at most the part count, from `partSize` when the workflow set it.
  */
-function downloadRule(sizeBytes) {
-    const partSize = 16 * MiB;
+function downloadRule(sizeBytes, partSize = 16 * MiB) {
     const parts = Math.max(1, Math.ceil(sizeBytes / partSize));
     return { concurrency: Math.min(16, parts), partSize };
 }
@@ -71080,7 +71080,7 @@ function uploadRule(sizeBytes, provider) {
  */
 function tuneTransfer(input) {
     const rule = input.direction === 'download'
-        ? downloadRule(input.sizeBytes)
+        ? downloadRule(input.sizeBytes, input.fixed?.partSize)
         : uploadRule(input.sizeBytes, input.provider);
     const partSize = input.direction === 'upload'
         ? Math.max(input.fixed?.partSize ?? rule.partSize, minUploadPartSize(input.sizeBytes))

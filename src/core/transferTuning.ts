@@ -38,10 +38,10 @@ export interface TuningInput {
 
 /**
  * Downloads: 16 MiB parts, 16 at a time. Every provider reached its top group with 128 MiB or
- * more in flight; the 8 x 8 MiB default was the slowest or close to it at every size.
+ * more in flight; the 8 x 8 MiB default was the slowest or close to it at every size. The
+ * concurrency is at most the part count, from `partSize` when the workflow set it.
  */
-function downloadRule(sizeBytes: number): TransferSettings {
-  const partSize = 16 * MiB;
+function downloadRule(sizeBytes: number, partSize = 16 * MiB): TransferSettings {
   const parts = Math.max(1, Math.ceil(sizeBytes / partSize));
   return { concurrency: Math.min(16, parts), partSize };
 }
@@ -83,7 +83,7 @@ function uploadRule(sizeBytes: number, provider: StorageProvider): TransferSetti
 export function tuneTransfer(input: TuningInput): TransferSettings {
   const rule =
     input.direction === 'download'
-      ? downloadRule(input.sizeBytes)
+      ? downloadRule(input.sizeBytes, input.fixed?.partSize)
       : uploadRule(input.sizeBytes, input.provider);
   const partSize =
     input.direction === 'upload'

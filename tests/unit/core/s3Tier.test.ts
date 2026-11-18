@@ -2450,6 +2450,27 @@ describe('restoreFromS3 parallel download', () => {
     expect(options).toMatchObject({ partSize: 16 * MiB, concurrency: 5 });
   });
 
+  it('counts the tuned download concurrency from an explicit download-chunk-size', async () => {
+    large();
+    mockDownloadFileInParts.mockResolvedValue({
+      metadata: { 'cloud-cache-sha256': 'good-hash' },
+      parts: 20,
+    });
+    mockSha256File.mockResolvedValue('good-hash');
+    await restoreFromS3(
+      tier({
+        download: { concurrency: 8, partSize: MiB },
+        tuning: { ...noExplicit, downloadChunkSize: true },
+      }),
+      'k',
+      [],
+      false
+    );
+    const [, , , , options] = mockDownloadFileInParts.mock.calls[0];
+    // 20 MiB + 1 byte in 1 MiB parts is 21 parts, so the 16 at a time of the rule.
+    expect(options).toMatchObject({ partSize: MiB, concurrency: 16 });
+  });
+
   it('uses the tier settings, with no tuning line, when both download inputs are set', async () => {
     large();
     mockDownloadFileInParts.mockResolvedValue({
