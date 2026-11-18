@@ -5,7 +5,7 @@ description: "Use AWS S3 as a GitHub Actions cache with Cloud Cache Action. Buck
 # AWS S3
 
 To use AWS S3 as a GitHub Actions cache, create a private bucket and give the job AWS credentials.
-Then set `bucket` on `xSAVIKx/cloud-cache-action@v1`. AWS S3 needs no `endpoint` input.
+Then set `bucket` and `region` on `xSAVIKx/cloud-cache-action@v1`. AWS S3 needs no `endpoint` input.
 
 Cloud Cache Action supports two types of credentials for AWS S3: GitHub Actions OIDC (OpenID
 Connect) with an IAM role, and static IAM credentials.
@@ -93,6 +93,27 @@ read-only and prune policies, and the list of S3 calls that each feature sends.
 
 Create a dedicated IAM user. Never use your root AWS account. Attach a least-privilege policy from the [Security guide](../guide/security.md#aws-s3). Generate an access key ID and a secret access key, and save them in the GitHub secrets of your repository.
 
+## Region
+
+The action must send each request to the region of the bucket. The action does not follow the
+redirect that AWS gives for a different region. The action finds the region in this order:
+
+1. The `region` input.
+2. The `AWS_REGION` environment variable.
+3. The `AWS_DEFAULT_REGION` environment variable.
+4. `us-east-1`.
+
+With static credentials, set `region`. Without it, the action uses `us-east-1`, and a bucket in
+a different region refuses the request.
+
+With OIDC, `aws-actions/configure-aws-credentials` sets `AWS_REGION` from its `aws-region` input.
+The cache step then needs no `region` input when the bucket is in that region. When the bucket is
+in a different region, set `region` on the cache step.
+
+To find the region of a bucket, open the bucket in the S3 console and read **AWS Region** on the
+**Properties** tab. See [Wrong AWS region](../guide/troubleshooting.md#wrong-aws-region) for the
+symptom in the log.
+
 ## Workflow example
 
 ### With OIDC
@@ -117,8 +138,9 @@ jobs:
         uses: xSAVIKx/cloud-cache-action@v1
         with:
           bucket: my-actions-cache-bucket
-          key: ${{ runner.os }}-build-${{ hashFiles('**/lock') }}
-          path: node_modules
+          # No region input: the step above sets AWS_REGION.
+          key: ${{ runner.os }}-build-${{ hashFiles('**/package-lock.json') }}
+          path: ~/.npm
 ```
 
 ### With static credentials
@@ -135,8 +157,8 @@ names in your repository and the secret names in your workflow must be the same.
     region: us-east-1
     access-key: ${{ secrets.AWS_ACCESS_KEY_ID }}
     secret-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-    key: ${{ runner.os }}-build-${{ hashFiles('**/lock') }}
-    path: node_modules
+    key: ${{ runner.os }}-build-${{ hashFiles('**/package-lock.json') }}
+    path: ~/.npm
 ```
 
 ## Notes
