@@ -351,6 +351,78 @@ describe('main', () => {
     expect(stderr).toBe('');
   });
 
+  it('save flags win over the state of restore, with one warning', async () => {
+    process.env.CLOUD_CACHE_REPOSITORY = 'o/r';
+    const stateFile = join(dir, 'state.json');
+    const restored = {
+      [State.CachePrimaryKey]: 'k1',
+      [State.CacheReadOnly]: 'false',
+      [State.CacheMetadata]: '{}',
+      [State.CachePrefix]: 'ci/',
+      [State.CacheJobSummary]: 'true',
+      [State.CacheRetryCount]: '3',
+      [State.CacheS3ExactHit]: 'true',
+    };
+    const keys = [
+      State.CacheReadOnly,
+      State.CacheMetadata,
+      State.CachePrefix,
+      State.CacheJobSummary,
+      State.CacheRetryCount,
+      State.CacheS3ExactHit,
+    ];
+    let seen: string[] = [];
+    saveImpl.mockImplementation(async (state) => {
+      seen = keys.map((key) => state.getState(key));
+      return undefined;
+    });
+    const warnings = (): string[] =>
+      stderr.split('\n').filter((line) => line.includes('in the state file'));
+
+    // A different value clears the state value, so save reads the flag. An equal value stays.
+    writeFileSync(stateFile, JSON.stringify(restored));
+    expect(
+      await main([
+        'save',
+        '--read-only',
+        '--metadata',
+        'Owner=me',
+        '--job-summary=true',
+        '--retry-count',
+        '03',
+      ])
+    ).toBe(0);
+    expect(seen).toEqual(['', '', 'ci/', 'true', '3', 'true']);
+    expect(warnings()).toEqual([
+      `warning: The flags --read-only, --metadata differ from the values in the state file ${stateFile}. The flags win. The other values come from the state.`,
+    ]);
+
+    // A flag that changes the object key also clears the exact hit of restore.
+    stderr = '';
+    writeFileSync(stateFile, JSON.stringify(restored));
+    expect(await main(['save', '--prefix', 'other/'])).toBe(0);
+    expect(seen).toEqual(['false', '{}', '', 'true', '3', '']);
+    expect(warnings()).toHaveLength(1);
+    expect(warnings()[0]).toContain('The flags --prefix differ');
+
+    // An env var is not a flag on the command line, and an equal metadata value is no change.
+    stderr = '';
+    writeFileSync(
+      stateFile,
+      JSON.stringify({ ...restored, [State.CacheMetadata]: '{"owner":"me"}' })
+    );
+    process.env.CLOUD_CACHE_READ_ONLY = 'true';
+    expect(await main(['save', '--metadata', 'Owner=me'])).toBe(0);
+    expect(seen).toEqual(['false', '{"owner":"me"}', 'ci/', 'true', '3', 'true']);
+    expect(warnings()).toEqual([]);
+    delete process.env.CLOUD_CACHE_READ_ONLY;
+
+    // Without a state, there is nothing to override.
+    rmSync(stateFile);
+    expect(await main(['save', '--read-only'])).toBe(0);
+    expect(warnings()).toEqual([]);
+  });
+
   it('save stops before the upload when it cannot write the outputs file', async () => {
     const outputsFile = join(dir, 'missing-dir', 'out.env');
     expect(await main(['save', '--key', 'k', '--path', 'p', '--outputs-file', outputsFile])).toBe(

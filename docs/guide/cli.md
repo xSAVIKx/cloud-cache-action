@@ -160,6 +160,8 @@ Set `CLOUD_CACHE_REF` in every job that uses a scoped cache.
 - Use the same `--state-file` for `restore` and `save` if the two commands run with different `TMPDIR` values.
 - Each `restore` starts with an empty state file. It removes the state of the previous restore.
 - After a `restore`, `save` takes the key and the paths from the state file, not from its flags. If `--key` or `--path` differ from the state, `save` prints a warning that names both values. The state from restore wins.
+- For the other settings that `restore` writes to the state file, a flag on the `save` command line wins. Examples are `--read-only`, `--metadata`, `--tags`, `--prefix` and `--job-summary`. `save` prints one warning that names each flag with a value that differs from the state. A setting that you do not give as a flag comes from the state. An environment variable is not a flag. The state wins over it.
+- If a winning flag changes the object key (`--prefix`, `--s3-key-pattern`, `--scoped-to-repository` or `--scoped-to-ref`), `save` ignores the exact hit of `restore`. That hit was for another object.
 - Use one state file for each cache, and for each job that runs at the same time on one machine.
 - If the file does not exist, `save` works as if no restore ran.
 - If the file is not valid JSON, the CLI prints a warning and ignores it.

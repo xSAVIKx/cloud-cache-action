@@ -12,6 +12,7 @@ import { getInputAsArray } from '../utils/inputUtils';
 import { type CliArgs, type CliRun, parseCliArgs, shortUsage, UsageError, usage } from './args';
 import { INPUT_DEFAULTS } from './defaults';
 import { expandHashTemplates } from './hashTemplate';
+import { applySaveFlags } from './saveFlags';
 import { checkTar } from './tarCheck';
 import { CLI_VERSION } from './version';
 
@@ -192,6 +193,7 @@ async function runCommand(args: CliRun): Promise<void> {
       await checkTar();
       const state = new FileStateProvider(args.stateFile);
       warnOnStateMismatch(state, args.stateFile);
+      applySaveFlags(state, args.inputs, args.stateFile);
       await saveImpl(state);
       return;
     }
