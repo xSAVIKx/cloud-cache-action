@@ -1,5 +1,5 @@
 import { getHost } from '../ci/host';
-import { log } from '../ci/log';
+import { log, setWarningTitle } from '../ci/log';
 import { Outputs, State } from '../constants';
 import { NullStateProvider, type IStateProvider } from '../state';
 import { isWriteAccessDeniedError } from '../storage/errors';
@@ -333,6 +333,8 @@ export async function saveImpl(stateProvider: IStateProvider): Promise<number | 
   stepErrors = [];
   // One summary per step: a throw after the summary must not write a second one.
   let summarized = false;
+  // Warnings from shared code (the config, the S3 tier) also get the title of this step.
+  setWarningTitle(WARNING_TITLE);
   try {
     if (!isValidEvent()) {
       log.warning(
@@ -475,6 +477,8 @@ export async function saveImpl(stateProvider: IStateProvider): Promise<number | 
         errors: [...stepErrors, message],
       });
     }
+  } finally {
+    setWarningTitle(undefined);
   }
 }
 

@@ -55,6 +55,13 @@ jest.unstable_mockModule('../../../src/core/metrics', () => ({
 const { saveImpl } = await import('../../../src/core/saveImpl');
 
 describe('saveImpl when the GitHub tier chunk does not load', () => {
+  // Each warning of the step, in each test, has the annotation title of the step.
+  afterEach(() => {
+    expect(mockWarningTitle.mock.calls).toEqual(
+      mockWarning.mock.calls.map(() => ['Cloud cache save'])
+    );
+  });
+
   beforeEach(() => {
     inputs.clear();
     outputs.clear();

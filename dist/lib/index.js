@@ -61149,15 +61149,26 @@ function setHost(host) {
 /***/ ((__unused_webpack_module, __webpack_exports__, __nccwpck_require__) => {
 
 /* harmony export */ __nccwpck_require__.d(__webpack_exports__, {
-/* harmony export */   R: () => (/* binding */ log)
+/* harmony export */   R: () => (/* binding */ log),
+/* harmony export */   h: () => (/* binding */ setWarningTitle)
 /* harmony export */ });
 /* harmony import */ var _host__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(6068);
 
+/** The annotation title of a warning that gives no title of its own. See `setWarningTitle`. */
+let stepWarningTitle;
+/**
+ * Sets the annotation title of each warning that gives no title, until the next call. A cache step
+ * sets its name at the start and undefined at the end, so a warning from shared code (the config,
+ * the S3 tier) also names the step that warned.
+ */
+function setWarningTitle(title) {
+    stepWarningTitle = title;
+}
 /** Logger that sends each call to the active host, so a host change takes effect at once. */
 const log = {
     debug: (message) => (0,_host__WEBPACK_IMPORTED_MODULE_0__/* .getHost */ .L)().log.debug(message),
     info: (message) => (0,_host__WEBPACK_IMPORTED_MODULE_0__/* .getHost */ .L)().log.info(message),
-    warning: (message, title) => (0,_host__WEBPACK_IMPORTED_MODULE_0__/* .getHost */ .L)().log.warning(message, title),
+    warning: (message, title) => (0,_host__WEBPACK_IMPORTED_MODULE_0__/* .getHost */ .L)().log.warning(message, title ?? stepWarningTitle),
     error: (message) => (0,_host__WEBPACK_IMPORTED_MODULE_0__/* .getHost */ .L)().log.error(message),
     startGroup: (title) => (0,_host__WEBPACK_IMPORTED_MODULE_0__/* .getHost */ .L)().log.startGroup(title),
     endGroup: () => (0,_host__WEBPACK_IMPORTED_MODULE_0__/* .getHost */ .L)().log.endGroup(),
@@ -72520,10 +72531,35 @@ function addPresetLine(preset, paths) {
     const list = (paths ?? []).map((p) => `<code>${escapeHtml(p)}</code>`).join(', ');
     writer().addRaw(`<p>Preset <code>${escapeHtml(preset)}</code>, path ${list}</p>`, true);
 }
-/** One line for each error, under the table. */
+/** The longest error text, in characters, that one `Error:` line shows. */
+const MAX_ERROR_LENGTH = 1000;
+/**
+ * Makes an error text safe for the summary page. It removes the user info and the query string of
+ * each URL (a presigned or SAS URL holds its signature there), and the value of each signature or
+ * credential parameter outside a URL. Then it cuts the text to `MAX_ERROR_LENGTH` characters.
+ */
+function redactError(text) {
+    let redacted = text
+        // scheme://user:pass@host -> scheme://host
+        .replace(/\b([a-z][a-z0-9+.-]*:\/\/)[^\s/?#@]+@/gi, '$1')
+        // scheme://host/path?query -> scheme://host/path?[query removed]
+        .replace(/\b([a-z][a-z0-9+.-]*:\/\/[^\s?#]*)\?[^\s#]*/gi, '$1?[query removed]')
+        .replace(/\b(sig|X-Amz-Signature|X-Amz-Credential|X-Amz-Security-Token)=[^\s&]+/gi, '$1=[removed]');
+    if (redacted.length > MAX_ERROR_LENGTH) {
+        const more = redacted.length - MAX_ERROR_LENGTH;
+        redacted = `${redacted.slice(0, MAX_ERROR_LENGTH)}... (${more} more characters in the log)`;
+    }
+    return redacted;
+}
+/**
+ * One line for each error, under the table. A line break becomes `<br>`: a blank line in the text
+ * (for example in a tar stderr tail) would otherwise end the HTML block, and GitHub would read the
+ * rest as Markdown.
+ */
 function addErrorLines(errors) {
     for (const error of errors ?? []) {
-        writer().addRaw(`<p>Error: ${escapeHtml(error)}</p>`, true);
+        const html = escapeHtml(redactError(error)).replace(/\r\n|\r|\n/g, '<br>');
+        writer().addRaw(`<p>Error: ${html}</p>`, true);
     }
 }
 /** One line that tells why the step did not ask any tier, under the table. */
@@ -73853,6 +73889,8 @@ async function restoreImpl(stateProvider, earlyExit) {
             ...data,
         });
     };
+    // Warnings from shared code (the config, the S3 tier) also get the title of this step.
+    (0,log/* setWarningTitle */.h)(WARNING_TITLE);
     try {
         if (!(0,inputUtils/* isValidEvent */.FR)()) {
             log/* log */.R.warning(`Event Validation Warning: The event type ${(0,host/* getHost */.L)().context().eventName} may not be tied to a branch or tag ref.`, WARNING_TITLE);
@@ -73906,6 +73944,11 @@ async function restoreImpl(stateProvider, earlyExit) {
             return undefined;
         }
         const s3 = await setUpS3(config, stateProvider, errors);
+        const failedTiers = [];
+        if (!s3) {
+            // setUpS3 returns no tier only after a warned setup error. The last log line names it.
+            failedTiers.push('s3');
+        }
         provider = s3?.storage.providerConfig.provider;
         compression = s3?.compression.method;
         region = s3?.storage.providerConfig.region;
@@ -73929,7 +73972,6 @@ async function restoreImpl(stateProvider, earlyExit) {
         if (config.dualCache) {
             log/* log */.R.info(`Dual-cache enabled (priority: ${config.restorePriority}, strategy: ${config.dualCacheStrategy})`);
         }
-        const failedTiers = [];
         for (const source of restoreOrder(config)) {
             const outcome = await attempt(source, config, s3);
             switch (outcome.kind) {
@@ -74046,6 +74088,9 @@ async function restoreImpl(stateProvider, earlyExit) {
             process.exit(1);
         }
         return undefined;
+    }
+    finally {
+        (0,log/* setWarningTitle */.h)(undefined);
     }
 }
 async function runRestore(earlyExit = true) {
@@ -74340,6 +74385,8 @@ async function saveImpl(stateProvider) {
     stepErrors = [];
     // One summary per step: a throw after the summary must not write a second one.
     let summarized = false;
+    // Warnings from shared code (the config, the S3 tier) also get the title of this step.
+    (0,log/* setWarningTitle */.h)(saveImpl_WARNING_TITLE);
     try {
         if (!(0,inputUtils/* isValidEvent */.FR)()) {
             log/* log */.R.warning(`Event Validation Warning: The event type ${(0,host/* getHost */.L)().context().eventName} may not be tied to a branch or tag ref.`, saveImpl_WARNING_TITLE);
@@ -74470,6 +74517,9 @@ async function saveImpl(stateProvider) {
                 errors: [...stepErrors, message],
             });
         }
+    }
+    finally {
+        (0,log/* setWarningTitle */.h)(undefined);
     }
 }
 async function runSave(earlyExit = true) {

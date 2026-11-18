@@ -22,7 +22,7 @@ jest.unstable_mockModule('@actions/core', () => coreMock);
 
 const { GitHubActionsHost } = await import('../../../src/ci/github');
 const { getHost, setHost } = await import('../../../src/ci/host');
-const { log } = await import('../../../src/ci/log');
+const { log, setWarningTitle } = await import('../../../src/ci/log');
 
 let dir: string;
 let eventPath: string;
@@ -156,6 +156,19 @@ describe('getHost and setHost', () => {
   it('log sends each call to the active host', () => {
     log.info('hello');
     expect(coreMock.info).toHaveBeenCalledWith('hello');
+  });
+
+  it('log gives the step title to a warning without a title, until the step clears it', () => {
+    setWarningTitle('Cloud cache restore');
+    log.warning('from shared code');
+    log.warning('own title', 'Other');
+    setWarningTitle(undefined);
+    log.warning('after the step');
+    expect(coreMock.warning).toHaveBeenCalledWith('from shared code', {
+      title: 'Cloud cache restore',
+    });
+    expect(coreMock.warning).toHaveBeenCalledWith('own title', { title: 'Other' });
+    expect(coreMock.warning).toHaveBeenLastCalledWith('after the step');
   });
 
   it('log passes the warning title to the active host', () => {

@@ -1,5 +1,5 @@
 import { getHost } from '../ci/host';
-import { log } from '../ci/log';
+import { log, setWarningTitle } from '../ci/log';
 import { Outputs, State } from '../constants';
 import { NullStateProvider, type IStateProvider } from '../state';
 import { isValidEvent } from '../utils/inputUtils';
@@ -179,6 +179,8 @@ export async function restoreImpl(
       ...data,
     });
   };
+  // Warnings from shared code (the config, the S3 tier) also get the title of this step.
+  setWarningTitle(WARNING_TITLE);
   try {
     if (!isValidEvent()) {
       log.warning(
@@ -243,6 +245,11 @@ export async function restoreImpl(
     }
 
     const s3 = await setUpS3(config, stateProvider, errors);
+    const failedTiers: string[] = [];
+    if (!s3) {
+      // setUpS3 returns no tier only after a warned setup error. The last log line names it.
+      failedTiers.push('s3');
+    }
     provider = s3?.storage.providerConfig.provider;
     compression = s3?.compression.method;
     region = s3?.storage.providerConfig.region;
@@ -266,7 +273,6 @@ export async function restoreImpl(
       );
     }
 
-    const failedTiers: string[] = [];
     for (const source of restoreOrder(config)) {
       const outcome = await attempt(source, config, s3);
       switch (outcome.kind) {
@@ -389,6 +395,8 @@ export async function restoreImpl(
       process.exit(1);
     }
     return undefined;
+  } finally {
+    setWarningTitle(undefined);
   }
 }
 

@@ -104,6 +104,13 @@ const miss: RestoreOutcome = { kind: 'miss' };
 const failure = (message: string): RestoreOutcome => ({ kind: 'error', error: new Error(message) });
 
 describe('restoreImpl', () => {
+  // Each warning of the step, in each test, has the annotation title of the step.
+  afterEach(() => {
+    expect(mockWarningTitle.mock.calls).toEqual(
+      mockWarning.mock.calls.map(() => ['Cloud cache restore'])
+    );
+  });
+
   let state: MemoryState;
 
   beforeEach(() => {
@@ -381,6 +388,21 @@ describe('restoreImpl', () => {
     );
     expect(mockRestoreFromS3).not.toHaveBeenCalled();
     expect(mockSetFailed).not.toHaveBeenCalled();
+  });
+
+  it('names the S3 setup failure in the last log line when the fallback then misses', async () => {
+    inputs.set(Inputs.UseFallback, 'true');
+    mockBuildS3Tier.mockRejectedValue(new Error('Bucket name is required.'));
+    await restoreImpl(state, false);
+    expect(mockCoreInfo).toHaveBeenCalledWith(
+      'No cache restored: the s3 tier failed (see the warning above). Keys searched: Linux-npm-abc, Linux-npm-'
+    );
+    expect(mockCoreInfo).not.toHaveBeenCalledWith(expect.stringContaining('Cache not found'));
+    expect(mockWriteRestoreSummary).toHaveBeenCalledWith(
+      expect.objectContaining({
+        errors: ['S3 client initialization failed: Bucket name is required.'],
+      })
+    );
   });
 
   it('stops at an S3 hit in s3-first dual-cache mode', async () => {

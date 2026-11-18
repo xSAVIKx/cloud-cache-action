@@ -99,6 +99,13 @@ const githubSkipped: SaveOutcome = {
 const failure = (message: string): SaveOutcome => ({ kind: 'error', error: new Error(message) });
 
 describe('saveImpl', () => {
+  // Each warning of the step, in each test, has the annotation title of the step.
+  afterEach(() => {
+    expect(mockWarningTitle.mock.calls).toEqual(
+      mockWarning.mock.calls.map(() => ['Cloud cache save'])
+    );
+  });
+
   let state: MemoryState;
 
   beforeEach(() => {

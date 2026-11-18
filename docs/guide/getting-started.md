@@ -125,7 +125,9 @@ After both restore and save, a step summary table is written via `core.summary` 
 restore" table with the result, the primary/matched key, cache hit, source, size and duration, and a
 "Cloud cache save" table with the result, the key, tiers saved to, size and duration. This is on by
 default; set `job-summary: false` to turn it off. No summary is written when `GITHUB_STEP_SUMMARY` is
-not set.
+not set. A step that fails before it reads its inputs (for example on a bad boolean input or an
+unknown preset) writes no summary, and a save that skips for `read-only: true` or for a missing key
+or path writes no summary. The step log and the annotation then tell the reason.
 
 The **Result** column tells the real result of the step. A storage error does not fail the job, so
 this column and the error lines are the places that show it:
@@ -136,18 +138,21 @@ this column and the error lines are the places that show it:
 | restore | `partial hit (restore key)` | A restore key matched. |
 | restore | `found (lookup only)` | `lookup-only: true` is set and a key matched. |
 | restore | `miss` | No key matched, and no tier failed. |
-| restore | `error (no cache)` | A tier failed, or the step failed. |
+| restore | `error (no cache)` | No tier gave a cache, and a tier failed or the step failed. |
 | restore | `skipped` | `ACTIONS_CACHE_MODE` does not permit reads. |
 | save | `saved` | The step wrote the archive. |
 | save | `already saved` | The object was in the bucket already, for example from another job. |
 | save | `not necessary (exact hit)` | The restore had an exact hit. |
 | save | `no files` | The paths matched no file. |
-| save | `error (not saved)` | A tier failed, or the step failed. |
+| save | `error (not saved)` | No tier saved, because of an error, or the step failed. |
 | save | `skipped` | `ACTIONS_CACHE_MODE` does not permit writes, or a tier did not save for the reason under the table. |
 
 Each tier error that the step logged as a warning, and the error that failed the step, goes on an
 `Error:` line under the table. A hit from the GitHub fallback after an S3 error shows `exact hit` or
-`partial hit (restore key)`, and the S3 error stays under the table. The `cache-hit` output does not
+`partial hit (restore key)`, and the S3 error stays under the table. In the same way, a dual-cache
+save that writes to one tier while the other tier fails shows `saved`, with the error under the
+table. Each `Error:` line has no URL user info, no URL query string and no signature value, and
+it shows at most 1000 characters; the step log has the full text. The `cache-hit` output does not
 change. A restore with a wrong secret key gives this table:
 
 ```text
@@ -164,6 +169,9 @@ the save step have the title `Cloud cache save`. After a normal miss, the restor
 after `Cache not found for input keys: ...`. The line names the bucket, the provider and the refs
 that the step searched, for example `Searched s3://my-ci-cache-bucket (provider r2) under
 refs/heads/feature-x, then refs/heads/main. Set explain: true to list each candidate.`
+When a tier failed and no tier gave a cache (also when the S3 client setup failed), the last line
+is `No cache restored: the s3 tier failed (see the warning above). Keys searched: ...` instead, and
+the Result is `error (no cache)`.
 
 ## Restore and save actions
 

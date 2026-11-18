@@ -114,10 +114,40 @@ function addPresetLine(preset: string | undefined, paths: readonly string[] | un
   writer().addRaw(`<p>Preset <code>${escapeHtml(preset)}</code>, path ${list}</p>`, true);
 }
 
-/** One line for each error, under the table. */
+/** The longest error text, in characters, that one `Error:` line shows. */
+export const MAX_ERROR_LENGTH = 1000;
+
+/**
+ * Makes an error text safe for the summary page. It removes the user info and the query string of
+ * each URL (a presigned or SAS URL holds its signature there), and the value of each signature or
+ * credential parameter outside a URL. Then it cuts the text to `MAX_ERROR_LENGTH` characters.
+ */
+export function redactError(text: string): string {
+  let redacted = text
+    // scheme://user:pass@host -> scheme://host
+    .replace(/\b([a-z][a-z0-9+.-]*:\/\/)[^\s/?#@]+@/gi, '$1')
+    // scheme://host/path?query -> scheme://host/path?[query removed]
+    .replace(/\b([a-z][a-z0-9+.-]*:\/\/[^\s?#]*)\?[^\s#]*/gi, '$1?[query removed]')
+    .replace(
+      /\b(sig|X-Amz-Signature|X-Amz-Credential|X-Amz-Security-Token)=[^\s&]+/gi,
+      '$1=[removed]'
+    );
+  if (redacted.length > MAX_ERROR_LENGTH) {
+    const more = redacted.length - MAX_ERROR_LENGTH;
+    redacted = `${redacted.slice(0, MAX_ERROR_LENGTH)}... (${more} more characters in the log)`;
+  }
+  return redacted;
+}
+
+/**
+ * One line for each error, under the table. A line break becomes `<br>`: a blank line in the text
+ * (for example in a tar stderr tail) would otherwise end the HTML block, and GitHub would read the
+ * rest as Markdown.
+ */
 function addErrorLines(errors: readonly string[] | undefined): void {
   for (const error of errors ?? []) {
-    writer().addRaw(`<p>Error: ${escapeHtml(error)}</p>`, true);
+    const html = escapeHtml(redactError(error)).replace(/\r\n|\r|\n/g, '<br>');
+    writer().addRaw(`<p>Error: ${html}</p>`, true);
   }
 }
 

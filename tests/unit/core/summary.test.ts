@@ -4,7 +4,12 @@ import * as core from '@actions/core';
 import { makeTempDir, removeDir, setEnv } from '../../support/tempTree';
 import { setHost, type CiHost } from '../../../src/ci/host';
 import { TextSummaryWriter } from '../../../src/ci/textSummary';
-import { writeRestoreSummary, writeSaveSummary } from '../../../src/core/summary';
+import {
+  MAX_ERROR_LENGTH,
+  redactError,
+  writeRestoreSummary,
+  writeSaveSummary,
+} from '../../../src/core/summary';
 
 describe('writeRestoreSummary / writeSaveSummary', () => {
   let dir: string;
@@ -440,6 +445,49 @@ describe('the Result column and the error lines', () => {
     );
   });
 
+  it('keeps a multi-line error with a blank line inside one HTML block', async () => {
+    const stderr = [
+      'Failed to save cache to S3: tar exited with code 2',
+      'tar: a|b: Cannot open',
+      '',
+      'tar: <script>alert(1)</script> `rm -rf` [x](https://e.example)',
+    ].join('\n');
+    await writeSaveSummary({ ...saveBase, savedTo: [], outcome: 'error', errors: [stderr] });
+    const content = fs.readFileSync(summaryFile, 'utf8');
+    expect(content).toContain(
+      '<p>Error: Failed to save cache to S3: tar exited with code 2<br>tar: a|b: Cannot open<br><br>tar: &lt;script&gt;alert(1)&lt;/script&gt; `rm -rf` [x](https://e.example)</p>'
+    );
+    expect(content).not.toContain('<script>');
+    const block = content.slice(
+      content.indexOf('<p>Error:'),
+      content.indexOf('</p>', content.indexOf('<p>Error:'))
+    );
+    expect(block).not.toMatch(/\n/);
+  });
+
+  it('turns a CR LF and a lone CR into a line break too', async () => {
+    await writeSaveSummary({
+      ...saveBase,
+      savedTo: [],
+      outcome: 'error',
+      errors: ['a\r\n\r\nb\rc'],
+    });
+    expect(fs.readFileSync(summaryFile, 'utf8')).toContain('<p>Error: a<br><br>b<br>c</p>');
+  });
+
+  it('redacts the error lines before they go to the summary', async () => {
+    await writeRestoreSummary({
+      ...restoreBase,
+      cacheHit: false,
+      source: 'none',
+      errors: ['GET https://user:secret@host.example/k?X-Amz-Signature=sigvalue42 failed'],
+    });
+    const content = fs.readFileSync(summaryFile, 'utf8');
+    expect(content).toContain('<p>Error: GET https://host.example/k?[query removed] failed</p>');
+    expect(content).not.toContain('secret');
+    expect(content).not.toContain('sigvalue42');
+  });
+
   it('adds no skipped line for no files, because the Result says it', async () => {
     await writeSaveSummary({
       ...saveBase,
@@ -480,5 +528,90 @@ describe('the summary on a host with a text summary (Bitbucket)', () => {
         '',
       ].join('\n')
     );
+  });
+
+  it('prints the save table, the error line and the skipped line as plain text', async () => {
+    let printed = '';
+    setHost({
+      summary: new TextSummaryWriter((text) => {
+        printed += text;
+      }),
+    } as unknown as CiHost);
+    await writeSaveSummary({
+      jobSummary: true,
+      key: 'Linux-npm-abc',
+      savedTo: [],
+      durationMs: 2000,
+      outcome: 'error',
+      errors: ['Failed to save cache to S3: SlowDown'],
+    });
+    await writeSaveSummary({
+      jobSummary: true,
+      key: 'Linux-npm-abc',
+      savedTo: [],
+      durationMs: 10,
+      outcome: 'skipped',
+      skipReason: 'GitHub Actions Cache did not save this key (see the messages above)',
+    });
+    expect(printed).toBe(
+      [
+        '# Cloud cache save',
+        'Result             Key            Saved to  Size  Duration',
+        'error (not saved)  Linux-npm-abc  none      —     2.00 s',
+        'Error: Failed to save cache to S3: SlowDown',
+        '# Cloud cache save',
+        'Result   Key            Saved to  Size  Duration',
+        'skipped  Linux-npm-abc  none      —     0.01 s',
+        'Skipped: GitHub Actions Cache did not save this key (see the messages above)',
+        '',
+      ].join('\n')
+    );
+  });
+});
+
+describe('redactError', () => {
+  it('removes the user info of a URL', () => {
+    expect(redactError('connect to http://key:secret@10.1.2.3:9000/bucket failed')).toBe(
+      'connect to http://10.1.2.3:9000/bucket failed'
+    );
+    expect(redactError('see s3://token@bucket/key')).toBe('see s3://bucket/key');
+  });
+
+  it('removes the query string of a presigned S3 URL', () => {
+    expect(
+      redactError(
+        'GET https://b.s3.amazonaws.com/k?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIAX%2F20261118&X-Amz-Signature=deadbeef returned 403'
+      )
+    ).toBe('GET https://b.s3.amazonaws.com/k?[query removed] returned 403');
+  });
+
+  it('removes the query string of an Azure SAS URL, and keeps a fragment out of it', () => {
+    expect(
+      redactError('PUT https://acct.blob.core.windows.net/c/b?sv=2024&sig=abc%3D&se=2026 failed')
+    ).toBe('PUT https://acct.blob.core.windows.net/c/b?[query removed] failed');
+  });
+
+  it('removes signature and credential values outside a URL', () => {
+    expect(
+      redactError(
+        'bad request: sig=abc X-Amz-Signature=def&X-Amz-Credential=AKIA/x X-Amz-Security-Token=tok end'
+      )
+    ).toBe(
+      'bad request: sig=[removed] X-Amz-Signature=[removed]&X-Amz-Credential=[removed] X-Amz-Security-Token=[removed] end'
+    );
+  });
+
+  it('keeps a message with no URL and no signature as it is', () => {
+    const message =
+      'HeadObject s3://ci-cache/k returned HTTP 403 Forbidden. Check access-key, secret-key and region.';
+    expect(redactError(message)).toBe(message);
+  });
+
+  it('cuts a long message and says how much is left out', () => {
+    const long = 'x'.repeat(MAX_ERROR_LENGTH + 25);
+    expect(redactError(long)).toBe(
+      `${'x'.repeat(MAX_ERROR_LENGTH)}... (25 more characters in the log)`
+    );
+    expect(redactError('x'.repeat(MAX_ERROR_LENGTH))).toBe('x'.repeat(MAX_ERROR_LENGTH));
   });
 });
