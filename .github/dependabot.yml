@@ -14,7 +14,7 @@ updates:
         update-types:
           - 'version-update:semver-major'
     # Runtime dependencies are bundled into dist/, so their PRs also need a dist rebuild
-    # (.github/workflows/dependabot-dist.yml does it). Dev dependencies do not change dist/. Two
+    # (npm ci && npm run build, then commit dist/). Dev dependencies do not change dist/. Two
     # groups keep a red runtime PR from blocking the dev-only updates.
     groups:
       npm-runtime:
