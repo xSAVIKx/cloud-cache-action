@@ -73,17 +73,24 @@ function parsePlatform(value: string): Platform {
   return found;
 }
 
-/** Reads the env var of a boolean CLI flag. Unset or empty is false. Another value is an error. */
+/**
+ * Reads the env var of a boolean CLI flag. It keeps the values that these env vars always took:
+ * true or 1 is true, false or 0 is false, in any case. Unset or empty is false. Before, every
+ * other value was a silent false. Now it is a usage error.
+ */
 function envBool(env: NodeJS.ProcessEnv, name: string): boolean {
   const value = env[name]?.trim();
   if (!value) {
     return false;
   }
-  const parsed = parseBoolean(value);
-  if (parsed === undefined) {
-    throw new UsageError(`${name} takes ${BOOLEAN_VALUES_TEXT}, not "${value}"`);
+  const lower = value.toLowerCase();
+  if (lower === 'true' || lower === '1') {
+    return true;
   }
-  return parsed;
+  if (lower === 'false' || lower === '0') {
+    return false;
+  }
+  throw new UsageError(`${name} takes true, false, 1 or 0 (in any case), not "${value}"`);
 }
 
 /**
@@ -291,7 +298,8 @@ export function usage(): string {
     '  CLOUD_CACHE_EVENT_NAME is the name of the event that started the run. Default: cli.',
     '  On bitbucket, the CLI ignores it and uses push or pull_request.',
     '  CLOUD_CACHE_SETUP_MS is the setup time in milliseconds for the metrics record of restore.',
-    '  Boolean flags and their env vars take true, True, TRUE, false, False or FALSE.',
+    '  Boolean flags take true, True, TRUE, false, False or FALSE. The env vars of the CLI flags',
+    '  (CLOUD_CACHE_DEBUG and others) take true, false, 1 or 0, in any case.',
     ''
   );
   return lines.join('\n');

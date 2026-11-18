@@ -61389,8 +61389,8 @@ class NullStateProvider {
 /* harmony export */ });
 /* unused harmony export BOOLEAN_VALUES_TEXT */
 /**
- * The one boolean grammar of the action and the CLI. It is the set that the action inputs accept.
- * Flags, flag env vars and input env vars of the CLI use the same set.
+ * The boolean grammar of the action inputs. The CLI flags and the CLI input env vars use the same
+ * set. The env vars of the CLI flags keep their own older set (see `envBool` in `src/cli/args.ts`).
  */
 const TRUE_VALUES = ['true', 'True', 'TRUE'];
 const FALSE_VALUES = ['false', 'False', 'FALSE'];
