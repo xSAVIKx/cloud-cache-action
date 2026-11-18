@@ -1,4 +1,5 @@
 import { appendFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { refCandidates } from '../core/refs';
 import { runnerOs } from './env';
 import {
@@ -79,6 +80,14 @@ export class BitbucketHost extends GenericHost {
           ? `Default branch: ${configuredDefault}`
           : `Default branch: ${DEFAULT_BRANCH} (set CLOUD_CACHE_DEFAULT_BRANCH to change it)`
       );
+      // BITBUCKET_CLONE_DIR is the workspace on Bitbucket, as bitbucket.md documents.
+      const workspace = env.CLOUD_CACHE_WORKSPACE;
+      const cloneDir = env.BITBUCKET_CLONE_DIR;
+      if (workspace && cloneDir && resolve(workspace) !== resolve(cloneDir)) {
+        this.log.warning(
+          `CLOUD_CACHE_WORKSPACE ignored on Bitbucket. Relative paths and {hash:} globs use BITBUCKET_CLONE_DIR (${cloneDir}).`
+        );
+      }
       if (overrides.length > 0) {
         if (useOverride) {
           this.log.info(

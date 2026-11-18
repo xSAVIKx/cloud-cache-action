@@ -101,6 +101,8 @@ To use these variables, set `--allow-ref-override` or `CLOUD_CACHE_ALLOW_REF_OVE
 
 `CLOUD_CACHE_DEFAULT_BRANCH` is always read. It changes only the restore search.
 
+The workspace is always `BITBUCKET_CLONE_DIR`. Relative paths and `{hash:}` globs use it. The CLI ignores `CLOUD_CACHE_WORKSPACE`, also with `--allow-ref-override`. If `CLOUD_CACHE_WORKSPACE` is set to a different directory, the CLI prints one warning.
+
 ::: warning
 The CLI cannot enforce who writes to which ref. Only the IAM policy of the role can do this. See [OIDC with AWS](#oidc-with-aws).
 :::

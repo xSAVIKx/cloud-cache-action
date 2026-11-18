@@ -93,6 +93,25 @@ describe('BitbucketHost context', () => {
     expect(host(env).context().workspace).toBe(process.cwd());
   });
 
+  it('uses BITBUCKET_CLONE_DIR over CLOUD_CACHE_WORKSPACE and warns once', () => {
+    spyOut();
+    const err = spyErr();
+    const h = host({ ...BRANCH_ENV, CLOUD_CACHE_WORKSPACE: '/b/service-a' });
+    expect(h.context().workspace).toBe('/b');
+    h.context();
+    expect(err).toHaveBeenCalledTimes(1);
+    const text = String(err.mock.calls[0]?.[0]);
+    expect(text).toContain('CLOUD_CACHE_WORKSPACE ignored on Bitbucket');
+    expect(text).toContain('BITBUCKET_CLONE_DIR (/b)');
+  });
+
+  it('does not warn when CLOUD_CACHE_WORKSPACE is the clone directory', () => {
+    spyOut();
+    const err = spyErr();
+    expect(host({ ...BRANCH_ENV, CLOUD_CACHE_WORKSPACE: '/b/' }).context().workspace).toBe('/b');
+    expect(err).not.toHaveBeenCalled();
+  });
+
   it('ignores CLOUD_CACHE_EVENT_NAME', () => {
     spyOut();
     expect(host({ ...BRANCH_ENV, CLOUD_CACHE_EVENT_NAME: 'x' }).context().eventName).toBe('push');
