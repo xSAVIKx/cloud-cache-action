@@ -10,6 +10,9 @@ on:
   schedule:
     - cron: '0 4 * * *'
 
+permissions:
+  contents: read
+
 jobs:
   test-cloudflare-r2:
     name: Cloudflare R2 Live Integration

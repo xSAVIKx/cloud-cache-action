@@ -12,8 +12,8 @@ on:
         required: true
         type: string
 
-permissions:
-  contents: write
+# Each job sets only the permissions that it uses.
+permissions: {}
 
 jobs:
   # Runs all repository code: npm ci, the action build and the CLI build. This job has a
