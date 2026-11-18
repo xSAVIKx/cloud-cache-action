@@ -138,6 +138,8 @@ A CI system sets the repository and the refs. The CLI cannot find them, so you s
 | `CLOUD_CACHE_WORKSPACE`        | The directory that relative paths use.                                    | The current directory         |
 | `CLOUD_CACHE_EVENT_NAME`       | The name of the event that started the run.                               | `cli`                         |
 
+On Bitbucket, `BITBUCKET_CLONE_DIR` wins over `CLOUD_CACHE_WORKSPACE`, and the CLI ignores `CLOUD_CACHE_EVENT_NAME`. See [Refs and cache scopes](./bitbucket.md#refs-and-cache-scopes).
+
 These variables are not input values. An input with the same environment name reads only its flag. For example, the `prune` input `ref` reads only `--ref`, not `CLOUD_CACHE_REF`.
 
 If `CLOUD_CACHE_REPOSITORY` is empty, the cache keys have no repository part. All repositories that use the same bucket and prefix then share their caches. The CLI prints a warning when the variable is empty. Set the variable in every job, or set `--scoped-to-repository=false` if you want to share the caches.
@@ -158,7 +160,7 @@ Set `CLOUD_CACHE_REF` in every job that uses a scoped cache.
 `restore` writes a JSON file. `save` reads it. This is how `save` knows which key a `restore` matched. After an exact hit, `save` skips the upload.
 
 - The default path is `cloud-cache-state.json` in the temporary directory of the OS.
-- Use the same `--state-file` for `restore` and `save` if the two commands run with different `TMPDIR` values.
+- The OS reads the temporary directory from `TMPDIR` on Linux and macOS, and from `TEMP` or `TMP` on Windows. Use the same `--state-file` for `restore` and `save` if the two commands run with different values of these variables.
 - Each `restore` starts with an empty state file. It removes the state of the previous restore.
 - After a `restore`, `save` takes the key and the paths from the state file, not from its flags. If `--key` or `--path` differ from the state, `save` prints a warning that names both values. The state from restore wins.
 - Use one state file for each cache, and for each job that runs at the same time on one machine.

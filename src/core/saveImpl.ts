@@ -296,7 +296,7 @@ export async function saveImpl(stateProvider: IStateProvider): Promise<number | 
     reported = true;
     const full = {
       ...metrics,
-      ...hostMetricsFields(compression, region),
+      ...hostMetricsFields(compression, region, 'save'),
       timestamp: new Date().toISOString(),
       durationMs: Date.now() - start,
     };

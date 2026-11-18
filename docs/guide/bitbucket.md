@@ -91,7 +91,9 @@ A pull request build saves under its own ref. It never saves under the destinati
 
 Bitbucket has no variable for the default branch. The CLI uses `CLOUD_CACHE_DEFAULT_BRANCH`. If you do not set it, the default branch is `main`. The log names the value in use.
 
-The repository name is `BITBUCKET_REPO_FULL_NAME`, in the form `workspace/repo-slug`. The event name is `pull_request` for a pull request build. Else it is `push`.
+The repository name is `BITBUCKET_REPO_FULL_NAME`, in the form `workspace/repo-slug`. The event name is `pull_request` for a pull request build. Else it is `push`. The CLI ignores `CLOUD_CACHE_EVENT_NAME` on Bitbucket.
+
+The workspace is `BITBUCKET_CLONE_DIR`. `CLOUD_CACHE_WORKSPACE` has an effect only when `BITBUCKET_CLONE_DIR` is not set.
 
 ### Ref override
 

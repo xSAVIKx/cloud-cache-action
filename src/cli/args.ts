@@ -286,6 +286,12 @@ export function usage(): string {
     '  CLOUD_CACHE_PLATFORM, CLOUD_CACHE_ALLOW_REF_OVERRIDE, CLOUD_CACHE_ROLE_ARN and',
     '  CLOUD_CACHE_SAVE_ON_FAILURE are the env vars of the flags --platform, --allow-ref-override,',
     '  --role-arn and --save-on-failure.',
+    '  CLOUD_CACHE_WORKSPACE is the directory that relative paths use. Default: the current',
+    '  directory. On bitbucket, BITBUCKET_CLONE_DIR wins over it.',
+    '  CLOUD_CACHE_EVENT_NAME is the name of the event that started the run. Default: cli.',
+    '  On bitbucket, the CLI ignores it and uses push or pull_request.',
+    '  CLOUD_CACHE_SETUP_MS is the setup time in milliseconds for the metrics record of restore.',
+    '  Boolean flags and their env vars take true, True, TRUE, false, False or FALSE.',
     ''
   );
   return lines.join('\n');

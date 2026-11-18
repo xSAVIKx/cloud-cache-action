@@ -71552,6 +71552,12 @@ async function resolveCompression(persisted) {
     }
     return getCompressionConfig();
 }
+/** The env var that sets the ref of the run, on each host. The log names it when it is empty. */
+const REF_VARIABLES = {
+    github: 'GITHUB_REF',
+    generic: 'CLOUD_CACHE_REF',
+    bitbucket: 'BITBUCKET_BRANCH (or BITBUCKET_TAG or BITBUCKET_PR_ID)',
+};
 async function buildS3Tier(config, env, options = {}) {
     // process.env is the live environment, so it means "the CI host of this run". Any other env
     // object is a test or caller fixture, read as GitHub variables.
@@ -71565,7 +71571,7 @@ async function buildS3Tier(config, env, options = {}) {
     const refs = ctx.refs;
     const scopedToRef = config.scopedToRef && refs.current !== undefined;
     if (config.scopedToRef && !scopedToRef) {
-        log/* log */.R.debug('GITHUB_REF is not set, so caches are not scoped to a ref.');
+        log/* log */.R.debug(`${REF_VARIABLES[ctx.platform]} is not set, so caches are not scoped to a ref.`);
     }
     const template = compileKeyTemplate({
         pattern: config.s3KeyPattern,
@@ -72843,9 +72849,11 @@ function emitMetrics(metrics, metricsFile, workspace) {
 }
 /**
  * The platform fields for a restore or save record. On GitHub it returns no key, so the GitHub
- * metrics line does not change. A value that is not known is left out.
+ * metrics line does not change. A value that is not known is left out. Only the restore record
+ * gets `setupMs`: the setup runs once before the restore, so the save record does not count it
+ * again.
  */
-function hostMetricsFields(compression, region) {
+function hostMetricsFields(compression, region, step) {
     const context = (0,host/* getHost */.L)().context();
     if (context.platform === 'github') {
         return {};
@@ -72857,7 +72865,7 @@ function hostMetricsFields(compression, region) {
     if (region) {
         fields.region = region;
     }
-    const setup = context.env.CLOUD_CACHE_SETUP_MS;
+    const setup = step === 'restore' ? context.env.CLOUD_CACHE_SETUP_MS : undefined;
     if (setup !== undefined && setup !== '') {
         if (/^\d+$/.test(setup.trim())) {
             fields.setupMs = Number(setup.trim());
@@ -73768,7 +73776,7 @@ async function restoreImpl(stateProvider, earlyExit) {
         reported = true;
         const full = {
             ...metrics,
-            ...hostMetricsFields(compression, region),
+            ...hostMetricsFields(compression, region, 'restore'),
             timestamp: new Date().toISOString(),
             durationMs: Date.now() - start,
         };
@@ -74230,7 +74238,7 @@ async function saveImpl(stateProvider) {
         reported = true;
         const full = {
             ...metrics,
-            ...hostMetricsFields(compression, region),
+            ...hostMetricsFields(compression, region, 'save'),
             timestamp: new Date().toISOString(),
             durationMs: Date.now() - start,
         };

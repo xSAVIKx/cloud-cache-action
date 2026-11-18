@@ -724,7 +724,7 @@ describe('restoreImpl', () => {
 
     await restoreImpl(state, false);
 
-    expect(mockHostMetricsFields).toHaveBeenCalledWith('zstd', 'eu-west-1');
+    expect(mockHostMetricsFields).toHaveBeenCalledWith('zstd', 'eu-west-1', 'restore');
     expect(mockEmitMetrics.mock.calls[0][0]).toEqual(
       expect.objectContaining({ step: 'restore', platform: 'bitbucket', outcome: 'miss' })
     );
@@ -735,6 +735,6 @@ describe('restoreImpl', () => {
 
     await restoreImpl(state, false);
 
-    expect(mockHostMetricsFields).toHaveBeenLastCalledWith(undefined, undefined);
+    expect(mockHostMetricsFields).toHaveBeenLastCalledWith(undefined, undefined, 'restore');
   });
 });
