@@ -55,7 +55,7 @@ Cloud Cache Action (`xSAVIKx/cloud-cache-action`) is a GitHub Action that restor
 - uses: xSAVIKx/cloud-cache-action@v1
   with:
     bucket: my-ci-cache-bucket
-    endpoint: https://<account_id>.r2.cloudflarestorage.com # Omit for AWS S3
+    endpoint: https://<account-id>.r2.cloudflarestorage.com # Omit for AWS S3
     access-key: ${{ secrets.S3_ACCESS_KEY }}
     secret-key: ${{ secrets.S3_SECRET_KEY }}
     path: |

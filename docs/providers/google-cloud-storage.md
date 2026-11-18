@@ -82,6 +82,10 @@ Store the credentials in **Settings** > **Secrets and variables** > **Actions** 
 
 ## Workflow example
 
+The general examples in these docs use the secret names `S3_ACCESS_KEY` and `S3_SECRET_KEY`.
+This page uses `GCS_HMAC_ACCESS_ID` and `GCS_HMAC_SECRET` for the same two values. The secret
+names in your repository and the secret names in your workflow must be the same.
+
 ```yaml
 - name: Cache dependencies using Google Cloud Storage
   uses: xSAVIKx/cloud-cache-action@v1

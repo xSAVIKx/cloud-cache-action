@@ -32,7 +32,7 @@ Cloud Cache Action has the same inputs and outputs as `actions/cache`. Change th
   with:
     # 1. Add your S3 bucket & credentials
     bucket: my-ci-cache-bucket
-    endpoint: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com # Optional for AWS S3
+    endpoint: https://<account-id>.r2.cloudflarestorage.com
     access-key: ${{ secrets.S3_ACCESS_KEY }}
     secret-key: ${{ secrets.S3_SECRET_KEY }}
 
@@ -96,6 +96,8 @@ If you use `tespkg/actions-cache`, Cloud Cache Action gives these differences:
 ## Required secrets by provider
 
 Use this table when you set up the repository secrets. The [Storage Providers](../providers/index.md) page compares the providers.
+
+The general examples in these docs use two secret names for every provider: `S3_ACCESS_KEY` and `S3_SECRET_KEY`. Each provider page uses the names in this table for the same two values. Select one pair of names. Then use that pair in the repository secrets and in the workflow. If the two places have different names, the action gets an empty value for the key.
 
 | Provider | Required GitHub Secrets | Endpoint Format / Note |
 | :--- | :--- | :--- |

@@ -30,7 +30,7 @@ jobs:
       - uses: xSAVIKx/cloud-cache-action/prune@v1
         with:
           bucket: my-ci-cache-bucket
-          endpoint: https://<account_id>.r2.cloudflarestorage.com # Or AWS, GCS, B2, MinIO, etc.
+          endpoint: https://<account-id>.r2.cloudflarestorage.com # Or AWS, GCS, B2, MinIO, etc.
           access-key: ${{ secrets.S3_ACCESS_KEY }}
           secret-key: ${{ secrets.S3_SECRET_KEY }}
           older-than-days: 30

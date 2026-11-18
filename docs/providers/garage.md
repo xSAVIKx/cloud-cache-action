@@ -90,6 +90,10 @@ Save the credentials in your repository or organization secrets:
 
 ## Workflow example
 
+The general examples in these docs use the secret names `S3_ACCESS_KEY` and `S3_SECRET_KEY`.
+This page uses `GARAGE_ACCESS_KEY` and `GARAGE_SECRET_KEY` for the same two values. The secret
+names in your repository and the secret names in your workflow must be the same.
+
 ```yaml
 - name: Cache dependencies using self-hosted Garage
   uses: xSAVIKx/cloud-cache-action@v1
