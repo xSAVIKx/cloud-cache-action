@@ -5,7 +5,9 @@ description: "Cache presets for npm, yarn, pnpm, bun, pip, poetry, uv, gradle, m
 # Cache Presets
 
 The `preset` input gives the cache `path`, `key` and `restore-keys` for one package manager. It
-works like the `cache:` input of `actions/setup-node`. Use one input instead of three:
+works like the `cache:` input of `actions/setup-node`. To replace that input, see
+[Migrate from `setup-*` caching](./migration.md#migrate-from-setup-caching). Use one input instead
+of three:
 
 ```yaml
 - name: Cache npm downloads

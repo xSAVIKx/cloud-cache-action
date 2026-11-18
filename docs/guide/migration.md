@@ -16,6 +16,8 @@ To migrate from `actions/cache` or `tespkg/actions-cache` to Cloud Cache Action,
 
 Before you merge the change, read [What changes after the move](#what-changes-after-the-move). It gives three differences from `actions/cache` that cost time or money if you do not plan for them.
 
+To move the built-in cache of a `setup-*` action, see [Migrate from `setup-*` caching](#migrate-from-setup-caching).
+
 The sections below give the details. A prompt for an AI coding agent is at [the end of the steps](#automated-migration-with-ai-coding-agents).
 
 ## Manual migration from `actions/cache` (v4, v5, v6)
@@ -84,6 +86,55 @@ If these pull requests need a cache, use the GitHub Actions cache for them:
 - **`use-fallback: true`** makes a restore ask the GitHub Actions cache after an S3 error or an S3 miss, and makes a save go to the GitHub Actions cache when the S3 save fails. Runs that have the secrets save only to the bucket. A run with no secrets thus finds only the caches that other runs with no secrets saved to the GitHub Actions cache.
 
 Do not put `bucket` in a secret for these runs. An empty `bucket` fails the step, unless one of the two inputs above is set. See [Pull requests from forks](./security.md#pull-requests-from-forks) for the security rules.
+
+## Migrate from `setup-*` caching {#migrate-from-setup-caching}
+
+Many workflows have no `actions/cache` step. They use the cache that is built into `actions/setup-node`, `actions/setup-python`, `actions/setup-java` or `actions/setup-go`. That cache is the GitHub Actions cache. To move it to your bucket, turn off the built-in cache and add a step with a [preset](./presets.md).
+
+### Before (`actions/setup-node` with `cache: npm`)
+
+```yaml
+- uses: actions/setup-node@v6
+  with:
+    node-version: 24
+    cache: npm
+- run: npm ci
+```
+
+### After (Cloud Cache Action with `preset: npm`)
+
+```yaml
+- uses: actions/setup-node@v6
+  with:
+    node-version: 24
+    package-manager-cache: false
+
+- name: Cache npm downloads
+  uses: xSAVIKx/cloud-cache-action@v1
+  with:
+    bucket: my-ci-cache-bucket
+    endpoint: https://<account-id>.r2.cloudflarestorage.com
+    access-key: ${{ secrets.S3_ACCESS_KEY }}
+    secret-key: ${{ secrets.S3_SECRET_KEY }}
+    preset: npm
+
+- run: npm ci
+```
+
+Remove the `cache` input and set `package-manager-cache: false`. `actions/setup-node` v5 and later can turn on the npm cache automatically from the `packageManager` field of `package.json` ([README of the action](https://github.com/actions/setup-node#readme)). Without `package-manager-cache: false`, the job can keep a second npm cache in the GitHub Actions cache.
+
+### The other `setup-*` actions
+
+| Action | Built-in cache | How to turn it off | Preset |
+| --- | --- | --- | --- |
+| `actions/setup-node` | `cache: npm`, `yarn` or `pnpm` | Remove `cache`. Set `package-manager-cache: false`. | `npm`, `yarn`, `pnpm` |
+| `actions/setup-python` | `cache: pip`, `poetry` or `pipenv` | Remove `cache`. | `pip`, `poetry` |
+| `actions/setup-java` | `cache: maven`, `gradle` or `sbt` | Remove `cache`. | `maven`, `gradle` |
+| `actions/setup-go` | On by default | Set `cache: false`. | `go` |
+
+There is no preset for `pipenv` or `sbt`. For these, set `path`, `key` and `restore-keys` on the cache step.
+
+A preset does not use the key of the `setup-*` action, so the first run after the change is a cache miss. A preset also uses the default cache directory of the tool. If your job moves that directory, set `path` (see [A custom cache directory](./presets.md#a-custom-cache-directory)).
 
 ## Parity with actions/cache
 
@@ -170,6 +221,10 @@ Please migrate all GitHub Actions caching steps in this repository to `xSAVIKx/c
      - `actions/cache/restore@*`
      - `actions/cache/save@*`
      - `tespkg/actions-cache@*`
+   - Find all steps that use a built-in cache of a setup action:
+     - `actions/setup-node@*` with a `cache` input, or v5 and later with a `packageManager` field in `package.json`
+     - `actions/setup-python@*` or `actions/setup-java@*` with a `cache` input
+     - `actions/setup-go@*` without `cache: false`
 
 2. **Select Storage Provider & Secrets**:
    - Check if this repository already uses cloud infrastructure secrets, or ask me which provider I prefer:
@@ -195,11 +250,13 @@ Please migrate all GitHub Actions caching steps in this repository to `xSAVIKx/c
    - Replace `actions/cache/save@v...` with `xSAVIKx/cloud-cache-action/save@v1`.
    - Preserve all existing cache keys and options: `path`, `key`, `restore-keys`, `lookup-only`, `fail-on-cache-miss`, `enableCrossOsArchive`, `read-only`.
    - Add the required provider inputs (`bucket`, `endpoint`, `access-key`, `secret-key`) referencing GitHub Secrets (`${{ secrets.<SECRET_NAME> }}`).
+   - For each built-in cache of a setup action, turn it off (remove `cache`; set `package-manager-cache: false` on `actions/setup-node`; set `cache: false` on `actions/setup-go`). Then add a `xSAVIKx/cloud-cache-action@v1` step with `preset: <tool>` after the setup step and before the install step. The presets are `npm`, `yarn`, `pnpm`, `bun`, `pip`, `poetry`, `uv`, `gradle`, `maven`, `cargo` and `go`. For `pipenv` and `sbt`, set `path`, `key` and `restore-keys`.
 
 4. **Verify & Summarize**:
    - Check that all modified YAML files have valid syntax and proper indentation.
    - List the modified workflow files with a summary of changes.
    - Provide a clear checklist of the exact secret names I need to configure in GitHub Repository Settings (`Settings > Secrets and variables > Actions`).
+   - Remind me to add a lifecycle rule to the bucket or to schedule `xSAVIKx/cloud-cache-action/prune@v1`, because the action never deletes a cache.
 ```
 
 ## Branch isolation and trust model
