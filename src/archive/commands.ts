@@ -39,10 +39,35 @@ export interface ArchivePlan {
   tempDir: string;
   /** Compression level for saving; undefined keeps the tool's own default. */
   level?: number;
+  /** The zstd long-distance window for saving, as a power of two; undefined means 30. */
+  windowLog?: ZstdWindowLog;
 }
 
-const ZSTD_COMPRESS = 'zstd -T0 --long=30';
-const ZSTD_DECOMPRESS = 'zstd -d --long=30';
+/**
+ * The zstd long-distance window, as a power of two. 30 (1 GiB) is the default, as in
+ * actions/cache. 27 (128 MiB) is the fallback for a runner with little memory.
+ */
+export type ZstdWindowLog = 27 | 30;
+export const ZSTD_WINDOW_LOG: ZstdWindowLog = 30;
+export const ZSTD_LOW_MEMORY_WINDOW_LOG: ZstdWindowLog = 27;
+
+/**
+ * The usable memory below which a save uses the 128 MiB window. With the 1 GiB window, zstd held
+ * up to 1.14 GB while it compressed a 1.14 GB tar (165 MB with the 128 MiB window). The upload
+ * can take a quarter of the usable memory as well. 1.5 GiB leaves about 1.1 GiB for zstd.
+ */
+export const ZSTD_WINDOW_MIN_MEMORY = 1.5 * 1024 * 1024 * 1024;
+
+/**
+ * The window for a save with `usableMemoryBytes` of usable memory. The restore command always
+ * uses `--long=30`, and that decodes an archive with either window. The archive format and the
+ * cache version thus stay the same.
+ */
+export function zstdWindowLog(usableMemoryBytes: number): ZstdWindowLog {
+  return usableMemoryBytes < ZSTD_WINDOW_MIN_MEMORY ? ZSTD_LOW_MEMORY_WINDOW_LOG : ZSTD_WINDOW_LOG;
+}
+
+const ZSTD_DECOMPRESS = `zstd -d --long=${ZSTD_WINDOW_LOG}`;
 
 function systemLookup(): ToolLookup {
   return {
@@ -109,8 +134,10 @@ function platformFlags(plan: ArchivePlan): string[] {
   return [];
 }
 
-function zstdCompressProgram(level?: number): string {
-  return level === undefined ? ZSTD_COMPRESS : `zstd -${level} -T0 --long=30`;
+function zstdCompressProgram(level?: number, windowLog: ZstdWindowLog = ZSTD_WINDOW_LOG): string {
+  return level === undefined
+    ? `zstd -T0 --long=${windowLog}`
+    : `zstd -${level} -T0 --long=${windowLog}`;
 }
 
 function compressionFlags(method: CompressionMethod, program: string, level?: number): string[] {
@@ -153,7 +180,13 @@ export function buildCreateCommands(
   args.push('-T', slashes(plan.manifestPath), ...platformFlags(plan));
 
   if (!separateZstd) {
-    args.push(...compressionFlags(plan.compression, zstdCompressProgram(plan.level), plan.level));
+    args.push(
+      ...compressionFlags(
+        plan.compression,
+        zstdCompressProgram(plan.level, plan.windowLog),
+        plan.level
+      )
+    );
     return [{ tool: plan.tar.path, args }];
   }
   return [
@@ -163,7 +196,7 @@ export function buildCreateCommands(
       args: [
         ...(plan.level === undefined ? [] : [`-${plan.level}`]),
         '-T0',
-        '--long=30',
+        `--long=${plan.windowLog ?? ZSTD_WINDOW_LOG}`,
         '--force',
         '-o',
         slashes(plan.archivePath),

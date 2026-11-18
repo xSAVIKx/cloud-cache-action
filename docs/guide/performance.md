@@ -239,6 +239,15 @@ the default upload.
 restore always decodes whatever level a cache was saved with, so changing this input never
 invalidates a cache and never changes restore speed.
 
+### The zstd window and memory
+
+A zstd save uses `--long=30`, as `actions/cache` does. This long-distance window is 1 GiB. On a
+large cache it gives a much smaller archive, but zstd can then use about 1.1 GB of memory. When
+the usable memory is less than 1.5 GiB, the save uses `--long=27` (a 128 MiB window, about
+170 MB of memory) and logs one line. The archive can then be larger. A restore always
+decompresses with `--long=30`, and that decodes an archive with either window. The cache key
+and the cache version do not change.
+
 ### Fixtures
 
 Measured 2026-09-22 on two real dependency trees, pinned to 4 cores with `zstd -T4` to emulate a

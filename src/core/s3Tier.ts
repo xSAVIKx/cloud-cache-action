@@ -27,6 +27,12 @@ import {
   type TarTool,
 } from '../archive/tar';
 import {
+  ZSTD_WINDOW_LOG,
+  ZSTD_WINDOW_MIN_MEMORY,
+  type ZstdWindowLog,
+  zstdWindowLog,
+} from '../archive/commands';
+import {
   captureStderrTail,
   createByteCounter,
   killIfRunning,
@@ -110,7 +116,10 @@ export interface S3Tier {
    * the workflow did not set are replaced per object (see transferTuning.ts).
    */
   tuning?: ExplicitTransferInputs;
-  /** Reads the memory budget for `tuning`; tests replace it. Defaults to `usableMemory`. */
+  /**
+   * Reads the usable memory for `tuning` and for the zstd window of a save; tests replace it.
+   * Defaults to `usableMemory`.
+   */
   memory?: () => number;
 }
 
@@ -306,6 +315,24 @@ export function usableMemory(
   rss: number = process.memoryUsage.rss()
 ): number {
   return limit > 0 ? Math.min(free, Math.max(0, limit - rss)) : free;
+}
+
+/**
+ * The zstd window for one save: 1 GiB, or 128 MiB when the usable memory is too low for the
+ * 1 GiB window. Logs one line when it falls back. Undefined for gzip.
+ */
+function saveWindowLog(tier: S3Tier): ZstdWindowLog | undefined {
+  if (tier.compression.method !== 'zstd') {
+    return undefined;
+  }
+  const memory = (tier.memory ?? usableMemory)();
+  const windowLog = zstdWindowLog(memory);
+  if (windowLog !== ZSTD_WINDOW_LOG) {
+    log.info(
+      `Usable memory is ${formatSize(memory)}, less than the ${formatSize(ZSTD_WINDOW_MIN_MEMORY)} that zstd --long=${ZSTD_WINDOW_LOG} needs. This save uses zstd --long=${windowLog}. The archive can be larger, and it restores in the same way.`
+    );
+  }
+  return windowLog;
 }
 
 /**
@@ -653,7 +680,8 @@ async function saveToS3FileMode(
       entries,
       tier.compression,
       tier.workspace,
-      tier.compressionLevel
+      tier.compressionLevel,
+      saveWindowLog(tier)
     );
     const archiveMs = Date.now() - archiveStart;
     const archiveSize = getArchiveSize(archivePath);
@@ -1070,6 +1098,7 @@ async function saveToS3Streaming(
       tempDir,
       manifestPath,
       level: tier.compressionLevel,
+      windowLog: saveWindowLog(tier),
     });
 
     child = spawnArchiveCommand(command, ['ignore', 'pipe', 'pipe']);

@@ -69080,8 +69080,23 @@ const external_node_string_decoder_namespaceObject = __WEBPACK_EXTERNAL_createRe
 
 
 
-const ZSTD_COMPRESS = 'zstd -T0 --long=30';
-const ZSTD_DECOMPRESS = 'zstd -d --long=30';
+const ZSTD_WINDOW_LOG = 30;
+const ZSTD_LOW_MEMORY_WINDOW_LOG = 27;
+/**
+ * The usable memory below which a save uses the 128 MiB window. With the 1 GiB window, zstd held
+ * up to 1.14 GB while it compressed a 1.14 GB tar (165 MB with the 128 MiB window). The upload
+ * can take a quarter of the usable memory as well. 1.5 GiB leaves about 1.1 GiB for zstd.
+ */
+const ZSTD_WINDOW_MIN_MEMORY = 1.5 * 1024 * 1024 * 1024;
+/**
+ * The window for a save with `usableMemoryBytes` of usable memory. The restore command always
+ * uses `--long=30`, and that decodes an archive with either window. The archive format and the
+ * cache version thus stay the same.
+ */
+function zstdWindowLog(usableMemoryBytes) {
+    return usableMemoryBytes < ZSTD_WINDOW_MIN_MEMORY ? ZSTD_LOW_MEMORY_WINDOW_LOG : ZSTD_WINDOW_LOG;
+}
+const ZSTD_DECOMPRESS = `zstd -d --long=${ZSTD_WINDOW_LOG}`;
 function systemLookup() {
     return {
         platform: process.platform,
@@ -69138,8 +69153,10 @@ function platformFlags(plan) {
     }
     return [];
 }
-function zstdCompressProgram(level) {
-    return level === undefined ? ZSTD_COMPRESS : `zstd -${level} -T0 --long=30`;
+function zstdCompressProgram(level, windowLog = ZSTD_WINDOW_LOG) {
+    return level === undefined
+        ? `zstd -T0 --long=${windowLog}`
+        : `zstd -${level} -T0 --long=${windowLog}`;
 }
 function compressionFlags(method, program, level) {
     if (method === 'zstd') {
@@ -69175,7 +69192,7 @@ function buildCreateCommands(plan) {
     }
     args.push('-T', slashes(plan.manifestPath), ...platformFlags(plan));
     if (!separateZstd) {
-        args.push(...compressionFlags(plan.compression, zstdCompressProgram(plan.level), plan.level));
+        args.push(...compressionFlags(plan.compression, zstdCompressProgram(plan.level, plan.windowLog), plan.level));
         return [{ tool: plan.tar.path, args }];
     }
     return [
@@ -69185,7 +69202,7 @@ function buildCreateCommands(plan) {
             args: [
                 ...(plan.level === undefined ? [] : [`-${plan.level}`]),
                 '-T0',
-                '--long=30',
+                `--long=${plan.windowLog ?? ZSTD_WINDOW_LOG}`,
                 '--force',
                 '-o',
                 slashes(plan.archivePath),
@@ -69508,7 +69525,7 @@ async function writeArchiveFromStdout(command, archivePath) {
     }
 }
 /** Creates the archive and returns the sha256 of its bytes. */
-async function createArchive(archivePath, entries, compression, workspace, level) {
+async function createArchive(archivePath, entries, compression, workspace, level, windowLog) {
     const tempDir = external_node_fs_.mkdtempSync(external_node_path_.join(external_node_os_.tmpdir(), 'cloud-cache-tar-'));
     try {
         const manifestPath = external_node_path_.join(tempDir, 'manifest.txt');
@@ -69524,6 +69541,7 @@ async function createArchive(archivePath, entries, compression, workspace, level
             tempDir,
             manifestPath,
             level,
+            windowLog,
         };
         // Only GNU tar writes the same bytes to stdout as to a file. BSD tar (libarchive) pads the
         // last record with NULs when it writes to a pipe, which changes the archive bytes. BSD tar
@@ -71464,6 +71482,7 @@ function computeCacheVersion(paths, compression, enableCrossOsArchive, platform 
 
 
 
+
 /** Logged when streaming is requested but the plan needs the BSD-tar-plus-zstd two-step on Windows. */
 const STREAMING_FALLBACK_MESSAGE = 'Streaming is not supported with BSD tar and zstd on Windows; using a temporary archive file.';
 /** Prefix listings sent at once while searching one ref. */
@@ -71605,6 +71624,21 @@ async function buildS3Tier(config, env, options = {}) {
  */
 function usableMemory(free = external_node_os_.freemem(), limit = process.constrainedMemory(), rss = process.memoryUsage.rss()) {
     return limit > 0 ? Math.min(free, Math.max(0, limit - rss)) : free;
+}
+/**
+ * The zstd window for one save: 1 GiB, or 128 MiB when the usable memory is too low for the
+ * 1 GiB window. Logs one line when it falls back. Undefined for gzip.
+ */
+function saveWindowLog(tier) {
+    if (tier.compression.method !== 'zstd') {
+        return undefined;
+    }
+    const memory = (tier.memory ?? usableMemory)();
+    const windowLog = zstdWindowLog(memory);
+    if (windowLog !== ZSTD_WINDOW_LOG) {
+        log/* log */.R.info(`Usable memory is ${(0,inputUtils/* formatSize */.Xq)(memory)}, less than the ${(0,inputUtils/* formatSize */.Xq)(ZSTD_WINDOW_MIN_MEMORY)} that zstd --long=${ZSTD_WINDOW_LOG} needs. This save uses zstd --long=${windowLog}. The archive can be larger, and it restores in the same way.`);
+    }
+    return windowLog;
 }
 /**
  * The transfer settings for one object of `sizeBytes`: the tier's settings with `auto` tuning
@@ -71864,7 +71898,7 @@ async function saveToS3FileMode(tier, objectKey, entries, primaryKey, retryConfl
     try {
         const archivePath = external_node_path_.join(tempDir, tier.compression.archiveFilename);
         const archiveStart = Date.now();
-        const { sha256: checksum } = await createArchive(archivePath, entries, tier.compression, tier.workspace, tier.compressionLevel);
+        const { sha256: checksum } = await createArchive(archivePath, entries, tier.compression, tier.workspace, tier.compressionLevel, saveWindowLog(tier));
         const archiveMs = Date.now() - archiveStart;
         const archiveSize = getArchiveSize(archivePath);
         log/* log */.R.info(`Uploading ${(0,inputUtils/* formatSize */.Xq)(archiveSize)} to s3://${bucket}/${objectKey}...`);
@@ -72200,6 +72234,7 @@ async function saveToS3Streaming(tier, objectKey, entries, tar, primaryKey) {
             tempDir,
             manifestPath,
             level: tier.compressionLevel,
+            windowLog: saveWindowLog(tier),
         });
         child = spawnArchiveCommand(command, ['ignore', 'pipe', 'pipe']);
         const stderrTail = captureStderrTail(child.stderr);

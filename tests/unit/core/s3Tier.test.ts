@@ -26,7 +26,9 @@ const mockCreateArchive =
       archivePath: string,
       entries: readonly string[],
       compression: CompressionConfig,
-      workspace: string
+      workspace: string,
+      level?: number,
+      windowLog?: number
     ) => Promise<{ sha256: string }>
   >();
 const mockExtractArchive =
@@ -826,6 +828,29 @@ describe('saveToS3', () => {
     });
   });
 
+  it('compresses with the 1 GiB zstd window when the memory is enough, without a log line', async () => {
+    await saveToS3(tier(), 'k', ['node_modules']);
+    expect(mockCreateArchive.mock.calls[0][5]).toBe(30);
+    expect(mockInfo).not.toHaveBeenCalledWith(expect.stringContaining('--long=27'));
+  });
+
+  it('falls back to the 128 MiB zstd window when the memory is too low, with one log line', async () => {
+    await saveToS3(tier({ memory: () => 1024 * 1024 * 1024 }), 'k', ['node_modules']);
+    expect(mockCreateArchive.mock.calls[0][5]).toBe(27);
+    const lines = mockInfo.mock.calls.filter(([line]) => String(line).includes('--long=27'));
+    expect(lines).toEqual([
+      [
+        'Usable memory is 1.00 GB, less than the 1.50 GB that zstd --long=30 needs. This save uses zstd --long=27. The archive can be larger, and it restores in the same way.',
+      ],
+    ]);
+  });
+
+  it('sets no zstd window for a gzip save', async () => {
+    await saveToS3(tier({ compression: gzip, memory: () => 1024 * 1024 }), 'k', ['node_modules']);
+    expect(mockCreateArchive.mock.calls[0][5]).toBeUndefined();
+    expect(mockInfo).not.toHaveBeenCalledWith(expect.stringContaining('--long'));
+  });
+
   it('sends the If-None-Match condition on the first upload of a tier', async () => {
     await saveToS3(tier(), 'k', ['node_modules']);
     const [, , , , , options] = mockUploadFile.mock.calls[0];
@@ -1355,7 +1380,12 @@ describe('saveToS3 streaming', () => {
     expect(command.tool).toBe('/usr/bin/tar');
     expect(stdio).toEqual(['ignore', 'pipe', 'pipe']);
     const [plan] = mockBuildCreateCommands.mock.calls[0];
-    expect(plan).toMatchObject({ archivePath: '-', workspace: '/ws', compression: 'zstd' });
+    expect(plan).toMatchObject({
+      archivePath: '-',
+      workspace: '/ws',
+      compression: 'zstd',
+      windowLog: 30,
+    });
 
     const call = mockCreateStreamUpload.mock.calls[0];
     expect(call[1]).toBe('bucket');
