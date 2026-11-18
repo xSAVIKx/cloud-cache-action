@@ -58,6 +58,13 @@ client's `retry-count`. The upload buffers up to `upload-concurrency × upload-c
 A value of `upload-chunk-size` below 5 MiB or above 128 MiB warns and uses the default, since
 every S3-compatible provider rejects smaller parts.
 
+S3 accepts at most 10,000 parts in one upload, so 5 MiB parts hold at most 48.8 GiB and 64 MiB
+parts hold at most 625 GiB. When a file-mode save would need more parts, the action raises the
+part size to the smallest whole MiB that fits and logs one warning. If a provider limit on the
+part size stops the raise, the save fails before the upload starts. A streaming save does not
+know the archive size in advance, so it keeps the part size. It fails after 10,000 parts. For a
+streaming save of a larger archive, set a larger `upload-chunk-size`.
+
 **Automatic tuning.** With `transfer-tuning: auto`, a restore and a file-mode save select the
 part size and the concurrency from the archive size, for example 16 × 16 MiB for a restore. A
 save also uses the provider. The bytes in flight stay within about a quarter of the usable memory
@@ -174,7 +181,8 @@ and the provider:
   the memory that the process can use, and 1 GiB. The extra part is the one that the code reads
   ahead. The part size does not shrink, so a very small budget still gets one part in flight. A
   container memory limit counts.
-- An upload part grows when the archive would need more than 10,000 parts.
+- An upload part grows when the archive would need more than 10,000 parts, also above 128 MiB
+  and also when you set `upload-chunk-size`.
 - A transfer input that you set, for example `download-concurrency`, still wins for that field.
   The action does not reduce a concurrency that you set.
 - A wrapper action or a reusable workflow that forwards a transfer input with a default value

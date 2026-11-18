@@ -11,9 +11,9 @@ const MiB = 1024 * 1024;
 const GiB = 1024 * MiB;
 
 /** S3 accepts at most this many parts in one multipart upload. */
-const MAX_UPLOAD_PARTS = 10_000;
-/** The input limits for `upload-chunk-size` and `download-chunk-size`. */
-const MAX_PART_SIZE = 128 * MiB;
+export const MAX_UPLOAD_PARTS = 10_000;
+/** S3 accepts at most this many bytes in one upload part. */
+export const MAX_S3_PART_SIZE = 5 * GiB;
 /** At most this many bytes in flight, whatever the free memory. */
 const MAX_BUFFERED_BYTES = 1 * GiB;
 
@@ -29,7 +29,10 @@ export interface TuningInput {
   provider: StorageProvider;
   /** The memory the process can use when the transfer starts. A quarter of it is the budget. */
   freeMemoryBytes: number;
-  /** The values the workflow set. They replace the rule's values and are never reduced. */
+  /**
+   * The values the workflow set. They replace the rule's values and are never reduced. A set upload
+   * part size goes up when the upload would need more than 10,000 parts.
+   */
   fixed?: Partial<TransferSettings>;
 }
 
@@ -44,6 +47,14 @@ function downloadRule(sizeBytes: number): TransferSettings {
 }
 
 /**
+ * The smallest part size, in whole MiB, that uploads `sizeBytes` in at most 10,000 parts. The
+ * result can be above the 5 GiB part limit of S3; the caller checks that.
+ */
+export function minUploadPartSize(sizeBytes: number): number {
+  return Math.ceil(sizeBytes / MAX_UPLOAD_PARTS / MiB) * MiB;
+}
+
+/**
  * Uploads: 16 at a time, with 16 MiB parts up to 256 MiB and 32 MiB parts above, so a small
  * archive still gets several parts. R2 gained most from more parts in flight on a large archive,
  * so R2 uploads of 1 GiB or more use 32 x 16 MiB. The part size grows when the archive would
@@ -54,9 +65,9 @@ function uploadRule(sizeBytes: number, provider: StorageProvider): TransferSetti
     provider === 'r2' && sizeBytes >= GiB
       ? { concurrency: 32, partSize: 16 * MiB }
       : { concurrency: 16, partSize: sizeBytes <= 256 * MiB ? 16 * MiB : 32 * MiB };
-  const minPartSize = Math.ceil(sizeBytes / MAX_UPLOAD_PARTS / MiB) * MiB;
+  const minPartSize = minUploadPartSize(sizeBytes);
   if (minPartSize > settings.partSize) {
-    settings = { ...settings, partSize: Math.min(minPartSize, MAX_PART_SIZE) };
+    settings = { ...settings, partSize: minPartSize };
   }
   return settings;
 }
@@ -74,7 +85,10 @@ export function tuneTransfer(input: TuningInput): TransferSettings {
     input.direction === 'download'
       ? downloadRule(input.sizeBytes)
       : uploadRule(input.sizeBytes, input.provider);
-  const partSize = input.fixed?.partSize ?? rule.partSize;
+  const partSize =
+    input.direction === 'upload'
+      ? Math.max(input.fixed?.partSize ?? rule.partSize, minUploadPartSize(input.sizeBytes))
+      : (input.fixed?.partSize ?? rule.partSize);
   if (input.fixed?.concurrency !== undefined) {
     return { concurrency: input.fixed.concurrency, partSize };
   }

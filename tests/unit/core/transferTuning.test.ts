@@ -1,7 +1,12 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { formatTuning, tuneTransfer, type TuningInput } from '../../../src/core/transferTuning';
+import {
+  formatTuning,
+  minUploadPartSize,
+  tuneTransfer,
+  type TuningInput,
+} from '../../../src/core/transferTuning';
 import type { StorageProvider } from '../../../src/storage/providers';
 
 const MiB = 1024 * 1024;
@@ -68,9 +73,44 @@ describe('tuneTransfer', () => {
     expect(r2.partSize).toBe(52 * MiB);
   });
 
-  it('keeps the upload part size within the 128 MiB input limit', () => {
-    expect(tuneTransfer(input({ direction: 'upload', sizeBytes: 5000 * GiB })).partSize).toBe(
-      128 * MiB
+  it('grows the upload part size above the 128 MiB input limit for the 10,000-part limit', () => {
+    const sizeBytes = 2048 * GiB;
+    const settings = tuneTransfer(input({ direction: 'upload', sizeBytes }));
+    expect(settings.partSize).toBe(210 * MiB);
+    expect(Math.ceil(sizeBytes / settings.partSize)).toBeLessThanOrEqual(10_000);
+  });
+
+  it('grows a part size that the workflow set when the upload needs more than 10,000 parts', () => {
+    const sizeBytes = 60 * GiB;
+    const settings = tuneTransfer(
+      input({ direction: 'upload', sizeBytes, fixed: { partSize: 5 * MiB } })
+    );
+    expect(settings.partSize).toBe(7 * MiB);
+    expect(Math.ceil(sizeBytes / settings.partSize)).toBeLessThanOrEqual(10_000);
+    // The memory budget uses the grown part size.
+    expect(
+      tuneTransfer(
+        input({
+          direction: 'upload',
+          sizeBytes,
+          freeMemoryBytes: 64 * MiB,
+          fixed: { partSize: 5 * MiB },
+        })
+      )
+    ).toEqual({ concurrency: 1, partSize: 7 * MiB });
+  });
+
+  it('keeps a set upload part size that is large enough', () => {
+    expect(
+      tuneTransfer(
+        input({ direction: 'upload', sizeBytes: 40 * GiB, fixed: { partSize: 5 * MiB } })
+      ).partSize
+    ).toBe(5 * MiB);
+  });
+
+  it('does not grow a download part size', () => {
+    expect(tuneTransfer(input({ sizeBytes: 60 * GiB, fixed: { partSize: MiB } })).partSize).toBe(
+      MiB
     );
   });
 
@@ -90,7 +130,8 @@ describe('tuneTransfer', () => {
     const settings = tuneTransfer(
       input({ direction: 'upload', sizeBytes: 5000 * GiB, freeMemoryBytes: 256 * GiB })
     );
-    expect(settings).toEqual({ concurrency: 7, partSize: 128 * MiB });
+    // 512 MiB parts for 10,000 parts; two of them fill the 1 GiB.
+    expect(settings).toEqual({ concurrency: 1, partSize: 512 * MiB });
   });
 
   it('bounds the tuned concurrency by a part size that the workflow set', () => {
@@ -111,6 +152,15 @@ describe('tuneTransfer', () => {
 
   it('never goes below one transfer at a time', () => {
     expect(tuneTransfer(input({ freeMemoryBytes: 0 })).concurrency).toBe(1);
+  });
+});
+
+describe('minUploadPartSize', () => {
+  it('rounds the smallest part size for 10,000 parts up to whole MiB', () => {
+    expect(minUploadPartSize(0)).toBe(0);
+    expect(minUploadPartSize(10_000 * MiB)).toBe(MiB);
+    expect(minUploadPartSize(10_000 * MiB + 1)).toBe(2 * MiB);
+    expect(minUploadPartSize(60 * GiB)).toBe(7 * MiB);
   });
 });
 

@@ -62,7 +62,14 @@ import { isRetryableStreamError, withRetry } from '../storage/retry';
 import { formatSize, isExactKeyMatch } from '../utils/inputUtils';
 import { mapWithConcurrency } from '../utils/concurrency';
 import type { CacheConfig, ExplicitTransferInputs } from './config';
-import { formatTuning, tuneTransfer } from './transferTuning';
+import {
+  formatTuning,
+  MAX_S3_PART_SIZE,
+  MAX_UPLOAD_PARTS,
+  minUploadPartSize,
+  type TransferSettings,
+  tuneTransfer,
+} from './transferTuning';
 import {
   encodeTagging,
   SHA256_METADATA_KEY,
@@ -112,6 +119,8 @@ export interface S3Tier {
   tuning?: ExplicitTransferInputs;
   /** Reads the memory budget for `tuning`; tests replace it. Defaults to `usableMemory`. */
   memory?: () => number;
+  /** True when the workflow set `upload-chunk-size`. The 10,000-part warning names it then. */
+  uploadChunkSizeSet?: boolean;
 }
 
 export interface DownloadSettings {
@@ -290,6 +299,7 @@ export async function buildS3Tier(
     tags: config.tags,
     compressionLevel,
     tuning: config.transferTuning === 'auto' ? config.explicitTransfer : undefined,
+    uploadChunkSizeSet: config.explicitTransfer.uploadChunkSize,
   };
 }
 
@@ -309,14 +319,65 @@ export function usableMemory(
 }
 
 /**
- * The transfer settings for one object of `sizeBytes`: the tier's settings with `auto` tuning
- * applied to each field the workflow did not set. Logs the result when tuning set a field.
+ * The transfer settings for one object of `sizeBytes`. For an upload, the part size goes up when
+ * the upload would need more than the S3 limit of 10,000 parts.
  */
 function settingsFor(
   tier: S3Tier,
   direction: 'upload' | 'download',
   sizeBytes: number
-): { concurrency: number; partSize: number } {
+): TransferSettings {
+  const settings = tunedSettingsFor(tier, direction, sizeBytes);
+  return direction === 'upload' ? fitUploadPartLimit(tier, settings, sizeBytes) : settings;
+}
+
+/**
+ * Raises the upload part size so that an archive of `sizeBytes` needs at most 10,000 parts, with
+ * one warning. Without this, the SDK uploads 10,000 parts before it fails. The provider limit
+ * `maxPartSize` wins over the raise: when no allowed part size is large enough, this throws, and
+ * the save fails before the upload starts.
+ */
+function fitUploadPartLimit(
+  tier: S3Tier,
+  settings: TransferSettings,
+  sizeBytes: number
+): TransferSettings {
+  const needed = minUploadPartSize(sizeBytes);
+  const { provider, maxPartSize } = tier.storage.providerConfig;
+  const largest = Math.min(maxPartSize ?? MAX_S3_PART_SIZE, MAX_S3_PART_SIZE);
+  if (needed > settings.partSize && needed > largest) {
+    const limit =
+      maxPartSize !== undefined && maxPartSize < MAX_S3_PART_SIZE
+        ? `provider "${provider}" accepts at most ${formatSize(largest)} in one part`
+        : `S3 accepts at most ${formatSize(largest)} in one part`;
+    // The save step logs this error as a warning.
+    throw new Error(
+      `The ${formatSize(sizeBytes)} archive needs upload parts of at least ${formatSize(needed)} to stay within the S3 limit of ${MAX_UPLOAD_PARTS.toLocaleString('en-US')} parts, but ${limit}. The save stops before the upload.`
+    );
+  }
+  const partSize = Math.max(settings.partSize, needed);
+  // `auto` tuning raises the part size already; a raise from a set value still gets the warning.
+  const from = tier.uploadChunkSizeSet ? tier.upload.partSize : settings.partSize;
+  if (partSize > from) {
+    const source = tier.uploadChunkSizeSet
+      ? `Input "upload-chunk-size" is ${formatSize(from)}`
+      : `The upload part size is ${formatSize(from)}`;
+    log.warning(
+      `${source}, so the ${formatSize(sizeBytes)} archive needs more than ${MAX_UPLOAD_PARTS.toLocaleString('en-US')} parts, the S3 limit; using ${formatSize(partSize)}.`
+    );
+  }
+  return partSize === settings.partSize ? settings : { ...settings, partSize };
+}
+
+/**
+ * The transfer settings for one object of `sizeBytes`: the tier's settings with `auto` tuning
+ * applied to each field the workflow did not set. Logs the result when tuning set a field.
+ */
+function tunedSettingsFor(
+  tier: S3Tier,
+  direction: 'upload' | 'download',
+  sizeBytes: number
+): TransferSettings {
   const current = direction === 'upload' ? tier.upload : tier.download;
   if (tier.tuning === undefined) {
     return current;

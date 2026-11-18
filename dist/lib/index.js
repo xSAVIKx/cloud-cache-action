@@ -71034,8 +71034,8 @@ const MiB = 1024 * 1024;
 const GiB = 1024 * MiB;
 /** S3 accepts at most this many parts in one multipart upload. */
 const MAX_UPLOAD_PARTS = 10_000;
-/** The input limits for `upload-chunk-size` and `download-chunk-size`. */
-const MAX_PART_SIZE = 128 * MiB;
+/** S3 accepts at most this many bytes in one upload part. */
+const MAX_S3_PART_SIZE = 5 * GiB;
 /** At most this many bytes in flight, whatever the free memory. */
 const MAX_BUFFERED_BYTES = 1 * GiB;
 /**
@@ -71048,6 +71048,13 @@ function downloadRule(sizeBytes) {
     return { concurrency: Math.min(16, parts), partSize };
 }
 /**
+ * The smallest part size, in whole MiB, that uploads `sizeBytes` in at most 10,000 parts. The
+ * result can be above the 5 GiB part limit of S3; the caller checks that.
+ */
+function minUploadPartSize(sizeBytes) {
+    return Math.ceil(sizeBytes / MAX_UPLOAD_PARTS / MiB) * MiB;
+}
+/**
  * Uploads: 16 at a time, with 16 MiB parts up to 256 MiB and 32 MiB parts above, so a small
  * archive still gets several parts. R2 gained most from more parts in flight on a large archive,
  * so R2 uploads of 1 GiB or more use 32 x 16 MiB. The part size grows when the archive would
@@ -71057,9 +71064,9 @@ function uploadRule(sizeBytes, provider) {
     let settings = provider === 'r2' && sizeBytes >= GiB
         ? { concurrency: 32, partSize: 16 * MiB }
         : { concurrency: 16, partSize: sizeBytes <= 256 * MiB ? 16 * MiB : 32 * MiB };
-    const minPartSize = Math.ceil(sizeBytes / MAX_UPLOAD_PARTS / MiB) * MiB;
+    const minPartSize = minUploadPartSize(sizeBytes);
     if (minPartSize > settings.partSize) {
-        settings = { ...settings, partSize: Math.min(minPartSize, MAX_PART_SIZE) };
+        settings = { ...settings, partSize: minPartSize };
     }
     return settings;
 }
@@ -71075,7 +71082,9 @@ function tuneTransfer(input) {
     const rule = input.direction === 'download'
         ? downloadRule(input.sizeBytes)
         : uploadRule(input.sizeBytes, input.provider);
-    const partSize = input.fixed?.partSize ?? rule.partSize;
+    const partSize = input.direction === 'upload'
+        ? Math.max(input.fixed?.partSize ?? rule.partSize, minUploadPartSize(input.sizeBytes))
+        : (input.fixed?.partSize ?? rule.partSize);
     if (input.fixed?.concurrency !== undefined) {
         return { concurrency: input.fixed.concurrency, partSize };
     }
@@ -71574,6 +71583,7 @@ async function buildS3Tier(config, env, options = {}) {
         tags: config.tags,
         compressionLevel,
         tuning: config.transferTuning === 'auto' ? config.explicitTransfer : undefined,
+        uploadChunkSizeSet: config.explicitTransfer.uploadChunkSize,
     };
 }
 /**
@@ -71587,10 +71597,46 @@ function usableMemory(free = external_node_os_.freemem(), limit = process.constr
     return limit > 0 ? Math.min(free, Math.max(0, limit - rss)) : free;
 }
 /**
+ * The transfer settings for one object of `sizeBytes`. For an upload, the part size goes up when
+ * the upload would need more than the S3 limit of 10,000 parts.
+ */
+function settingsFor(tier, direction, sizeBytes) {
+    const settings = tunedSettingsFor(tier, direction, sizeBytes);
+    return direction === 'upload' ? fitUploadPartLimit(tier, settings, sizeBytes) : settings;
+}
+/**
+ * Raises the upload part size so that an archive of `sizeBytes` needs at most 10,000 parts, with
+ * one warning. Without this, the SDK uploads 10,000 parts before it fails. The provider limit
+ * `maxPartSize` wins over the raise: when no allowed part size is large enough, this throws, and
+ * the save fails before the upload starts.
+ */
+function fitUploadPartLimit(tier, settings, sizeBytes) {
+    const needed = minUploadPartSize(sizeBytes);
+    const { provider, maxPartSize } = tier.storage.providerConfig;
+    const largest = Math.min(maxPartSize ?? MAX_S3_PART_SIZE, MAX_S3_PART_SIZE);
+    if (needed > settings.partSize && needed > largest) {
+        const limit = maxPartSize !== undefined && maxPartSize < MAX_S3_PART_SIZE
+            ? `provider "${provider}" accepts at most ${(0,inputUtils/* formatSize */.Xq)(largest)} in one part`
+            : `S3 accepts at most ${(0,inputUtils/* formatSize */.Xq)(largest)} in one part`;
+        // The save step logs this error as a warning.
+        throw new Error(`The ${(0,inputUtils/* formatSize */.Xq)(sizeBytes)} archive needs upload parts of at least ${(0,inputUtils/* formatSize */.Xq)(needed)} to stay within the S3 limit of ${MAX_UPLOAD_PARTS.toLocaleString('en-US')} parts, but ${limit}. The save stops before the upload.`);
+    }
+    const partSize = Math.max(settings.partSize, needed);
+    // `auto` tuning raises the part size already; a raise from a set value still gets the warning.
+    const from = tier.uploadChunkSizeSet ? tier.upload.partSize : settings.partSize;
+    if (partSize > from) {
+        const source = tier.uploadChunkSizeSet
+            ? `Input "upload-chunk-size" is ${(0,inputUtils/* formatSize */.Xq)(from)}`
+            : `The upload part size is ${(0,inputUtils/* formatSize */.Xq)(from)}`;
+        log/* log */.R.warning(`${source}, so the ${(0,inputUtils/* formatSize */.Xq)(sizeBytes)} archive needs more than ${MAX_UPLOAD_PARTS.toLocaleString('en-US')} parts, the S3 limit; using ${(0,inputUtils/* formatSize */.Xq)(partSize)}.`);
+    }
+    return partSize === settings.partSize ? settings : { ...settings, partSize };
+}
+/**
  * The transfer settings for one object of `sizeBytes`: the tier's settings with `auto` tuning
  * applied to each field the workflow did not set. Logs the result when tuning set a field.
  */
-function settingsFor(tier, direction, sizeBytes) {
+function tunedSettingsFor(tier, direction, sizeBytes) {
     const current = direction === 'upload' ? tier.upload : tier.download;
     if (tier.tuning === undefined) {
         return current;
