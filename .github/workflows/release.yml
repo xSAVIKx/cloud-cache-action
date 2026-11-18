@@ -16,11 +16,35 @@ on:
 permissions: {}
 
 jobs:
+  # release-please runs after a green CI run on main, but it can tag a commit whose own CI run
+  # failed or was cancelled. This job stops the release unless CI Tests passed on a push of the
+  # tagged commit. It checks out nothing and runs no repository code.
+  ci-gate:
+    name: Require green CI on the tagged commit
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    env:
+      TAG: ${{ inputs.tag_name || github.event.release.tag_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Find a successful CI Tests run for the tagged commit
+        run: |
+          RELEASE_SHA="$(gh api "repos/$GITHUB_REPOSITORY/commits/$TAG" --jq .sha)"
+          COUNT="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/test.yml/runs?head_sha=$RELEASE_SHA&event=push&status=success" --jq .total_count)"
+          if [ "$COUNT" = "0" ]; then
+            echo "::error::CI Tests has no successful push run for $TAG ($RELEASE_SHA). Re-run CI for that commit, then re-run this workflow."
+            exit 1
+          fi
+          echo "CI Tests passed on $TAG ($RELEASE_SHA): $COUNT successful run(s)."
+
   # Runs all repository code: npm ci, the action build and the CLI build. This job has a
   # read-only token and no OIDC token. The jobs after it get a write token or an OIDC token, and
   # they do not install dependencies or run repository code.
   build:
     name: Build and verify the release
+    needs: ci-gate
     runs-on: ubuntu-latest
     permissions:
       contents: read
