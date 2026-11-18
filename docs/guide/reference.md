@@ -33,13 +33,13 @@ the full definition (see [Action Metadata Definitions](./getting-started.md#acti
 
 | Input | Description | Required | Default |
 | --- | --- | --- | --- |
-| `bucket` | Name of the S3 bucket | **Yes** | — |
+| `bucket` | Name of the S3 bucket | **Yes**, unless `AWS_S3_BUCKET` or `S3_BUCKET` is set | `AWS_S3_BUCKET`, then `S3_BUCKET` |
 | `key` | Explicit key for restoring and saving cache | **Yes**, unless `preset` is set | — |
 | `path` | Multiline list of paths, globs and `!` exclusions to cache (see [Paths and exclusions](./getting-started.md#paths-and-exclusions)) | **Yes**, unless `preset` is set | — |
 | `preset` | Package manager preset that gives the default `path`, `key` and `restore-keys`: `npm`, `yarn`, `pnpm`, `bun`, `pip`, `poetry`, `uv`, `gradle`, `maven`, `cargo`, `go` (see [Cache presets](./presets.md)) | No | — |
 | `restore-keys` | Multiline string of prefix keys for fallback matching | No | — |
-| `endpoint` | Custom S3 endpoint URL | No | Auto/AWS |
-| `region` | AWS or S3 provider region | No | Auto/`us-east-1` |
+| `endpoint` | Custom S3 endpoint URL | No | `AWS_ENDPOINT_URL`, then `AWS_ENDPOINT_URL_S3`, else Auto/AWS |
+| `region` | AWS or S3 provider region | No | `AWS_REGION` or `AWS_DEFAULT_REGION`, else Auto/`us-east-1` |
 | `provider` | Preset: `aws`, `r2`, `gcs`, `b2`, `fastly`, `garage`, `seaweedfs`, `minio`, `rustfs` | No | Auto |
 | `access-key` / `accessKey` | S3 Access Key ID | No | `AWS_ACCESS_KEY_ID` |
 | `secret-key` / `secretKey` | S3 Secret Access Key | No | `AWS_SECRET_ACCESS_KEY` |
@@ -55,7 +55,7 @@ the full definition (see [Action Metadata Definitions](./getting-started.md#acti
 | `read-only` | Restore cache but never save in post step | No | `false` |
 | `retry` | Enable exponential backoff retries on S3 operations | No | `true` |
 | `retry-count` | Maximum number of S3 retries | No | `3` |
-| `use-fallback` | Fallback to GitHub Actions cache service if S3 fails | No | `false` |
+| `use-fallback` | Fall back to the GitHub Actions cache service if S3 fails or misses on restore, or if the S3 save fails | No | `false` |
 | `dual-cache` | Cache to both S3 and GitHub Actions Cache simultaneously | No | `false` |
 | `restore-priority` | Cache source to query first: `s3-first` or `github-first` | No | `s3-first` |
 | `dual-cache-strategy` | `backfill` (upload to a tier only if it lacks the key) or `skip-on-hit` | No | `backfill` |
@@ -95,7 +95,7 @@ For the rules that `path` follows (globs, `~`, `!` exclusions and symbolic links
 - `cache-etag`: ETag checksum of the archive in S3.
 - `cache-metadata`: JSON object of the restored object's user metadata, excluding `cloud-cache-*` keys; `{}` when there is none, on a GitHub-tier hit, or with `lookup-only: true`, which never downloads the object.
 - `cache-hit-source`: The tier that serviced the hit: `s3`, `github`, or `none`.
-- `cache-saved-sources`: Tiers successfully saved to: `s3`, `github`, or `s3,github`.
+- `cache-saved-sources`: Tiers successfully saved to: `s3`, `github`, `s3,github`, or `none` when nothing was saved.
 - `cache-restore-duration-ms`: Wall-clock milliseconds the restore step took; `0` when it did not complete.
 - `cache-save-duration-ms`: Wall-clock milliseconds the save step took; `0` when it did not complete.
 - `cache-transfer-duration-ms`: Milliseconds spent on the S3 download or upload alone; `0` when nothing was transferred.

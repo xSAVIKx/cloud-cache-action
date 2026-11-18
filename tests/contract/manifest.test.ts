@@ -379,4 +379,45 @@ ${fn}(true);
       });
     }
   });
+
+  it('says a streamed upload attaches the checksum as a tag', () => {
+    for (const [file, manifest] of allManifests) {
+      const stream = manifest.inputs[Inputs.Streaming];
+      if (!stream) continue;
+      expect({ file, text: stream.description }).toEqual({
+        file,
+        text: expect.not.stringContaining('no integrity checksum'),
+      });
+      expect(stream.description).toContain('checksum is attached after the upload, as a tag');
+    }
+  });
+
+  it('lists none as a cache-saved-sources value', () => {
+    for (const [file, manifest] of allManifests) {
+      const output = manifest.outputs[Outputs.CacheSavedSources];
+      if (!output) continue;
+      expect({ file, none: output.description.includes('none') }).toEqual({ file, none: true });
+    }
+  });
+
+  it('says an explicit key turns off the preset restore-keys', () => {
+    for (const [file, manifest] of allManifests) {
+      const preset = manifest.inputs[Inputs.Preset];
+      if (!preset) continue;
+      expect({ file, text: preset.description }).toEqual({
+        file,
+        text: expect.stringContaining('Setting key also turns off the preset restore-keys'),
+      });
+    }
+  });
+
+  it('documents the endpoint environment variables in the order the code reads them', () => {
+    const order = /`AWS_ENDPOINT_URL`, then `AWS_ENDPOINT_URL_S3`/;
+    for (const file of ['docs/guide/reference.md', 'docs/guide/cli.md']) {
+      const text = readFileSync(path.join(REPO, file), 'utf8');
+      expect({ file, ordered: order.test(text) }).toEqual({ file, ordered: true });
+    }
+    const client = readFileSync(path.join(REPO, 'src/storage/client.ts'), 'utf8');
+    expect(client).toMatch(/'AWS_ENDPOINT_URL',\s*'AWS_ENDPOINT_URL_S3'/);
+  });
 });
