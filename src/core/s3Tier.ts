@@ -27,6 +27,12 @@ import {
   type TarTool,
 } from '../archive/tar';
 import {
+  ZSTD_WINDOW_LOG,
+  ZSTD_WINDOW_MIN_MEMORY,
+  type ZstdWindowLog,
+  zstdWindowLog,
+} from '../archive/commands';
+import {
   captureStderrTail,
   createByteCounter,
   killIfRunning,
@@ -112,6 +118,8 @@ export interface S3Tier {
   tuning?: ExplicitTransferInputs;
   /** Reads the memory budget for `tuning`; tests replace it. Defaults to `usableMemory`. */
   memory?: () => number;
+  /** Reads the memory that decides the zstd window; tests replace it. Defaults to `windowMemory`. */
+  windowMemory?: () => number;
 }
 
 export interface DownloadSettings {
@@ -306,6 +314,40 @@ export function usableMemory(
   rss: number = process.memoryUsage.rss()
 ): number {
   return limit > 0 ? Math.min(free, Math.max(0, limit - rss)) : free;
+}
+
+/**
+ * The memory that decides the zstd window: the total memory of the machine, or the container
+ * limit when one is set and it is lower. It is not the free memory: on macOS, `os.freemem()`
+ * does not count inactive and cached pages, so it is often a few hundred MB on a runner with
+ * several GiB to use. The total memory is stable on every platform. `process.constrainedMemory()`
+ * is 0 (or a very large value) without a limit.
+ */
+export function windowMemory(
+  total: number = os.totalmem(),
+  limit: number = process.constrainedMemory()
+): number {
+  return limit > 0 ? Math.min(total, limit) : total;
+}
+
+/**
+ * The zstd window for one save: 1 GiB, or 128 MiB when the machine or the container has too
+ * little memory for the 1 GiB window. Logs one line when it falls back. Undefined for gzip.
+ * `saveToS3` calls this one time per save, so a fallback from a streaming save to a file-mode
+ * save uses the same window and does not log the line again.
+ */
+function saveWindowLog(tier: S3Tier): ZstdWindowLog | undefined {
+  if (tier.compression.method !== 'zstd') {
+    return undefined;
+  }
+  const memory = (tier.windowMemory ?? windowMemory)();
+  const windowLog = zstdWindowLog(memory);
+  if (windowLog !== ZSTD_WINDOW_LOG) {
+    log.info(
+      `Memory is ${formatSize(memory)}, less than the ${formatSize(ZSTD_WINDOW_MIN_MEMORY)} that zstd --long=${ZSTD_WINDOW_LOG} needs. This save uses zstd --long=${windowLog}. The archive can be larger, and it restores in the same way.`
+    );
+  }
+  return windowLog;
 }
 
 /**
@@ -608,17 +650,18 @@ export async function saveToS3(
       return { kind: 'skipped', reason: 'no paths matched' };
     }
 
+    const windowLog = saveWindowLog(tier);
     if (tier.streaming) {
       const tar = await findTar();
       if (
         !usesSeparateZstd({ tar, platform: process.platform, compression: tier.compression.method })
       ) {
-        return await saveToS3Streaming(tier, objectKey, entries, tar, primaryKey);
+        return await saveToS3Streaming(tier, objectKey, entries, tar, primaryKey, windowLog);
       }
       log.info(STREAMING_FALLBACK_MESSAGE);
     }
 
-    return await saveToS3FileMode(tier, objectKey, entries, primaryKey);
+    return await saveToS3FileMode(tier, objectKey, entries, primaryKey, windowLog);
   } catch (err) {
     return { kind: 'error', error: toError(err) };
   }
@@ -640,6 +683,7 @@ async function saveToS3FileMode(
   objectKey: string,
   entries: readonly string[],
   primaryKey: string,
+  windowLog: ZstdWindowLog | undefined,
   retryConflict = true,
   omitTags = false
 ): Promise<SaveOutcome> {
@@ -653,7 +697,8 @@ async function saveToS3FileMode(
       entries,
       tier.compression,
       tier.workspace,
-      tier.compressionLevel
+      tier.compressionLevel,
+      windowLog
     );
     const archiveMs = Date.now() - archiveStart;
     const archiveSize = getArchiveSize(archivePath);
@@ -1049,7 +1094,8 @@ async function saveToS3Streaming(
   objectKey: string,
   entries: readonly string[],
   tar: TarTool,
-  primaryKey: string
+  primaryKey: string,
+  windowLog: ZstdWindowLog | undefined
 ): Promise<SaveOutcome> {
   const { client, bucket } = tier.storage;
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cloud-cache-save-'));
@@ -1070,6 +1116,7 @@ async function saveToS3Streaming(
       tempDir,
       manifestPath,
       level: tier.compressionLevel,
+      windowLog,
     });
 
     child = spawnArchiveCommand(command, ['ignore', 'pipe', 'pipe']);
@@ -1169,7 +1216,15 @@ async function saveToS3Streaming(
       // `If-None-Match` does. A streamed body cannot be replayed, so the retry without tags is a
       // file-mode save, which omits them once the flag below is set.
       if (tagging !== undefined && isTaggingUnsupported(err)) {
-        const outcome = await saveToS3FileMode(tier, objectKey, entries, primaryKey, true, true);
+        const outcome = await saveToS3FileMode(
+          tier,
+          objectKey,
+          entries,
+          primaryKey,
+          windowLog,
+          true,
+          true
+        );
         // Only a save that actually succeeded without tags proves the tags were the problem; the
         // same 501 also means an unsupported `If-None-Match`, which that save handles itself.
         if (outcome.kind === 'saved') {
@@ -1190,7 +1245,7 @@ async function saveToS3Streaming(
           `s3://${bucket} rejected the If-None-Match condition; retrying the upload of ${objectKey} without it.`
         );
         tier.storage.conditionalWriteUnsupported = true;
-        return await saveToS3FileMode(tier, objectKey, entries, primaryKey);
+        return await saveToS3FileMode(tier, objectKey, entries, primaryKey, windowLog);
       }
       if (sendCondition && isConditionalConflict(err)) {
         // A streamed body cannot be replayed, so the one retry is a file-mode save, which keeps
@@ -1198,7 +1253,7 @@ async function saveToS3Streaming(
         log.info(
           `A concurrent write to s3://${bucket}/${objectKey} conflicted with this upload; retrying it once from a temporary archive file.`
         );
-        return await saveToS3FileMode(tier, objectKey, entries, primaryKey, false);
+        return await saveToS3FileMode(tier, objectKey, entries, primaryKey, windowLog, false);
       }
       throw withStderrTail(err, stderrTail.lines());
     }

@@ -6,6 +6,7 @@ import {
   type ArchiveCommand,
   type TarTool,
   type ToolLookup,
+  zstdWindowLog,
 } from '../../../src/archive/tar';
 
 const gnu: TarTool = { path: '/usr/bin/tar', flavor: 'gnu' };
@@ -266,6 +267,64 @@ describe('buildCreateCommands compression level', () => {
       level: 5,
     });
     expect(commands[1].args.slice(0, 3)).toEqual(['-5', '-T0', '--long=30']);
+  });
+});
+
+describe('the zstd window', () => {
+  const GiB = 1024 * 1024 * 1024;
+  const zstdPlan = {
+    tar: gnu,
+    platform: 'linux' as NodeJS.Platform,
+    compression: 'zstd' as const,
+    archivePath: '/tmp/cache.tar.zst',
+    ...unix,
+  };
+
+  it.each([
+    [0, 27],
+    [1 * GiB, 27],
+    [1.5 * GiB - 1, 27],
+    [1.5 * GiB, 30],
+    [16 * GiB, 30],
+  ])('uses window log %s for %s bytes of usable memory', (memory, windowLog) => {
+    expect(zstdWindowLog(memory)).toBe(windowLog);
+  });
+
+  it('keeps the 1 GiB window when no window is set', () => {
+    expect(buildCreateCommands(zstdPlan)[0].args).toContain('zstd -T0 --long=30');
+  });
+
+  it('passes the window to the zstd compress program, with and without a level', () => {
+    expect(buildCreateCommands({ ...zstdPlan, windowLog: 27 })[0].args).toContain(
+      'zstd -T0 --long=27'
+    );
+    expect(buildCreateCommands({ ...zstdPlan, windowLog: 27, level: 1 })[0].args).toContain(
+      'zstd -1 -T0 --long=27'
+    );
+  });
+
+  it('passes the window to the Windows two-step zstd command', () => {
+    const commands = buildCreateCommands({
+      tar: systemTar,
+      platform: 'win32',
+      compression: 'zstd',
+      archivePath: 'D:\\a\\_temp\\cache.tar.zst',
+      ...win,
+      windowLog: 27,
+    });
+    expect(commands[1].args.slice(0, 2)).toEqual(['-T0', '--long=27']);
+  });
+
+  it('always restores with --long=30, which decodes an archive with either window', () => {
+    expect(buildExtractCommands(zstdPlan)[0].args).toContain('zstd -d --long=30');
+    const windows = buildExtractCommands({
+      tar: systemTar,
+      platform: 'win32',
+      compression: 'zstd',
+      archivePath: 'D:\\a\\_temp\\cache.tar.zst',
+      ...win,
+    });
+    expect(windows[0].args.slice(0, 2)).toEqual(['-d', '--long=30']);
   });
 });
 

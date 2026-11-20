@@ -26,7 +26,9 @@ const mockCreateArchive =
       archivePath: string,
       entries: readonly string[],
       compression: CompressionConfig,
-      workspace: string
+      workspace: string,
+      level?: number,
+      windowLog?: number
     ) => Promise<{ sha256: string }>
   >();
 const mockExtractArchive =
@@ -244,8 +246,15 @@ jest.unstable_mockModule('../../../src/archive/checksum', () => ({
   createSha256Tap: () => mockCreateSha256Tap(),
 }));
 
-const { buildS3Tier, findS3Match, listCandidates, restoreFromS3, saveToS3, usableMemory } =
-  await import('../../../src/core/s3Tier');
+const {
+  buildS3Tier,
+  findS3Match,
+  listCandidates,
+  restoreFromS3,
+  saveToS3,
+  usableMemory,
+  windowMemory,
+} = await import('../../../src/core/s3Tier');
 const { buildExplainReport } = await import('../../../src/core/explain');
 type S3Tier = Awaited<ReturnType<typeof buildS3Tier>>;
 
@@ -271,6 +280,11 @@ const templateFor = (scopedToRef: boolean) =>
     archiveFilename: 'cache.tar.zst',
     env: {},
   });
+const MiB = 1024 * 1024;
+const GiB = 1024 * MiB;
+/** The info lines about a zstd window fallback. */
+const windowLines = () =>
+  mockInfo.mock.calls.filter(([line]) => String(line).includes('zstd --long=27'));
 const tier = (overrides: Partial<S3Tier> = {}): S3Tier => ({
   storage,
   template: templateFor(true),
@@ -286,6 +300,7 @@ const tier = (overrides: Partial<S3Tier> = {}): S3Tier => ({
   tags: [],
   // A fixed budget, so that the auto tuning tests do not depend on the memory of the host.
   memory: () => 16 * 1024 * 1024 * 1024,
+  windowMemory: () => 16 * 1024 * 1024 * 1024,
   ...overrides,
 });
 
@@ -826,6 +841,58 @@ describe('saveToS3', () => {
     });
   });
 
+  it('compresses with the 1 GiB zstd window when the memory is enough, without a log line', async () => {
+    await saveToS3(tier({ windowMemory: () => 16 * GiB }), 'k', ['node_modules']);
+    expect(mockCreateArchive.mock.calls[0][5]).toBe(30);
+    expect(mockInfo).not.toHaveBeenCalledWith(expect.stringContaining('--long=27'));
+  });
+
+  it('falls back to the 128 MiB zstd window when the memory is too low, with one log line', async () => {
+    await saveToS3(tier({ windowMemory: () => 1 * GiB }), 'k', ['node_modules']);
+    expect(mockCreateArchive.mock.calls[0][5]).toBe(27);
+    expect(windowLines()).toEqual([
+      [
+        'Memory is 1.00 GB, less than the 1.50 GB that zstd --long=30 needs. This save uses zstd --long=27. The archive can be larger, and it restores in the same way.',
+      ],
+    ]);
+  });
+
+  // macOS: os.freemem() counts only the free pages, so a 7 GiB runner can report 300 MiB free.
+  // The window follows the total memory, so the low free memory does not change it.
+  it('keeps the 1 GiB window on a darwin runner with low free memory and normal total memory', async () => {
+    const platform = Object.getOwnPropertyDescriptor(process, 'platform');
+    Object.defineProperty(process, 'platform', { value: 'darwin' });
+    try {
+      await saveToS3(
+        tier({ memory: () => 300 * MiB, windowMemory: () => windowMemory(7 * GiB, 0) }),
+        'k',
+        ['node_modules']
+      );
+    } finally {
+      if (platform) {
+        Object.defineProperty(process, 'platform', platform);
+      }
+    }
+    expect(mockCreateArchive.mock.calls[0][5]).toBe(30);
+    expect(windowLines()).toEqual([]);
+  });
+
+  it('does not take the zstd window from the free memory that transfer tuning reads', async () => {
+    // No windowMemory: the default reads the total memory of this host, which is above 1.5 GiB.
+    await saveToS3(tier({ memory: () => 300 * MiB, windowMemory: undefined }), 'k', [
+      'node_modules',
+    ]);
+    expect(mockCreateArchive.mock.calls[0][5]).toBe(30);
+  });
+
+  it('sets no zstd window for a gzip save', async () => {
+    await saveToS3(tier({ compression: gzip, windowMemory: () => 1024 * 1024 }), 'k', [
+      'node_modules',
+    ]);
+    expect(mockCreateArchive.mock.calls[0][5]).toBeUndefined();
+    expect(mockInfo).not.toHaveBeenCalledWith(expect.stringContaining('--long'));
+  });
+
   it('sends the If-None-Match condition on the first upload of a tier', async () => {
     await saveToS3(tier(), 'k', ['node_modules']);
     const [, , , , , options] = mockUploadFile.mock.calls[0];
@@ -1355,7 +1422,12 @@ describe('saveToS3 streaming', () => {
     expect(command.tool).toBe('/usr/bin/tar');
     expect(stdio).toEqual(['ignore', 'pipe', 'pipe']);
     const [plan] = mockBuildCreateCommands.mock.calls[0];
-    expect(plan).toMatchObject({ archivePath: '-', workspace: '/ws', compression: 'zstd' });
+    expect(plan).toMatchObject({
+      archivePath: '-',
+      workspace: '/ws',
+      compression: 'zstd',
+      windowLog: 30,
+    });
 
     const call = mockCreateStreamUpload.mock.calls[0];
     expect(call[1]).toBe('bucket');
@@ -1753,6 +1825,62 @@ describe('saveToS3 streaming', () => {
       metadata: { 'cloud-cache-sha256': 'archive-sha256' },
       ifNoneMatch: '*',
     });
+  });
+
+  it('passes the 128 MiB zstd window to the streaming plan when the memory is too low', async () => {
+    mockSpawnArchiveCommand.mockImplementation(() => makeFakeChild());
+    mockWaitForExit.mockImplementation(async (c) => {
+      c.stdout.end(Buffer.from('archive-body'));
+      return 0;
+    });
+    mockCreateStreamUpload.mockImplementation((_client, _bucket, _key, body) => ({
+      done: jest.fn(async () => {
+        for await (const _chunk of body as Readable) {
+          // Drain it, as the real Upload does.
+        }
+        return { ETag: '"streamed"' };
+      }),
+      abort: jest.fn(async () => undefined),
+    }));
+
+    await saveToS3(tier({ streaming: true, windowMemory: () => 1 * GiB }), 'k', ['node_modules']);
+
+    const [plan] = mockBuildCreateCommands.mock.calls[0];
+    expect(plan).toMatchObject({ archivePath: '-', windowLog: 27 });
+    expect(windowLines()).toHaveLength(1);
+  });
+
+  it('uses the same zstd window, and logs it once, when a streamed save falls back to a file', async () => {
+    mockSpawnArchiveCommand.mockImplementation(() => makeFakeChild());
+    mockWaitForExit.mockImplementation(async (c) => {
+      c.stdout.end(Buffer.from('archive-body'));
+      return 0;
+    });
+    mockCreateStreamUpload.mockImplementation((_client, _bucket, _key, body) => ({
+      done: jest.fn(async () => {
+        for await (const _chunk of body as Readable) {
+          // Drain it, as the real Upload does before sending the conditional write.
+        }
+        throw conditionalConflict();
+      }),
+      abort: jest.fn(async () => undefined),
+    }));
+    // The memory changes after the first read: a second read would pick the other window.
+    const memory = jest
+      .fn<() => number>()
+      .mockReturnValueOnce(1 * GiB)
+      .mockReturnValue(16 * GiB);
+
+    const outcome = await saveToS3(tier({ streaming: true, windowMemory: memory }), 'k', [
+      'node_modules',
+    ]);
+
+    expect(outcome).toMatchObject({ kind: 'saved' });
+    expect(memory).toHaveBeenCalledTimes(1);
+    expect(mockBuildCreateCommands.mock.calls[0][0]).toMatchObject({ windowLog: 27 });
+    expect(mockCreateArchive).toHaveBeenCalledTimes(1);
+    expect(mockCreateArchive.mock.calls[0][5]).toBe(27);
+    expect(windowLines()).toHaveLength(1);
   });
 
   it('does not retry again when the file-mode fallback after a streamed 409 conflicts too', async () => {
@@ -2329,6 +2457,21 @@ describe('saveToS3 streaming failure timing', () => {
     expect(tar.child()?.kill).toHaveBeenCalled();
     expect(elapsed).toBeLessThan(2000);
   }, 20_000);
+});
+
+describe('windowMemory', () => {
+  it('is the total memory without a container limit, as on macOS', () => {
+    // A darwin runner: 7 GiB total, no cgroup limit. The free memory is not an input.
+    expect(windowMemory(7 * GiB, 0)).toBe(7 * GiB);
+  });
+
+  it('is the container limit when it is lower than the total memory', () => {
+    expect(windowMemory(16 * GiB, 1 * GiB)).toBe(1 * GiB);
+  });
+
+  it('ignores a "no limit" value that is larger than the total memory', () => {
+    expect(windowMemory(8 * GiB, Number.MAX_SAFE_INTEGER)).toBe(8 * GiB);
+  });
 });
 
 describe('usableMemory', () => {
