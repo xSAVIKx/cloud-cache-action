@@ -62059,6 +62059,7 @@ class NullStateProvider {
 /* harmony export */   Gd: () => (/* binding */ getInputAsInt),
 /* harmony export */   Js: () => (/* binding */ parseOptionalNonNegativeInt),
 /* harmony export */   Xq: () => (/* binding */ formatSize),
+/* harmony export */   jv: () => (/* binding */ escapeKey),
 /* harmony export */   of: () => (/* binding */ isExactKeyMatch),
 /* harmony export */   oh: () => (/* binding */ getInputWithEnv),
 /* harmony export */   or: () => (/* binding */ parseOptionalPositiveInt),
@@ -62147,6 +62148,17 @@ function isValidEvent() {
     // GitHub Actions events that are not tied to a ref (e.g. issues, discussion) might not be appropriate for caching
     // actions/cache warns if event is not ref-based, but allows execution
     return Boolean(event);
+}
+const NAMED_ESCAPES = { '\n': '\\n', '\r': '\\r', '\t': '\\t' };
+/**
+ * Escapes control characters in an object key before it goes into a log line. A listed key is
+ * data from the bucket: a raw line break would let it start a new line, and a line that starts
+ * with `::` is a workflow command. An ordinary key comes back unchanged.
+ */
+function escapeKey(key) {
+    return key.replace(
+    // eslint-disable-next-line no-control-regex
+    /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, (char) => NAMED_ESCAPES[char] ?? `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`);
 }
 function formatSize(bytes) {
     if (bytes === undefined || bytes === null || isNaN(bytes)) {
@@ -73447,7 +73459,7 @@ function renderExplain(report) {
         lines.push(`[${searched.ref ?? 'unscoped'}] prefix "${searched.prefix}": ` +
             `${total} candidate${total === 1 ? '' : 's'}`);
         for (const candidate of searched.candidates) {
-            lines.push(`  ${candidate.versionMatches ? '✓' : '✗'} ${candidate.objectKey} ` +
+            lines.push(`  ${candidate.versionMatches ? '✓' : '✗'} ${(0,inputUtils/* escapeKey */.jv)(candidate.objectKey)} ` +
                 `(version ${candidate.version || 'unknown'}, ${(0,inputUtils/* formatSize */.Xq)(candidate.sizeBytes)}, ` +
                 `${candidate.lastModified || 'unknown'})`);
         }
@@ -73456,7 +73468,7 @@ function renderExplain(report) {
         }
     }
     for (const reason of report.reasons) {
-        lines.push(`Result: ${reason}`);
+        lines.push(`Result: ${(0,inputUtils/* escapeKey */.jv)(reason)}`);
     }
     return lines;
 }
@@ -73824,7 +73836,7 @@ async function abortStaleUploads(client, bucket, prefix, isCandidate, options) {
         }
         count += 1;
         if (count <= LOG_CAP) {
-            log/* log */.R.info(`${verb} ${upload.key} (upload ${upload.uploadId}, ${age})`);
+            log/* log */.R.info(`${verb} ${(0,inputUtils/* escapeKey */.jv)(upload.key)} (upload ${(0,inputUtils/* escapeKey */.jv)(upload.uploadId)}, ${age})`);
         }
     };
     await mapWithConcurrency(stale, options.concurrency, abortOne);
@@ -73837,7 +73849,7 @@ function logPruned(selections, now, dryRun) {
         const ageDays = object.lastModified
             ? Math.floor((now.getTime() - object.lastModified.getTime()) / prune_DAY_MS)
             : 0;
-        log/* log */.R.info(`${verb} ${object.key} (${(0,inputUtils/* formatSize */.Xq)(object.size)}, ${ageDays}d old, ${reason})`);
+        log/* log */.R.info(`${verb} ${(0,inputUtils/* escapeKey */.jv)(object.key)} (${(0,inputUtils/* formatSize */.Xq)(object.size)}, ${ageDays}d old, ${reason})`);
     }
     const totalBytes = selections.reduce((total, { object }) => total + object.size, 0);
     const counts = new Map();
@@ -74407,8 +74419,8 @@ function reportHit(state, config, source, hit) {
     (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheMatchedKey, hit.matchedKey);
     (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheHitSource, source);
     log/* log */.R.info(config.lookupOnly
-        ? `Cache found in ${source} and can be restored from key: ${hit.matchedKey}`
-        : `Cache restored from ${source} with key: ${hit.matchedKey}`);
+        ? `Cache found in ${source} and can be restored from key: ${(0,inputUtils/* escapeKey */.jv)(hit.matchedKey)}`
+        : `Cache restored from ${source} with key: ${(0,inputUtils/* escapeKey */.jv)(hit.matchedKey)}`);
     return hit.matchedKey;
 }
 async function restoreImpl(stateProvider, earlyExit) {
