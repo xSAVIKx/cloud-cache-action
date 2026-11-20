@@ -10,9 +10,11 @@ import {
   CompleteMultipartUploadCommand,
   AbortMultipartUploadCommand,
   CopyObjectCommand,
+  DeleteObjectCommand,
 } from '@aws-sdk/client-s3';
 import {
   checkObjectExists,
+  deleteObject,
   downloadFile,
   findNewestObject,
   listObjects,
@@ -33,6 +35,19 @@ describe('Storage Operations', () => {
   beforeEach(() => {
     s3Mock.reset();
     client = new S3Client({ region: 'us-east-1' });
+  });
+
+  describe('deleteObject', () => {
+    it('sends If-Match only when an ETag is given', async () => {
+      s3Mock.on(DeleteObjectCommand).resolves({});
+      await deleteObject(client, 'bucket', 'a/key', '"etag"');
+      await deleteObject(client, 'bucket', 'a/key');
+      const calls = s3Mock.commandCalls(DeleteObjectCommand).map((call) => call.args[0].input);
+      expect(calls).toEqual([
+        { Bucket: 'bucket', Key: 'a/key', IfMatch: '"etag"' },
+        { Bucket: 'bucket', Key: 'a/key', IfMatch: undefined },
+      ]);
+    });
   });
 
   describe('checkObjectExists', () => {

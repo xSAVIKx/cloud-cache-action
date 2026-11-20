@@ -53,7 +53,7 @@ A save does not keep an object that failed the integrity check in the same job. 
 - A match through `restore-keys` is never replaced. That object has another key, and the job does
   not write that key. The save of the primary key writes a newer object, and a later prefix
   lookup finds the newer object first.
-- The action never deletes the bad object, so a restore needs no `s3:DeleteObject` permission.
+- The replacement deletes nothing, so it needs no `s3:DeleteObject` permission.
 - A failed replacement upload is a failed save. The save logs a warning and does not fail the
   job. The recorded object stays, so a later save with the same state can try again.
 
@@ -76,8 +76,34 @@ These cases do not replace the bad object:
   These modes do not save to S3.
 - `lookup-only: true`. It does not download the archive, so it does not check it.
 
-In these cases, run a job that restores and saves with the main action, or delete the object
-with the [`prune` sub-action](./pruning.md) or a lifecycle rule.
+In these cases, set `delete-corrupt-cache: true` (see the next section), run a job that restores
+and saves with the main action, or delete the object with the [`prune` sub-action](./pruning.md)
+or a lifecycle rule.
+
+### Deleting an object that failed the check
+
+The restore input `delete-corrupt-cache` is off by default. When you set it to `true`, the restore
+deletes the bad object itself. Then any later save of the key writes a good cache, also the `save`
+sub-action, a save-only job and a job after a failure on `fail-on-cache-miss: true`. The rules are:
+
+- The restore deletes only the object of the exact primary key that failed the check in this
+  restore. It never deletes a match through `restore-keys`.
+- The restore deletes the object only while it has the ETag that the restore read. On AWS S3 and
+  RustFS, the delete sends `If-Match` with that ETag. On the other providers, the restore sends a
+  `HeadObject` and compares the ETag right before the delete. The HEAD and the delete are two
+  requests, so a write between them can be deleted. The next save then writes the key again.
+- When the object has another ETag or is gone, the restore keeps it and logs an info line.
+- A failed or refused delete only logs a warning. The restore stays a miss, and the job continues
+  as before. A `403` warning tells you to grant `s3:DeleteObject` on the cache keys. The
+  [Security guide](./security.md#optional-delete-corrupt-cache) shows the policy statement.
+- The restore deletes before `fail-on-cache-miss: true` or `dual-cache-strict: true` fails the
+  step.
+- The restore does not delete when `ACTIONS_CACHE_MODE` does not permit writes.
+- The input works in the main action, the `restore` sub-action and the CLI
+  (`--delete-corrupt-cache`). The replacement of the previous section stays in effect. After a
+  delete, the save finds no object and uses the usual conditional create.
+- RustFS is known by the `provider: rustfs` input. Without it, an endpoint on port 9000 counts as
+  MinIO, and the restore uses the HEAD compare.
 
 Objects with no checksum at all skip verification: caches from v1.1, or objects whose tagging or
 metadata write the provider rejected. This is not a breaking change. An action older than v1.6

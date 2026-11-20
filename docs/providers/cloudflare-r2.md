@@ -91,7 +91,7 @@ Cloudflare shows the credentials **one time**. Copy them into **Settings** > **S
 ## Notes
 
 - **Checksums**: for this provider, the action sends request checksums only when S3 requires them, because many S3-compatible services reject the CRC checksums recent AWS SDKs send by default. Nothing to configure.
-- **Expiry**: the action never deletes caches. Add a lifecycle rule that expires objects after 30–60 days so old caches do not accumulate.
+- **Expiry**: the action does not expire caches. Add a lifecycle rule that expires objects after 30–60 days so old caches do not accumulate.
 - **Transfer settings**: the [Performance](../guide/performance.md) and [Benchmarks](../guide/benchmarks.md) pages give the measured restore and save times on R2.
 
 ### Live CI workflow

@@ -20,6 +20,8 @@ const mockRestoreFromS3 =
       lookupOnly: boolean
     ) => Promise<RestoreOutcome>
   >();
+const mockDeleteRejectedObject =
+  jest.fn<(tier: S3Tier, rejected: { objectKey: string; etag: string }) => Promise<string>>();
 const mockRestoreFromGitHub =
   jest.fn<
     (
@@ -51,6 +53,7 @@ jest.unstable_mockModule('@actions/core', () => ({
 jest.unstable_mockModule('../../../src/core/s3Tier', () => ({
   buildS3Tier: mockBuildS3Tier,
   restoreFromS3: mockRestoreFromS3,
+  deleteRejectedObject: mockDeleteRejectedObject,
 }));
 jest.unstable_mockModule('../../../src/core/githubTier', () => ({
   restoreFromGitHub: mockRestoreFromGitHub,
@@ -291,6 +294,83 @@ describe('restoreImpl', () => {
       mockRestoreFromGitHub.mockResolvedValue(githubHit('Linux-npm-abc', true));
       await expect(restoreImpl(state, false)).resolves.toBe('Linux-npm-abc');
       expect(state.getState(State.CacheS3RejectedKey)).toBe(stored);
+    });
+
+    describe('with delete-corrupt-cache', () => {
+      const rejectedObject = { objectKey, etag: '"bad"' };
+      let restoreEnv: (() => void) | undefined;
+
+      beforeEach(() => {
+        inputs.set(Inputs.DeleteCorruptCache, 'true');
+        mockDeleteRejectedObject.mockResolvedValue('deleted');
+      });
+      afterEach(() => {
+        restoreEnv?.();
+        restoreEnv = undefined;
+      });
+
+      it('deletes the rejected object, pinned to its ETag, and still counts as a miss', async () => {
+        mockRestoreFromS3.mockResolvedValue(rejected(objectKey));
+        await expect(restoreImpl(state, false)).resolves.toBeUndefined();
+        expect(mockDeleteRejectedObject).toHaveBeenCalledWith(tier, rejectedObject);
+        expect(outputs.get('cache-hit')).toBe('false');
+        expect(mockSetFailed).not.toHaveBeenCalled();
+      });
+
+      it('does not delete when the input is off', async () => {
+        inputs.set(Inputs.DeleteCorruptCache, 'false');
+        mockRestoreFromS3.mockResolvedValue(rejected(objectKey));
+        await restoreImpl(state, false);
+        expect(mockDeleteRejectedObject).not.toHaveBeenCalled();
+      });
+
+      it('does not delete a restore-key match or an object after another error', async () => {
+        mockRestoreFromS3.mockResolvedValue(rejected(undefined));
+        await restoreImpl(state, false);
+        mockRestoreFromS3.mockResolvedValue(failure('download interrupted'));
+        await restoreImpl(state, false);
+        expect(mockDeleteRejectedObject).not.toHaveBeenCalled();
+      });
+
+      it('does not fail the step when the delete fails', async () => {
+        mockDeleteRejectedObject.mockResolvedValue('failed');
+        mockRestoreFromS3.mockResolvedValue(rejected(objectKey));
+        await expect(restoreImpl(state, false)).resolves.toBeUndefined();
+        expect(mockSetFailed).not.toHaveBeenCalled();
+      });
+
+      it('deletes before the step fails on fail-on-cache-miss', async () => {
+        inputs.set(Inputs.FailOnCacheMiss, 'true');
+        mockRestoreFromS3.mockResolvedValue(rejected(objectKey));
+        await restoreImpl(state, false);
+        expect(mockDeleteRejectedObject).toHaveBeenCalledWith(tier, rejectedObject);
+        expect(mockSetFailed).toHaveBeenCalledWith(expect.stringContaining('fail-on-cache-miss'));
+      });
+
+      it('deletes before the step fails in strict dual-cache mode', async () => {
+        inputs.set(Inputs.DualCache, 'true');
+        inputs.set(Inputs.DualCacheStrict, 'true');
+        mockRestoreFromS3.mockResolvedValue(rejected(objectKey));
+        await restoreImpl(state, false);
+        expect(mockDeleteRejectedObject).toHaveBeenCalledWith(tier, rejectedObject);
+        expect(mockSetFailed).toHaveBeenCalled();
+      });
+
+      it('does not delete when ACTIONS_CACHE_MODE does not permit writes', async () => {
+        restoreEnv = setEnv({ ACTIONS_CACHE_MODE: 'read' });
+        mockRestoreFromS3.mockResolvedValue(rejected(objectKey));
+        await restoreImpl(state, false);
+        expect(mockDeleteRejectedObject).not.toHaveBeenCalled();
+        expect(mockCoreInfo).toHaveBeenCalledWith(
+          "delete-corrupt-cache does not delete: ACTIONS_CACHE_MODE is 'read', which does not permit writes."
+        );
+      });
+
+      it('also deletes in the restore sub-action, which keeps no state', async () => {
+        mockRestoreFromS3.mockResolvedValue(rejected(objectKey));
+        await runRestoreOnly(false);
+        expect(mockDeleteRejectedObject).toHaveBeenCalledWith(tier, rejectedObject);
+      });
     });
 
     it('records the object and fails the step in strict dual-cache mode', async () => {

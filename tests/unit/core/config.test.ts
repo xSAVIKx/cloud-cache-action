@@ -27,6 +27,7 @@ describe('readCacheConfig', () => {
       restoreKeys: [],
       lookupOnly: false,
       failOnCacheMiss: false,
+      deleteCorruptCache: false,
       readOnly: false,
       enableCrossOsArchive: false,
       uploadChunkSize: undefined,

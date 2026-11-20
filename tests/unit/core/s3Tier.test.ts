@@ -69,6 +69,8 @@ const mockUploadFile =
     ) => Promise<{ size: number; etag?: string }>
   >();
 const mockSha256File = jest.fn<(filePath: string) => Promise<string>>();
+const mockDeleteObject =
+  jest.fn<(client: S3Client, bucket: string, key: string, ifMatch?: string) => Promise<void>>();
 const mockReplaceObjectMetadata =
   jest.fn<
     (
@@ -210,6 +212,7 @@ jest.unstable_mockModule('../../../src/storage/operations', () => ({
   replaceObjectMetadata: mockReplaceObjectMetadata,
   putObjectTags: mockPutObjectTags,
   getObjectTags: mockGetObjectTags,
+  deleteObject: mockDeleteObject,
 }));
 const mockDownloadFileInParts =
   jest.fn<
@@ -244,8 +247,15 @@ jest.unstable_mockModule('../../../src/archive/checksum', () => ({
   createSha256Tap: () => mockCreateSha256Tap(),
 }));
 
-const { buildS3Tier, findS3Match, listCandidates, restoreFromS3, saveToS3, usableMemory } =
-  await import('../../../src/core/s3Tier');
+const {
+  buildS3Tier,
+  deleteRejectedObject,
+  findS3Match,
+  listCandidates,
+  restoreFromS3,
+  saveToS3,
+  usableMemory,
+} = await import('../../../src/core/s3Tier');
 const { buildExplainReport } = await import('../../../src/core/explain');
 type S3Tier = Awaited<ReturnType<typeof buildS3Tier>>;
 
@@ -765,6 +775,146 @@ const preconditionFailed = () =>
     name: 'PreconditionFailed',
     $metadata: { httpStatusCode: 412 },
   });
+
+describe('deleteRejectedObject', () => {
+  // The delete removes the object from the in-memory bucket, and honours If-Match as AWS does.
+  beforeEach(() => {
+    mockDeleteObject.mockImplementation(async (_client, _bucket, key, ifMatch) => {
+      const found = objects.get(key);
+      if (ifMatch !== undefined && found?.etag !== ifMatch) {
+        throw Object.assign(new Error('At least one of the pre-conditions did not hold'), {
+          name: 'PreconditionFailed',
+          $metadata: { httpStatusCode: 412 },
+        });
+      }
+      objects.delete(key);
+    });
+  });
+  const awsTier = () =>
+    tier({
+      storage: {
+        ...storage,
+        providerConfig: { provider: 'aws', region: 'us-east-1', forcePathStyle: false },
+      } as StorageContext,
+    });
+  const accessDenied = () =>
+    Object.assign(new Error('Access Denied'), {
+      name: 'AccessDenied',
+      $metadata: { httpStatusCode: 403 },
+    });
+
+  describe('on AWS S3, with If-Match on the delete', () => {
+    it('deletes the object while it has the rejected ETag, with no HEAD', async () => {
+      const objectKey = put(FEATURE, 'k', 1);
+      await expect(deleteRejectedObject(awsTier(), { objectKey, etag: '"k"' })).resolves.toBe(
+        'deleted'
+      );
+      expect(objects.has(objectKey)).toBe(false);
+      expect(mockDeleteObject).toHaveBeenCalledWith(storage.client, 'bucket', objectKey, '"k"');
+      expect(mockCheckObjectExists).not.toHaveBeenCalled();
+      expect(mockInfo).toHaveBeenCalledWith(
+        `Deleted s3://bucket/${objectKey}, because it failed the integrity check (delete-corrupt-cache).`
+      );
+    });
+
+    it('keeps an object that another job replaced, on the 412, without a warning', async () => {
+      const objectKey = put(FEATURE, 'k', 1);
+      objects.set(objectKey, { ...objects.get(objectKey)!, etag: '"good"' });
+      await expect(deleteRejectedObject(awsTier(), { objectKey, etag: '"k"' })).resolves.toBe(
+        'changed'
+      );
+      expect(objects.get(objectKey)?.etag).toBe('"good"');
+      expect(mockWarning).not.toHaveBeenCalled();
+    });
+
+    it('only warns, and names the permission, when the delete is denied', async () => {
+      const objectKey = put(FEATURE, 'k', 1);
+      mockDeleteObject.mockRejectedValue(accessDenied());
+      await expect(deleteRejectedObject(awsTier(), { objectKey, etag: '"k"' })).resolves.toBe(
+        'failed'
+      );
+      expect(objects.has(objectKey)).toBe(true);
+      expect(mockWarning).toHaveBeenCalledWith(
+        `Could not delete s3://bucket/${objectKey}, which failed the integrity check: Access Denied. Grant s3:DeleteObject on the cache keys, or set delete-corrupt-cache: false.`
+      );
+    });
+
+    it('only warns when the server refuses the conditional delete with a 501', async () => {
+      const objectKey = put(FEATURE, 'k', 1);
+      mockDeleteObject.mockRejectedValue(
+        Object.assign(new Error('Not Implemented'), {
+          name: 'NotImplemented',
+          $metadata: { httpStatusCode: 501 },
+        })
+      );
+      await expect(deleteRejectedObject(awsTier(), { objectKey, etag: '"k"' })).resolves.toBe(
+        'failed'
+      );
+      expect(objects.has(objectKey)).toBe(true);
+      expect(mockWarning).toHaveBeenCalledWith(
+        `Could not delete s3://bucket/${objectKey}, which failed the integrity check: Not Implemented. The object stays.`
+      );
+    });
+  });
+
+  describe('on other providers, with a HEAD compare first', () => {
+    it('deletes the object without If-Match when the HEAD shows the rejected ETag', async () => {
+      const objectKey = put(FEATURE, 'k', 1);
+      await expect(deleteRejectedObject(tier(), { objectKey, etag: '"k"' })).resolves.toBe(
+        'deleted'
+      );
+      expect(objects.has(objectKey)).toBe(false);
+      expect(mockCheckObjectExists).toHaveBeenCalledWith(storage.client, 'bucket', objectKey);
+      expect(mockDeleteObject).toHaveBeenCalledWith(storage.client, 'bucket', objectKey, undefined);
+    });
+
+    it('keeps an object with another ETag, and sends no delete', async () => {
+      const objectKey = put(FEATURE, 'k', 1);
+      objects.set(objectKey, { ...objects.get(objectKey)!, etag: '"good"' });
+      await expect(deleteRejectedObject(tier(), { objectKey, etag: '"k"' })).resolves.toBe(
+        'changed'
+      );
+      expect(objects.get(objectKey)?.etag).toBe('"good"');
+      expect(mockDeleteObject).not.toHaveBeenCalled();
+    });
+
+    it('keeps an object whose HEAD gives no ETag, and sends no delete', async () => {
+      const objectKey = put(FEATURE, 'k', 1);
+      mockCheckObjectExists.mockResolvedValueOnce({ key: objectKey, size: 101 });
+      await expect(deleteRejectedObject(tier(), { objectKey, etag: '"k"' })).resolves.toBe(
+        'changed'
+      );
+      expect(mockDeleteObject).not.toHaveBeenCalled();
+    });
+
+    it('sends no delete when the object is already gone', async () => {
+      const objectKey = `octo/app/refs%2Fheads%2Ffeature/k/${VERSION}/cache.tar.zst`;
+      await expect(deleteRejectedObject(tier(), { objectKey, etag: '"k"' })).resolves.toBe('gone');
+      expect(mockDeleteObject).not.toHaveBeenCalled();
+    });
+
+    it('only warns, and names the permission, when the delete is denied', async () => {
+      const objectKey = put(FEATURE, 'k', 1);
+      mockDeleteObject.mockRejectedValue(accessDenied());
+      await expect(deleteRejectedObject(tier(), { objectKey, etag: '"k"' })).resolves.toBe(
+        'failed'
+      );
+      expect(objects.has(objectKey)).toBe(true);
+      expect(mockWarning).toHaveBeenCalledWith(expect.stringContaining('Grant s3:DeleteObject'));
+    });
+
+    it('only warns when the HEAD fails', async () => {
+      const objectKey = put(FEATURE, 'k', 1);
+      mockCheckObjectExists.mockRejectedValueOnce(new Error('socket hang up'));
+      await expect(deleteRejectedObject(tier(), { objectKey, etag: '"k"' })).resolves.toBe(
+        'failed'
+      );
+      expect(objects.has(objectKey)).toBe(true);
+      expect(mockDeleteObject).not.toHaveBeenCalled();
+      expect(mockWarning).toHaveBeenCalledWith(expect.stringContaining('socket hang up'));
+    });
+  });
+});
 
 describe('saveToS3', () => {
   describe('replacing an object that failed the integrity check', () => {
@@ -1353,6 +1503,7 @@ describe('buildS3Tier', () => {
     restoreKeys: [],
     lookupOnly: false,
     failOnCacheMiss: false,
+    deleteCorruptCache: false,
     readOnly: false,
     enableCrossOsArchive: false,
     uploadChunkSize: undefined,

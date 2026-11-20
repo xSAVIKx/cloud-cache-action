@@ -8,6 +8,7 @@ export enum Inputs {
   EnableCrossOsArchive = 'enableCrossOsArchive',
   FailOnCacheMiss = 'fail-on-cache-miss',
   LookupOnly = 'lookup-only',
+  DeleteCorruptCache = 'delete-corrupt-cache',
   ReadOnly = 'read-only',
   Preset = 'preset',
 

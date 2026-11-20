@@ -72,4 +72,4 @@ Store the credentials in **Settings** > **Secrets and variables** > **Actions** 
 ## Notes
 
 - **Checksums**: for this provider, the action sends request checksums only when S3 requires them, because many S3-compatible services reject the CRC checksums recent AWS SDKs send by default. Nothing to configure.
-- **Expiry**: the action never deletes caches. Use the lifecycle rule above, or the [`prune` sub-action](../guide/pruning.md).
+- **Expiry**: the action does not expire caches. Use the lifecycle rule above, or the [`prune` sub-action](../guide/pruning.md).

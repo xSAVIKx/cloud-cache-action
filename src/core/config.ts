@@ -40,6 +40,8 @@ export interface CacheConfig {
   restoreKeys: string[];
   lookupOnly: boolean;
   failOnCacheMiss: boolean;
+  /** Delete the object of the exact primary key when it fails the integrity check on restore. */
+  deleteCorruptCache: boolean;
   readOnly: boolean;
   enableCrossOsArchive: boolean;
   /**
@@ -190,6 +192,7 @@ export function readCacheConfig(state?: IStateProvider): CacheConfig {
     restoreKeys: getInputAsArray(Inputs.RestoreKeys),
     lookupOnly: getInputAsBool(Inputs.LookupOnly),
     failOnCacheMiss: getInputAsBool(Inputs.FailOnCacheMiss),
+    deleteCorruptCache: getInputAsBool(Inputs.DeleteCorruptCache),
     readOnly: bool(State.CacheReadOnly, () => getInputAsBool(Inputs.ReadOnly)),
     enableCrossOsArchive: getInputAsBool(Inputs.EnableCrossOsArchive),
     uploadChunkSize: uploadChunkSize.value,

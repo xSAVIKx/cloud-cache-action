@@ -181,3 +181,14 @@ export function resolveProviderDefaults(
     forcePathStyle: Boolean(forcePathStyle),
   };
 }
+
+/**
+ * True when the provider evaluates `If-Match` on DeleteObject: a delete of an object with another
+ * ETag fails with 412. AWS S3 documents this for general purpose buckets. RustFS 1.0.0 was
+ * measured on a live server (2026-11-20): a wrong ETag gave 412, the right ETag deleted. The other
+ * providers are not documented or measured, and a server that ignores the header would delete
+ * without the condition. For those, the caller compares the ETag with a HeadObject first.
+ */
+export function supportsConditionalDelete(provider: StorageProvider): boolean {
+  return provider === 'aws' || provider === 'rustfs';
+}

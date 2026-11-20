@@ -61187,6 +61187,7 @@ var Inputs;
     Inputs["EnableCrossOsArchive"] = "enableCrossOsArchive";
     Inputs["FailOnCacheMiss"] = "fail-on-cache-miss";
     Inputs["LookupOnly"] = "lookup-only";
+    Inputs["DeleteCorruptCache"] = "delete-corrupt-cache";
     Inputs["ReadOnly"] = "read-only";
     Inputs["Preset"] = "preset";
     Inputs["Bucket"] = "bucket";
@@ -68825,6 +68826,7 @@ function readCacheConfig(state) {
         restoreKeys: (0,inputUtils/* getInputAsArray */.q3)(constants/* Inputs */.G0.RestoreKeys),
         lookupOnly: (0,inputUtils/* getInputAsBool */.$x)(constants/* Inputs */.G0.LookupOnly),
         failOnCacheMiss: (0,inputUtils/* getInputAsBool */.$x)(constants/* Inputs */.G0.FailOnCacheMiss),
+        deleteCorruptCache: (0,inputUtils/* getInputAsBool */.$x)(constants/* Inputs */.G0.DeleteCorruptCache),
         readOnly: bool(constants/* State */.Uw.CacheReadOnly, () => (0,inputUtils/* getInputAsBool */.$x)(constants/* Inputs */.G0.ReadOnly)),
         enableCrossOsArchive: (0,inputUtils/* getInputAsBool */.$x)(constants/* Inputs */.G0.EnableCrossOsArchive),
         uploadChunkSize: uploadChunkSize.value,
@@ -69721,6 +69723,16 @@ function resolveProviderDefaults(endpointInput, regionInput, forcePathStyleInput
         forcePathStyle: Boolean(forcePathStyle),
     };
 }
+/**
+ * True when the provider evaluates `If-Match` on DeleteObject: a delete of an object with another
+ * ETag fails with 412. AWS S3 documents this for general purpose buckets. RustFS 1.0.0 was
+ * measured on a live server (2026-11-20): a wrong ETag gave 412, the right ETag deleted. The other
+ * providers are not documented or measured, and a server that ignores the header would delete
+ * without the condition. For those, the caller compares the ETag with a HeadObject first.
+ */
+function supportsConditionalDelete(provider) {
+    return provider === 'aws' || provider === 'rustfs';
+}
 
 ;// CONCATENATED MODULE: ./src/storage/errors.ts
 /**
@@ -70280,6 +70292,14 @@ async function checkObjectExists(client, bucket, key) {
         }
         throw err;
     }
+}
+/**
+ * Deletes one object. With `ifMatch`, the server deletes it only while it has that ETag, and
+ * answers 412 otherwise. Send `ifMatch` only to a provider that evaluates it on a delete (see
+ * `supportsConditionalDelete`).
+ */
+async function deleteObject(client, bucket, key, ifMatch) {
+    await client.send(new dist_cjs.DeleteObjectCommand({ Bucket: bucket, Key: key, IfMatch: ifMatch }));
 }
 /** Lists every object under `prefix`, following continuation tokens, in the order S3 lists them. */
 async function listObjects(client, bucket, prefix, pageSize = 1000) {
@@ -71446,6 +71466,7 @@ function computeCacheVersion(paths, compression, enableCrossOsArchive, platform 
 
 
 
+
 /** Logged when streaming is requested but the plan needs the BSD-tar-plus-zstd two-step on Windows. */
 const STREAMING_FALLBACK_MESSAGE = 'Streaming is not supported with BSD tar and zstd on Windows; using a temporary archive file.';
 /** Prefix listings sent at once while searching one ref. */
@@ -71811,6 +71832,45 @@ async function restoreFromS3(tier, primaryKey, restoreKeys, lookupOnly) {
     }
     finally {
         external_node_fs_.rmSync(tempDir, { recursive: true, force: true });
+    }
+}
+/**
+ * Deletes the object that failed the integrity check in this restore, for `delete-corrupt-cache`.
+ * It deletes only while the object has the rejected ETag: with `If-Match` on a provider that
+ * evaluates it on a delete, else after a HeadObject compare. The HEAD and the delete are two
+ * requests, so on those providers a write between them can be deleted; the next save then writes
+ * the key again. Every failure only warns: the restore is already a miss.
+ */
+async function deleteRejectedObject(tier, rejected) {
+    const { client, bucket, providerConfig } = tier.storage;
+    const where = `s3://${bucket}/${rejected.objectKey}`;
+    const conditional = supportsConditionalDelete(providerConfig.provider);
+    try {
+        if (!conditional) {
+            const current = await checkObjectExists(client, bucket, rejected.objectKey);
+            if (current === null) {
+                log/* log */.R.info(`${where} is already gone, so delete-corrupt-cache has nothing to delete.`);
+                return 'gone';
+            }
+            if (current.etag === undefined || current.etag !== rejected.etag) {
+                log/* log */.R.info(`${where} changed after the integrity check failed, so delete-corrupt-cache keeps it.`);
+                return 'changed';
+            }
+        }
+        await deleteObject(client, bucket, rejected.objectKey, conditional ? rejected.etag : undefined);
+        log/* log */.R.info(`Deleted ${where}, because it failed the integrity check (delete-corrupt-cache).`);
+        return 'deleted';
+    }
+    catch (err) {
+        if (conditional && isPreconditionFailed(err)) {
+            log/* log */.R.info(`${where} changed after the integrity check failed, so delete-corrupt-cache keeps it.`);
+            return 'changed';
+        }
+        const reason = isAccessDeniedError(err)
+            ? 'Grant s3:DeleteObject on the cache keys, or set delete-corrupt-cache: false.'
+            : 'The object stays.';
+        log/* log */.R.warning(`Could not delete ${where}, which failed the integrity check: ${(0,outcomes/* toError */.i)(err).message}. ${reason}`);
+        return 'failed';
     }
 }
 async function saveToS3(tier, primaryKey, patterns, options = {}) {
@@ -73909,6 +73969,14 @@ async function restoreImpl(stateProvider, earlyExit) {
                     if (source === 's3' && outcome.rejected) {
                         // The save reads this and replaces the object, if it still has this ETag.
                         stateProvider.setState(constants/* State */.Uw.CacheS3RejectedKey, JSON.stringify(outcome.rejected));
+                        if (config.deleteCorruptCache && s3) {
+                            if (isCacheWritable(cacheMode)) {
+                                await deleteRejectedObject(s3, outcome.rejected);
+                            }
+                            else {
+                                log/* log */.R.info(`delete-corrupt-cache does not delete: ACTIONS_CACHE_MODE is '${cacheMode}', which does not permit writes.`);
+                            }
+                        }
                     }
                     if (config.dualCache && config.dualCacheStrict) {
                         throw new Error(`Restoring from ${source} failed: ${outcome.error.message}`, {
