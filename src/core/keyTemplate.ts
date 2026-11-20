@@ -81,6 +81,12 @@ export interface KeyTemplate {
    * can.
    */
   scopeProblem(ref?: string): ScopeProblem | undefined;
+  /**
+   * True when every `${ref}` shares a path segment with other text. A restore for one ref can then
+   * match the object keys of another ref. This check stands alone: `scopeProblem` reports only the
+   * first problem, and prune-only problems can hide this one.
+   */
+  refSharesSegment(): boolean;
   readonly warnings: readonly string[];
   /** The `s3-key-pattern` input as it was written, before any resolution. */
   readonly pattern: string;
@@ -362,6 +368,10 @@ export function compileKeyTemplate(rawOptions: KeyTemplateOptions): KeyTemplate 
   };
   const indexesOf = (kind: Token['kind']): number[] =>
     tokens.flatMap((token, index) => (token.kind === kind ? [index] : []));
+  const refSharesSegment = (): boolean => {
+    const refs = indexesOf('ref');
+    return refs.length > 0 && !refs.some((index) => isSegmentIsolated(index));
+  };
 
   /** One anchored matcher per ref, built like scopeMatcher's, reused across candidates. */
   const versionMatchers = new Map<string, RegExp>();
@@ -407,12 +417,12 @@ export function compileKeyTemplate(rawOptions: KeyTemplateOptions): KeyTemplate 
       if (ref === undefined) {
         return undefined;
       }
-      const refs = indexesOf('ref');
-      if (refs.length === 0) {
+      if (indexesOf('ref').length === 0) {
         return 'no-ref';
       }
-      return refs.some((index) => isSegmentIsolated(index)) ? undefined : 'ref-shares-segment';
+      return refSharesSegment() ? 'ref-shares-segment' : undefined;
     },
+    refSharesSegment,
     extractKey: (ref, objectKey) => {
       const head = baseOf(ref);
       const tail = suffixOf(ref);

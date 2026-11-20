@@ -271,6 +271,17 @@ describe('renderExplain', () => {
     expect(lines.some((line) => line.startsWith('Result: '))).toBe(true);
   });
 
+  it('escapes control characters in a listed key so a line cannot start a workflow command', async () => {
+    listing({
+      [`${FEATURE}|npm-`]: [candidate('npm-a\n::error title=injected::x', VERSION, 1)],
+    });
+
+    const lines = renderExplain(await buildExplainReport(tier, config()));
+
+    expect(lines.filter((line) => line.includes('\n'))).toEqual([]);
+    expect(lines.some((line) => line.includes('npm-a\\n::error title=injected::x'))).toBe(true);
+  });
+
   it('renders the GitHub tier first when dual-cache prefers it', async () => {
     const report = await buildExplainReport(
       tier,

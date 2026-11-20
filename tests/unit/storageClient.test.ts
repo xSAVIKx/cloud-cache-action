@@ -102,6 +102,49 @@ describe('Storage Client Context Factory', () => {
     (name: string): string =>
       values[name] ?? '';
 
+  describe('endpoint from the environment', () => {
+    const endpointOf = async (): Promise<string | undefined> => {
+      const { client } = createStorageContext({ maxAttempts: 1 });
+      const endpoint = await client.config.endpoint?.();
+      return endpoint && `${endpoint.protocol}//${endpoint.hostname}`;
+    };
+
+    beforeEach(() => {
+      delete process.env.AWS_ENDPOINT_URL;
+      delete process.env.AWS_ENDPOINT_URL_S3;
+      mockGetInput.mockImplementation(inputsOf({ [Inputs.Bucket]: 'bucket' }));
+    });
+
+    it('prefers AWS_ENDPOINT_URL_S3 over AWS_ENDPOINT_URL', async () => {
+      process.env.AWS_ENDPOINT_URL = 'http://localstack.test:4566';
+      process.env.AWS_ENDPOINT_URL_S3 = 'https://r2.test';
+      await expect(endpointOf()).resolves.toBe('https://r2.test');
+    });
+
+    it('uses AWS_ENDPOINT_URL when AWS_ENDPOINT_URL_S3 is not set', async () => {
+      process.env.AWS_ENDPOINT_URL = 'http://localstack.test:4566';
+      await expect(endpointOf()).resolves.toBe('http://localstack.test');
+    });
+  });
+
+  describe('region redirects', () => {
+    it('follows them on AWS when no endpoint is set', () => {
+      delete process.env.AWS_ENDPOINT_URL;
+      delete process.env.AWS_ENDPOINT_URL_S3;
+      mockGetInput.mockImplementation(inputsOf({ [Inputs.Bucket]: 'bucket' }));
+      const { client } = createStorageContext({ maxAttempts: 1 });
+      expect(client.config.followRegionRedirects).toBe(true);
+    });
+
+    it('does not follow them with an explicit endpoint', () => {
+      mockGetInput.mockImplementation(
+        inputsOf({ [Inputs.Bucket]: 'bucket', [Inputs.Endpoint]: 'https://s3.example.test' })
+      );
+      const { client } = createStorageContext({ maxAttempts: 1 });
+      expect(client.config.followRegionRedirects).toBeFalsy();
+    });
+  });
+
   it('passes the attempt count and standard retry mode to the SDK', async () => {
     mockGetInput.mockImplementation(inputsOf({ [Inputs.Bucket]: 'bucket' }));
     const { client } = createStorageContext({ maxAttempts: 4 });

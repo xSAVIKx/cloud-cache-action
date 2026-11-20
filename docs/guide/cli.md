@@ -84,7 +84,7 @@ export CLOUD_CACHE_BUCKET=my-cache-bucket
 export CLOUD_CACHE_ACCESS_KEY=...
 export CLOUD_CACHE_SECRET_KEY=...
 
-cloud-cache restore \
+node cloud-cache.mjs restore \
   --key "deps-$(sha256sum package-lock.json | cut -d' ' -f1)" \
   --restore-keys deps- \
   --path node_modules \
@@ -119,7 +119,7 @@ These flags are for Bitbucket. Each flag has an environment variable.
 The values of `--key` and `--restore-keys` can contain `{hash:<glob>[,<glob>...]}`. The CLI replaces each template with the `hashFiles` hash of the matching files. The globs are relative to the workspace.
 
 ```sh
-cloud-cache restore --key "deps-{hash:package-lock.json}" --path node_modules
+node cloud-cache.mjs restore --key "deps-{hash:package-lock.json}" --path node_modules
 ```
 
 The template ends at the first `}`. A glob with braces, such as `**/*.{lock,json}`, does not work. Use two globs that a comma separates, for example `{hash:**/*.lock,**/*.json}`. For all rules, see [Key hashing with `{hash:}`](./bitbucket.md#key-hashing-with-hash).
@@ -221,12 +221,12 @@ export CLOUD_CACHE_ENDPOINT="https://s3.example.com"
 
 KEY="deps-$(sha256sum package-lock.json | cut -d' ' -f1)"
 
-cloud-cache restore --key "$KEY" --restore-keys deps- --path node_modules --outputs-file outputs.env
+node cloud-cache.mjs restore --key "$KEY" --restore-keys deps- --path node_modules --outputs-file outputs.env
 
 npm ci
 npm test
 
-cloud-cache save --key "$KEY" --path node_modules
+node cloud-cache.mjs save --key "$KEY" --path node_modules
 ```
 
 `save` takes the key and the paths from the state file of the `restore` before it. `save` skips the upload when `restore` found an exact hit. Use one state file for each cache, and for each job that runs at the same time on one machine.

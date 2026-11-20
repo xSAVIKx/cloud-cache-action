@@ -5,7 +5,7 @@
  */
 
 import { getHost } from '../ci/host';
-import { formatSize, isExactKeyMatch } from '../utils/inputUtils';
+import { escapeKey, formatSize, isExactKeyMatch } from '../utils/inputUtils';
 import { mapWithConcurrency } from '../utils/concurrency';
 import type { CacheConfig } from './config';
 import { listCandidates, type Candidate, type S3Tier } from './s3Tier';
@@ -264,7 +264,7 @@ export function renderExplain(report: ExplainReport): string[] {
     );
     for (const candidate of searched.candidates) {
       lines.push(
-        `  ${candidate.versionMatches ? '✓' : '✗'} ${candidate.objectKey} ` +
+        `  ${candidate.versionMatches ? '✓' : '✗'} ${escapeKey(candidate.objectKey)} ` +
           `(version ${candidate.version || 'unknown'}, ${formatSize(candidate.sizeBytes)}, ` +
           `${candidate.lastModified || 'unknown'})`
       );
@@ -274,7 +274,7 @@ export function renderExplain(report: ExplainReport): string[] {
     }
   }
   for (const reason of report.reasons) {
-    lines.push(`Result: ${reason}`);
+    lines.push(`Result: ${escapeKey(reason)}`);
   }
   return lines;
 }
