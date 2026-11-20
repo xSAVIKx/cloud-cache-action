@@ -43,7 +43,7 @@ It uses the same cache keys and S3 object keys as the action. See
 
 ## How do I delete old caches?
 
-The action never deletes caches. Add a lifecycle rule to the bucket, or run the
+The action does not expire caches. Add a lifecycle rule to the bucket, or run the
 `xSAVIKx/cloud-cache-action/prune@v1` sub-action on a schedule. Start the prune with
 `dry-run: true`. See [Pruning Caches](./pruning.md).
 

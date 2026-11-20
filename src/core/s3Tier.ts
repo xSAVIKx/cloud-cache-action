@@ -37,9 +37,11 @@ import {
 import { Defaults } from '../constants';
 import { createStorageContext, type StorageContext } from '../storage/client';
 import { isAccessDeniedError } from '../storage/errors';
+import { supportsConditionalDelete } from '../storage/providers';
 import {
   checkObjectExists,
   createStreamUpload,
+  deleteObject,
   downloadFile,
   findNewestObject,
   getObjectStream,
@@ -72,7 +74,7 @@ import {
   type ObjectTag,
 } from './objectAttributes';
 import { compileKeyTemplate, type KeyTemplate } from './keyTemplate';
-import { toError, type RestoreOutcome, type SaveOutcome } from './outcomes';
+import { toError, type RejectedObject, type RestoreOutcome, type SaveOutcome } from './outcomes';
 import { computeCacheVersion } from './version';
 
 /** Logged when streaming is requested but the plan needs the BSD-tar-plus-zstd two-step on Windows. */
@@ -491,6 +493,18 @@ async function resolveExpectedSha256(
   }
 }
 
+/**
+ * The error outcome of an archive that failed the sha256 check. It names the object and its ETag
+ * only when `replaceable` is true and the lookup gave an ETag, so that a later save can replace
+ * exactly that object.
+ */
+function integrityFailure(message: string, found: S3Match, replaceable: boolean): RestoreOutcome {
+  const error = new Error(message);
+  return replaceable && found.etag !== undefined
+    ? { kind: 'error', error, rejected: { objectKey: found.objectKey, etag: found.etag } }
+    : { kind: 'error', error };
+}
+
 export async function restoreFromS3(
   tier: S3Tier,
   primaryKey: string,
@@ -524,6 +538,9 @@ export async function restoreFromS3(
     hit.downloadParts = parts;
   };
   const where = found.ref ? ` on ${found.ref}` : '';
+  // Only the object of the exact primary key may be replaced by this job's save. A restore-key
+  // match belongs to another key, and this job never writes that key.
+  const replaceable = found.exact && found.matchedKey === primaryKey;
   log.info(
     `S3 cache ${found.exact ? 'hit' : 'partial hit'} for key "${found.matchedKey}"${where} (${formatSize(found.size)})`
   );
@@ -538,7 +555,7 @@ export async function restoreFromS3(
           compression: tier.compression.method,
         })
       ) {
-        return await restoreFromS3Streaming(tier, found, tar, hit);
+        return await restoreFromS3Streaming(tier, found, tar, hit, replaceable);
       }
       log.info(STREAMING_FALLBACK_MESSAGE);
     } catch (err) {
@@ -558,12 +575,11 @@ export async function restoreFromS3(
       // The download hashes the bytes as they arrive; read the file again only when it did not.
       const actualSha256 = sha256 ?? (await sha256File(archivePath));
       if (actualSha256 !== expectedSha256) {
-        return {
-          kind: 'error',
-          error: new Error(
-            `Integrity check failed for s3://${bucket}/${found.objectKey}: expected sha256 ${expectedSha256}, got ${actualSha256}`
-          ),
-        };
+        return integrityFailure(
+          `Integrity check failed for s3://${bucket}/${found.objectKey}: expected sha256 ${expectedSha256}, got ${actualSha256}`,
+          found,
+          replaceable
+        );
       }
     } else {
       log.debug(
@@ -586,18 +602,123 @@ export async function restoreFromS3(
   }
 }
 
+/** How `deleteRejectedObject` ended. */
+export type RejectedDeleteResult = 'deleted' | 'changed' | 'gone' | 'other-ref' | 'failed';
+
+/** True for a 404 or a `NoSuchKey`/`NotFound` error: the object is not there. */
+function isNotFound(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null) {
+    return false;
+  }
+  const error = err as { name?: string; $metadata?: { httpStatusCode?: number } };
+  return (
+    error.$metadata?.httpStatusCode === 404 ||
+    error.name === 'NoSuchKey' ||
+    error.name === 'NotFound'
+  );
+}
+
+/**
+ * Deletes the object that failed the integrity check in this restore, for `delete-corrupt-cache`.
+ * Rules:
+ * - Only the object of the primary key under the save ref of this job. A match on a fallback ref
+ *   (the default branch, for example) is never deleted.
+ * - A HeadObject right before the delete must show the rejected ETag. A HEAD with no ETag, another
+ *   ETag or no object stops the delete.
+ * - On a provider that evaluates `If-Match` on a delete (see `supportsConditionalDelete`), the
+ *   delete also sends `If-Match`, so a write after the HEAD gives 412. On the other providers, a
+ *   write between the HEAD and the delete can be deleted; the next save then writes the key again.
+ * - Every failure only logs: the restore is already a miss.
+ */
+export async function deleteRejectedObject(
+  tier: S3Tier,
+  rejected: RejectedObject,
+  primaryKey: string
+): Promise<RejectedDeleteResult> {
+  const { client, bucket, providerConfig } = tier.storage;
+  const where = `s3://${bucket}/${rejected.objectKey}`;
+  if (rejected.objectKey !== tier.template.objectKey(tier.saveRef, primaryKey)) {
+    log.info(
+      `delete-corrupt-cache keeps ${where}: it is not the object of the primary key under the ref of this job, for example a match on a fallback ref.`
+    );
+    return 'other-ref';
+  }
+  const conditional = supportsConditionalDelete(providerConfig.provider);
+  const gone = (): RejectedDeleteResult => {
+    log.info(`${where} is already gone, so delete-corrupt-cache has nothing to delete.`);
+    return 'gone';
+  };
+  const changed = (): RejectedDeleteResult => {
+    log.info(
+      `${where} changed after the integrity check failed, so delete-corrupt-cache keeps it.`
+    );
+    return 'changed';
+  };
+  try {
+    const current = await checkObjectExists(client, bucket, rejected.objectKey);
+    if (current === null) {
+      return gone();
+    }
+    if (current.etag === undefined || current.etag !== rejected.etag) {
+      return changed();
+    }
+    await deleteObject(client, bucket, rejected.objectKey, conditional ? rejected.etag : undefined);
+    log.info(`Deleted ${where}, because it failed the integrity check (delete-corrupt-cache).`);
+    return 'deleted';
+  } catch (err) {
+    if (isNotFound(err)) {
+      return gone();
+    }
+    if (conditional && isPreconditionFailed(err)) {
+      // RustFS also answers 412 when the object is gone; both mean "keep, nothing to do".
+      return changed();
+    }
+    const reason = isAccessDeniedError(err)
+      ? 'Grant s3:DeleteObject on the cache keys, or set delete-corrupt-cache: false.'
+      : 'The object stays.';
+    log.warning(
+      `Could not delete ${where}, which failed the integrity check: ${toError(err).message}. ${reason}`
+    );
+    return 'failed';
+  }
+}
+
+export interface SaveToS3Options {
+  /**
+   * The object that a restore rejected in the integrity check. When the save finds that object at
+   * its key, with the same ETag, it does not keep it: it uploads without `If-None-Match`, and so
+   * replaces it. Any other object at the key is kept as usual.
+   */
+  rejected?: RejectedObject;
+}
+
 export async function saveToS3(
   tier: S3Tier,
   primaryKey: string,
-  patterns: readonly string[]
+  patterns: readonly string[],
+  options: SaveToS3Options = {}
 ): Promise<SaveOutcome> {
   const { client, bucket } = tier.storage;
   const objectKey = tier.template.objectKey(tier.saveRef, primaryKey);
   try {
     const existing = await checkObjectExists(client, bucket, objectKey);
-    if (existing) {
+    // Only the object that failed the check is replaced. When another job replaced it in the
+    // meantime, the ETag differs and the save keeps that object. The HEAD and the upload are two
+    // requests, so a write between them can still be replaced by this good archive.
+    const replace =
+      existing !== null &&
+      options.rejected !== undefined &&
+      options.rejected.objectKey === objectKey &&
+      existing.etag !== undefined &&
+      existing.etag === options.rejected.etag;
+    if (existing && !replace) {
       log.info(`Cache already exists at s3://${bucket}/${objectKey}; not uploading it again.`);
       return { kind: 'exists', s3: { objectKey, size: existing.size, etag: existing.etag } };
+    }
+    if (replace) {
+      log.info(
+        `Replacing s3://${bucket}/${objectKey}, because it failed the integrity check in the restore of this job.`
+      );
     }
 
     const { entries } = await resolveCachePaths(patterns, tier.workspace);
@@ -613,15 +734,33 @@ export async function saveToS3(
       if (
         !usesSeparateZstd({ tar, platform: process.platform, compression: tier.compression.method })
       ) {
-        return await saveToS3Streaming(tier, objectKey, entries, tar, primaryKey);
+        return markReplaced(
+          await saveToS3Streaming(tier, objectKey, entries, tar, primaryKey, replace),
+          replace
+        );
       }
       log.info(STREAMING_FALLBACK_MESSAGE);
     }
 
-    return await saveToS3FileMode(tier, objectKey, entries, primaryKey);
+    return markReplaced(
+      await saveToS3FileMode(tier, objectKey, entries, primaryKey, { replace }),
+      replace
+    );
   } catch (err) {
     return { kind: 'error', error: toError(err) };
   }
+}
+
+/** Marks a saved outcome as a replacement of an object that failed the integrity check. */
+function markReplaced(outcome: SaveOutcome, replace: boolean): SaveOutcome {
+  return replace && outcome.kind === 'saved' ? { ...outcome, replaced: true } : outcome;
+}
+
+/** How `saveToS3FileMode` treats the conditional write; see its description. */
+interface FileModeOptions {
+  retryConflict?: boolean;
+  omitTags?: boolean;
+  replace?: boolean;
 }
 
 /**
@@ -633,15 +772,15 @@ export async function saveToS3(
  * rather than duplicated, so both paths agree on precondition handling. `retryConflict: false`
  * is passed by that 409 fallback, which already is the one retry, and `omitTags: true` by the
  * fallback a streamed tagged upload takes, which must not send tags again without latching the
- * tier-wide flag first.
+ * tier-wide flag first. `replace: true` sends no condition, so the upload replaces the object
+ * that failed the integrity check (see `SaveToS3Options`).
  */
 async function saveToS3FileMode(
   tier: S3Tier,
   objectKey: string,
   entries: readonly string[],
   primaryKey: string,
-  retryConflict = true,
-  omitTags = false
+  { retryConflict = true, omitTags = false, replace = false }: FileModeOptions = {}
 ): Promise<SaveOutcome> {
   const { client, bucket } = tier.storage;
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cloud-cache-save-'));
@@ -677,7 +816,7 @@ async function saveToS3FileMode(
 
     const transferStart = Date.now();
     const transferMs = (): number => Date.now() - transferStart;
-    const sendCondition = !tier.storage.conditionalWriteUnsupported;
+    const sendCondition = !tier.storage.conditionalWriteUnsupported && !replace;
     const attemptConditionalUpload = async (tagging: string | undefined) => {
       try {
         return await attemptUpload('*', tagging);
@@ -1049,7 +1188,8 @@ async function saveToS3Streaming(
   objectKey: string,
   entries: readonly string[],
   tar: TarTool,
-  primaryKey: string
+  primaryKey: string,
+  replace = false
 ): Promise<SaveOutcome> {
   const { client, bucket } = tier.storage;
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cloud-cache-save-'));
@@ -1115,7 +1255,8 @@ async function saveToS3Streaming(
     // binding itself is untouched, so the real await below still observes its outcome.
     finalized.catch(() => undefined);
 
-    const sendCondition = !tier.storage.conditionalWriteUnsupported;
+    // A replace sends no condition. The checksum then goes on by the guarded copy.
+    const sendCondition = !tier.storage.conditionalWriteUnsupported && !replace;
     const transferStart = Date.now();
     log.info(`Streaming upload to s3://${bucket}/${objectKey}...`);
     const tagging = tier.storage.objectTaggingUnsupported ? undefined : encodeTagging(tier.tags);
@@ -1169,7 +1310,10 @@ async function saveToS3Streaming(
       // `If-None-Match` does. A streamed body cannot be replayed, so the retry without tags is a
       // file-mode save, which omits them once the flag below is set.
       if (tagging !== undefined && isTaggingUnsupported(err)) {
-        const outcome = await saveToS3FileMode(tier, objectKey, entries, primaryKey, true, true);
+        const outcome = await saveToS3FileMode(tier, objectKey, entries, primaryKey, {
+          omitTags: true,
+          replace,
+        });
         // Only a save that actually succeeded without tags proves the tags were the problem; the
         // same 501 also means an unsupported `If-None-Match`, which that save handles itself.
         if (outcome.kind === 'saved') {
@@ -1198,7 +1342,9 @@ async function saveToS3Streaming(
         log.info(
           `A concurrent write to s3://${bucket}/${objectKey} conflicted with this upload; retrying it once from a temporary archive file.`
         );
-        return await saveToS3FileMode(tier, objectKey, entries, primaryKey, false);
+        return await saveToS3FileMode(tier, objectKey, entries, primaryKey, {
+          retryConflict: false,
+        });
       }
       throw withStderrTail(err, stderrTail.lines());
     }
@@ -1314,7 +1460,8 @@ async function restoreFromS3Streaming(
   tier: S3Tier,
   found: S3Match,
   tar: TarTool,
-  hit: RestoreOutcome
+  hit: RestoreOutcome,
+  replaceable: boolean
 ): Promise<RestoreOutcome> {
   const { bucket } = tier.storage;
   let body: Readable | undefined;
@@ -1370,12 +1517,11 @@ async function restoreFromS3Streaming(
     if (expectedSha256) {
       const actualSha256 = tap.digest();
       if (actualSha256 !== expectedSha256) {
-        return {
-          kind: 'error',
-          error: new Error(
-            `Integrity check failed for s3://${bucket}/${found.objectKey}: expected sha256 ${expectedSha256}, got ${actualSha256}; files may already have been extracted`
-          ),
-        };
+        return integrityFailure(
+          `Integrity check failed for s3://${bucket}/${found.objectKey}: expected sha256 ${expectedSha256}, got ${actualSha256}; files may already have been extracted`,
+          found,
+          replaceable
+        );
       }
     } else {
       log.debug(

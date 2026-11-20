@@ -3,14 +3,14 @@ import { log } from '../ci/log';
 import { Outputs, State } from '../constants';
 import { NullStateProvider, type IStateProvider } from '../state';
 import { isValidEvent } from '../utils/inputUtils';
-import { getCacheMode, isCacheReadable } from './cacheMode';
+import { getCacheMode, isCacheReadable, isCacheWritable } from './cacheMode';
 import { persistCacheConfig, readCacheConfig, type CacheConfig } from './config';
 import { buildExplainReport, renderExplain, writeExplainSummary } from './explain';
 import { emitMetrics, hostMetricsFields, type StepMetrics } from './metrics';
 import { formatTimings } from './timings';
 import { toError, type RestoreOutcome } from './outcomes';
 import { applyPreset, readPreset } from './presets';
-import { buildS3Tier, restoreFromS3, type S3Tier } from './s3Tier';
+import { buildS3Tier, deleteRejectedObject, restoreFromS3, type S3Tier } from './s3Tier';
 import { writeRestoreSummary } from './summary';
 
 type Source = 's3' | 'github';
@@ -252,6 +252,22 @@ export async function restoreImpl(
         case 'miss':
           break;
         case 'error':
+          if (source === 's3' && outcome.rejected) {
+            // The save reads this and replaces the object, if it still has this ETag.
+            stateProvider.setState(State.CacheS3RejectedKey, JSON.stringify(outcome.rejected));
+            if (config.deleteCorruptCache && s3) {
+              // A delete is a write, so every setting that forbids writes stops it.
+              if (config.readOnly) {
+                log.info('delete-corrupt-cache does not delete: read-only is true.');
+              } else if (!isCacheWritable(cacheMode)) {
+                log.info(
+                  `delete-corrupt-cache does not delete: ACTIONS_CACHE_MODE is '${cacheMode}', which does not permit writes.`
+                );
+              } else {
+                await deleteRejectedObject(s3, outcome.rejected, config.primaryKey);
+              }
+            }
+          }
           if (config.dualCache && config.dualCacheStrict) {
             throw new Error(`Restoring from ${source} failed: ${outcome.error.message}`, {
               cause: outcome.error,

@@ -1,3 +1,9 @@
+/** An S3 object that failed the sha256 integrity check: its key and the ETag it had. */
+export interface RejectedObject {
+  objectKey: string;
+  etag: string;
+}
+
 export interface S3ObjectInfo {
   objectKey: string;
   size: number;
@@ -24,11 +30,26 @@ export type RestoreOutcome =
       extractMs?: number;
     }
   | { kind: 'miss' }
-  | { kind: 'error'; error: Error };
+  | {
+      kind: 'error';
+      error: Error;
+      /**
+       * Set when the object of the exact primary key failed the sha256 integrity check. A later
+       * save of the primary key replaces this object while it still has this ETag (see saveToS3).
+       */
+      rejected?: RejectedObject;
+    };
 
 /** What one cache tier did during save. `transferMs` is the S3 upload alone. */
 export type SaveOutcome =
-  | { kind: 'saved'; s3?: S3ObjectInfo; transferMs?: number; archiveMs?: number }
+  | {
+      kind: 'saved';
+      s3?: S3ObjectInfo;
+      transferMs?: number;
+      archiveMs?: number;
+      /** True when the upload replaced an object that failed the integrity check. */
+      replaced?: boolean;
+    }
   | { kind: 'exists'; s3?: S3ObjectInfo; transferMs?: number; archiveMs?: number }
   | { kind: 'skipped'; reason: string }
   | { kind: 'error'; error: Error };

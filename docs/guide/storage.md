@@ -32,6 +32,88 @@ tried next, `fail-on-cache-miss: true` fails the step as it would for any miss, 
 [streaming](#streaming-archives-experimental), the archive is hashed while it is extracted, so a
 mismatch is only detected at the end and files may already have been extracted.
 
+### Replacing an object that failed the check
+
+A save does not keep an object that failed the integrity check in the same job. The rules are:
+
+- The rule applies only to the object of the exact primary key. A restore records the object key
+  and the ETag of that object in the state of the step.
+- The save sends the usual existence check. When the object at the key still has the recorded
+  ETag, the save uploads without `If-None-Match`, and the new archive replaces the bad object.
+  The log shows `Replacing s3://<bucket>/<key>, because it failed the integrity check in the
+  restore of this job.` The metrics line shows `"replaced": true`.
+- When the ETag is different, another job replaced the object after the restore. The save keeps
+  that object. When the object is gone, the save uses the usual conditional create.
+- The check and the upload are two requests. When another job writes the key between them, this
+  save can overwrite that object. Both objects are good archives of the same key.
+- When the provider returns no ETag for the bad object, the restore records nothing, and the save
+  does not replace the object.
+- After the save, S3 holds an object of the key, and the save clears the recorded object. A
+  second save with the same state keeps the new object.
+- A match through `restore-keys` is never replaced. That object has another key, and the job does
+  not write that key. The save of the primary key writes a newer object, and a later prefix
+  lookup finds the newer object first.
+- The replacement deletes nothing, so it needs no `s3:DeleteObject` permission.
+- A failed replacement upload is a failed save. The save logs a warning and does not fail the
+  job. The recorded object stays, so a later save with the same state can try again.
+
+The replacement needs a save that reads the state of the restore:
+
+- The main action: its post step reads the state of its restore.
+- The [CLI](./cli.md): `cloud-cache restore` and then `cloud-cache save` with the same state
+  file.
+
+These cases do not replace the bad object:
+
+- The `restore` and `save` sub-actions. They do not share state, so the `save` sub-action finds
+  the existing object and keeps it.
+- A job whose restore failed the step, for example with `fail-on-cache-miss: true` or with
+  `dual-cache-strict: true`. GitHub runs the post step only when the job succeeds.
+- An exact match on a fallback ref, for example the default branch in a pull request job. The
+  save writes the key on the ref of the job, which is another object key. The bad object on the
+  fallback ref stays.
+- `read-only: true`, and a `dual-cache-strategy: skip-on-hit` save after an exact GitHub hit.
+  These modes do not save to S3.
+- `lookup-only: true`. It does not download the archive, so it does not check it.
+
+In these cases, set `delete-corrupt-cache: true` (see the next section), run a job that restores
+and saves with the main action, or delete the object with the [`prune` sub-action](./pruning.md)
+or a lifecycle rule.
+
+### Deleting an object that failed the check
+
+The restore input `delete-corrupt-cache` is off by default. When you set it to `true`, the restore
+deletes the bad object itself. Then any later save of the key writes a good cache, also the `save`
+sub-action, a save-only job and a job after a failure on `fail-on-cache-miss: true`. The rules are:
+
+- The restore deletes only the object of the exact primary key that failed the check in this
+  restore. It never deletes a match through `restore-keys`.
+- The restore deletes only an object under the ref of the job. An exact match on a fallback ref,
+  for example the default branch in a pull request job, is never deleted. The log then shows
+  one info line that tells why.
+- Right before the delete, the restore sends a `HeadObject` and compares the ETag with the ETag
+  that the restore read. When the ETag is different, the HEAD gives no ETag, or the object is
+  gone, the restore keeps the object and logs an info line.
+- On AWS S3 and RustFS, the delete also sends `If-Match` with that ETag. A write after the HEAD
+  then makes the delete fail with `412`, and the restore keeps the object. On the other
+  providers, the HEAD and the delete are two requests, so a write between them can be deleted.
+  The next save then writes the key again.
+- A failed or refused delete only logs a warning. The restore stays a miss, and the job continues
+  as before. A `403` warning tells you to grant `s3:DeleteObject` on the cache keys. The
+  [Security guide](./security.md#optional-delete-corrupt-cache) shows the policy statement.
+- The restore deletes before `fail-on-cache-miss: true` or `dual-cache-strict: true` fails the
+  step.
+- A setting that forbids writes stops the delete: `read-only: true`, or an `ACTIONS_CACHE_MODE`
+  that does not permit writes. The log then shows one info line.
+- The input works in the main action, the `restore` sub-action and the CLI
+  (`--delete-corrupt-cache`). The replacement of the previous section stays in effect. After a
+  delete, the save finds no object and uses the usual conditional create.
+- RustFS is known by the `provider: rustfs` input. Without it, an endpoint on port 9000 counts as
+  MinIO, and the delete does not send `If-Match`.
+- In a bucket with versioning, the delete adds a delete marker. The bad version stays as a
+  noncurrent version, and you pay for its storage until a lifecycle rule removes noncurrent
+  versions. The cache repair works the same.
+
 Objects with no checksum at all skip verification: caches from v1.1, or objects whose tagging or
 metadata write the provider rejected. This is not a breaking change. An action older than v1.6
 that restores a cache saved as a tag finds no checksum metadata. It skips the integrity check the

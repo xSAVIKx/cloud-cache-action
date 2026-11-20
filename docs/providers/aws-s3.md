@@ -140,7 +140,7 @@ jobs:
 ## Notes
 
 - **Concurrent saves**: AWS S3 enforces the conditional create (`If-None-Match`). See [Safe Concurrent Saves](../guide/storage.md#safe-concurrent-saves).
-- **Expiry**: the action never deletes caches. Use the lifecycle rules above, or the [`prune` sub-action](../guide/pruning.md).
+- **Expiry**: the action does not expire caches. Use the lifecycle rules above, or the [`prune` sub-action](../guide/pruning.md).
 
 ### Live CI workflow
 

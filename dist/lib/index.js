@@ -61855,6 +61855,7 @@ var Inputs;
     Inputs["EnableCrossOsArchive"] = "enableCrossOsArchive";
     Inputs["FailOnCacheMiss"] = "fail-on-cache-miss";
     Inputs["LookupOnly"] = "lookup-only";
+    Inputs["DeleteCorruptCache"] = "delete-corrupt-cache";
     Inputs["ReadOnly"] = "read-only";
     Inputs["Preset"] = "preset";
     Inputs["Bucket"] = "bucket";
@@ -61957,6 +61958,8 @@ var State;
     State["CacheDualCacheStrict"] = "CACHE_DUAL_CACHE_STRICT";
     State["CacheS3ExactHit"] = "CACHE_S3_EXACT_HIT";
     State["CacheGithubExactHit"] = "CACHE_GITHUB_EXACT_HIT";
+    /** JSON `{objectKey, etag}` of the S3 object that failed the integrity check on restore. */
+    State["CacheS3RejectedKey"] = "CACHE_S3_REJECTED_KEY";
     State["CacheHitSource"] = "CACHE_HIT_SOURCE";
     State["CacheJobSummary"] = "CACHE_JOB_SUMMARY";
     State["CacheMetricsFile"] = "CACHE_METRICS_FILE";
@@ -69491,6 +69494,7 @@ function readCacheConfig(state) {
         restoreKeys: (0,inputUtils/* getInputAsArray */.q3)(constants/* Inputs */.G0.RestoreKeys),
         lookupOnly: (0,inputUtils/* getInputAsBool */.$x)(constants/* Inputs */.G0.LookupOnly),
         failOnCacheMiss: (0,inputUtils/* getInputAsBool */.$x)(constants/* Inputs */.G0.FailOnCacheMiss),
+        deleteCorruptCache: (0,inputUtils/* getInputAsBool */.$x)(constants/* Inputs */.G0.DeleteCorruptCache),
         readOnly: bool(constants/* State */.Uw.CacheReadOnly, () => (0,inputUtils/* getInputAsBool */.$x)(constants/* Inputs */.G0.ReadOnly)),
         enableCrossOsArchive: (0,inputUtils/* getInputAsBool */.$x)(constants/* Inputs */.G0.EnableCrossOsArchive),
         uploadChunkSize: uploadChunkSize.value,
@@ -70387,6 +70391,16 @@ function resolveProviderDefaults(endpointInput, regionInput, forcePathStyleInput
         forcePathStyle: Boolean(forcePathStyle),
     };
 }
+/**
+ * True when the provider evaluates `If-Match` on DeleteObject: a delete of an object with another
+ * ETag fails with 412. AWS S3 documents this for general purpose buckets. RustFS 1.0.0 was
+ * measured on a live server (2026-11-20): a wrong ETag gave 412, the right ETag deleted. The other
+ * providers are not documented or measured, and a server that ignores the header would delete
+ * without the condition. For those, the caller compares the ETag with a HeadObject first.
+ */
+function supportsConditionalDelete(provider) {
+    return provider === 'aws' || provider === 'rustfs';
+}
 
 ;// CONCATENATED MODULE: ./src/storage/errors.ts
 /**
@@ -70955,6 +70969,14 @@ async function checkObjectExists(client, bucket, key) {
         }
         throw err;
     }
+}
+/**
+ * Deletes one object. With `ifMatch`, the server deletes it only while it has that ETag, and
+ * answers 412 otherwise. Send `ifMatch` only to a provider that evaluates it on a delete (see
+ * `supportsConditionalDelete`).
+ */
+async function deleteObject(client, bucket, key, ifMatch) {
+    await client.send(new dist_cjs.DeleteObjectCommand({ Bucket: bucket, Key: key, IfMatch: ifMatch }));
 }
 /** Lists every object under `prefix`, following continuation tokens, in the order S3 lists them. */
 async function listObjects(client, bucket, prefix, pageSize = 1000) {
@@ -72121,6 +72143,7 @@ function computeCacheVersion(paths, compression, enableCrossOsArchive, platform 
 
 
 
+
 /** Logged when streaming is requested but the plan needs the BSD-tar-plus-zstd two-step on Windows. */
 const STREAMING_FALLBACK_MESSAGE = 'Streaming is not supported with BSD tar and zstd on Windows; using a temporary archive file.';
 /** Prefix listings sent at once while searching one ref. */
@@ -72394,6 +72417,17 @@ async function resolveExpectedSha256(tier, objectKey, metadata, tagCount) {
         return undefined;
     }
 }
+/**
+ * The error outcome of an archive that failed the sha256 check. It names the object and its ETag
+ * only when `replaceable` is true and the lookup gave an ETag, so that a later save can replace
+ * exactly that object.
+ */
+function integrityFailure(message, found, replaceable) {
+    const error = new Error(message);
+    return replaceable && found.etag !== undefined
+        ? { kind: 'error', error, rejected: { objectKey: found.objectKey, etag: found.etag } }
+        : { kind: 'error', error };
+}
 async function restoreFromS3(tier, primaryKey, restoreKeys, lookupOnly) {
     let match;
     const lookupStart = Date.now();
@@ -72422,6 +72456,9 @@ async function restoreFromS3(tier, primaryKey, restoreKeys, lookupOnly) {
         hit.downloadParts = parts;
     };
     const where = found.ref ? ` on ${found.ref}` : '';
+    // Only the object of the exact primary key may be replaced by this job's save. A restore-key
+    // match belongs to another key, and this job never writes that key.
+    const replaceable = found.exact && found.matchedKey === primaryKey;
     log/* log */.R.info(`S3 cache ${found.exact ? 'hit' : 'partial hit'} for key "${found.matchedKey}"${where} (${(0,inputUtils/* formatSize */.Xq)(found.size)})`);
     if (tier.streaming) {
         try {
@@ -72431,7 +72468,7 @@ async function restoreFromS3(tier, primaryKey, restoreKeys, lookupOnly) {
                 platform: process.platform,
                 compression: tier.compression.method,
             })) {
-                return await restoreFromS3Streaming(tier, found, tar, hit);
+                return await restoreFromS3Streaming(tier, found, tar, hit, replaceable);
             }
             log/* log */.R.info(STREAMING_FALLBACK_MESSAGE);
         }
@@ -72451,10 +72488,7 @@ async function restoreFromS3(tier, primaryKey, restoreKeys, lookupOnly) {
             // The download hashes the bytes as they arrive; read the file again only when it did not.
             const actualSha256 = sha256 ?? (await sha256File(archivePath));
             if (actualSha256 !== expectedSha256) {
-                return {
-                    kind: 'error',
-                    error: new Error(`Integrity check failed for s3://${bucket}/${found.objectKey}: expected sha256 ${expectedSha256}, got ${actualSha256}`),
-                };
+                return integrityFailure(`Integrity check failed for s3://${bucket}/${found.objectKey}: expected sha256 ${expectedSha256}, got ${actualSha256}`, found, replaceable);
             }
         }
         else {
@@ -72477,14 +72511,90 @@ async function restoreFromS3(tier, primaryKey, restoreKeys, lookupOnly) {
         external_node_fs_.rmSync(tempDir, { recursive: true, force: true });
     }
 }
-async function saveToS3(tier, primaryKey, patterns) {
+/** True for a 404 or a `NoSuchKey`/`NotFound` error: the object is not there. */
+function isNotFound(err) {
+    if (typeof err !== 'object' || err === null) {
+        return false;
+    }
+    const error = err;
+    return (error.$metadata?.httpStatusCode === 404 ||
+        error.name === 'NoSuchKey' ||
+        error.name === 'NotFound');
+}
+/**
+ * Deletes the object that failed the integrity check in this restore, for `delete-corrupt-cache`.
+ * Rules:
+ * - Only the object of the primary key under the save ref of this job. A match on a fallback ref
+ *   (the default branch, for example) is never deleted.
+ * - A HeadObject right before the delete must show the rejected ETag. A HEAD with no ETag, another
+ *   ETag or no object stops the delete.
+ * - On a provider that evaluates `If-Match` on a delete (see `supportsConditionalDelete`), the
+ *   delete also sends `If-Match`, so a write after the HEAD gives 412. On the other providers, a
+ *   write between the HEAD and the delete can be deleted; the next save then writes the key again.
+ * - Every failure only logs: the restore is already a miss.
+ */
+async function deleteRejectedObject(tier, rejected, primaryKey) {
+    const { client, bucket, providerConfig } = tier.storage;
+    const where = `s3://${bucket}/${rejected.objectKey}`;
+    if (rejected.objectKey !== tier.template.objectKey(tier.saveRef, primaryKey)) {
+        log/* log */.R.info(`delete-corrupt-cache keeps ${where}: it is not the object of the primary key under the ref of this job, for example a match on a fallback ref.`);
+        return 'other-ref';
+    }
+    const conditional = supportsConditionalDelete(providerConfig.provider);
+    const gone = () => {
+        log/* log */.R.info(`${where} is already gone, so delete-corrupt-cache has nothing to delete.`);
+        return 'gone';
+    };
+    const changed = () => {
+        log/* log */.R.info(`${where} changed after the integrity check failed, so delete-corrupt-cache keeps it.`);
+        return 'changed';
+    };
+    try {
+        const current = await checkObjectExists(client, bucket, rejected.objectKey);
+        if (current === null) {
+            return gone();
+        }
+        if (current.etag === undefined || current.etag !== rejected.etag) {
+            return changed();
+        }
+        await deleteObject(client, bucket, rejected.objectKey, conditional ? rejected.etag : undefined);
+        log/* log */.R.info(`Deleted ${where}, because it failed the integrity check (delete-corrupt-cache).`);
+        return 'deleted';
+    }
+    catch (err) {
+        if (isNotFound(err)) {
+            return gone();
+        }
+        if (conditional && isPreconditionFailed(err)) {
+            // RustFS also answers 412 when the object is gone; both mean "keep, nothing to do".
+            return changed();
+        }
+        const reason = isAccessDeniedError(err)
+            ? 'Grant s3:DeleteObject on the cache keys, or set delete-corrupt-cache: false.'
+            : 'The object stays.';
+        log/* log */.R.warning(`Could not delete ${where}, which failed the integrity check: ${(0,outcomes/* toError */.i)(err).message}. ${reason}`);
+        return 'failed';
+    }
+}
+async function saveToS3(tier, primaryKey, patterns, options = {}) {
     const { client, bucket } = tier.storage;
     const objectKey = tier.template.objectKey(tier.saveRef, primaryKey);
     try {
         const existing = await checkObjectExists(client, bucket, objectKey);
-        if (existing) {
+        // Only the object that failed the check is replaced. When another job replaced it in the
+        // meantime, the ETag differs and the save keeps that object. The HEAD and the upload are two
+        // requests, so a write between them can still be replaced by this good archive.
+        const replace = existing !== null &&
+            options.rejected !== undefined &&
+            options.rejected.objectKey === objectKey &&
+            existing.etag !== undefined &&
+            existing.etag === options.rejected.etag;
+        if (existing && !replace) {
             log/* log */.R.info(`Cache already exists at s3://${bucket}/${objectKey}; not uploading it again.`);
             return { kind: 'exists', s3: { objectKey, size: existing.size, etag: existing.etag } };
+        }
+        if (replace) {
+            log/* log */.R.info(`Replacing s3://${bucket}/${objectKey}, because it failed the integrity check in the restore of this job.`);
         }
         const { entries } = await resolveCachePaths(patterns, tier.workspace);
         if (entries.length === 0) {
@@ -72494,15 +72604,19 @@ async function saveToS3(tier, primaryKey, patterns) {
         if (tier.streaming) {
             const tar = await findTar();
             if (!usesSeparateZstd({ tar, platform: process.platform, compression: tier.compression.method })) {
-                return await saveToS3Streaming(tier, objectKey, entries, tar, primaryKey);
+                return markReplaced(await saveToS3Streaming(tier, objectKey, entries, tar, primaryKey, replace), replace);
             }
             log/* log */.R.info(STREAMING_FALLBACK_MESSAGE);
         }
-        return await saveToS3FileMode(tier, objectKey, entries, primaryKey);
+        return markReplaced(await saveToS3FileMode(tier, objectKey, entries, primaryKey, { replace }), replace);
     }
     catch (err) {
         return { kind: 'error', error: (0,outcomes/* toError */.i)(err) };
     }
+}
+/** Marks a saved outcome as a replacement of an object that failed the integrity check. */
+function markReplaced(outcome, replace) {
+    return replace && outcome.kind === 'saved' ? { ...outcome, replaced: true } : outcome;
 }
 /**
  * File-based save: archives to a temporary file, uploads it, and handles the Task 4 conditional
@@ -72513,9 +72627,10 @@ async function saveToS3(tier, primaryKey, patterns) {
  * rather than duplicated, so both paths agree on precondition handling. `retryConflict: false`
  * is passed by that 409 fallback, which already is the one retry, and `omitTags: true` by the
  * fallback a streamed tagged upload takes, which must not send tags again without latching the
- * tier-wide flag first.
+ * tier-wide flag first. `replace: true` sends no condition, so the upload replaces the object
+ * that failed the integrity check (see `SaveToS3Options`).
  */
-async function saveToS3FileMode(tier, objectKey, entries, primaryKey, retryConflict = true, omitTags = false) {
+async function saveToS3FileMode(tier, objectKey, entries, primaryKey, { retryConflict = true, omitTags = false, replace = false } = {}) {
     const { client, bucket } = tier.storage;
     const tempDir = external_node_fs_.mkdtempSync(external_node_path_.join(external_node_os_.tmpdir(), 'cloud-cache-save-'));
     try {
@@ -72538,7 +72653,7 @@ async function saveToS3FileMode(tier, objectKey, entries, primaryKey, retryConfl
         });
         const transferStart = Date.now();
         const transferMs = () => Date.now() - transferStart;
-        const sendCondition = !tier.storage.conditionalWriteUnsupported;
+        const sendCondition = !tier.storage.conditionalWriteUnsupported && !replace;
         const attemptConditionalUpload = async (tagging) => {
             try {
                 return await attemptUpload('*', tagging);
@@ -72837,7 +72952,7 @@ function withStderrTail(err, tail) {
  * first, so lib-storage can never send the final PutObject/CompleteMultipartUpload for a
  * truncated archive. `If-None-Match` would otherwise keep such a bad object forever.
  */
-async function saveToS3Streaming(tier, objectKey, entries, tar, primaryKey) {
+async function saveToS3Streaming(tier, objectKey, entries, tar, primaryKey, replace = false) {
     const { client, bucket } = tier.storage;
     const tempDir = external_node_fs_.mkdtempSync(external_node_path_.join(external_node_os_.tmpdir(), 'cloud-cache-save-'));
     let child;
@@ -72900,7 +73015,8 @@ async function saveToS3Streaming(tier, objectKey, entries, tar, primaryKey) {
         // otherwise leave its eventual rejection unhandled, which is fatal on Node 24). The `finalized`
         // binding itself is untouched, so the real await below still observes its outcome.
         finalized.catch(() => undefined);
-        const sendCondition = !tier.storage.conditionalWriteUnsupported;
+        // A replace sends no condition. The checksum then goes on by the guarded copy.
+        const sendCondition = !tier.storage.conditionalWriteUnsupported && !replace;
         const transferStart = Date.now();
         log/* log */.R.info(`Streaming upload to s3://${bucket}/${objectKey}...`);
         const tagging = tier.storage.objectTaggingUnsupported ? undefined : encodeTagging(tier.tags);
@@ -72947,7 +73063,10 @@ async function saveToS3Streaming(tier, objectKey, entries, tar, primaryKey) {
             // `If-None-Match` does. A streamed body cannot be replayed, so the retry without tags is a
             // file-mode save, which omits them once the flag below is set.
             if (tagging !== undefined && isTaggingUnsupported(err)) {
-                const outcome = await saveToS3FileMode(tier, objectKey, entries, primaryKey, true, true);
+                const outcome = await saveToS3FileMode(tier, objectKey, entries, primaryKey, {
+                    omitTags: true,
+                    replace,
+                });
                 // Only a save that actually succeeded without tags proves the tags were the problem; the
                 // same 501 also means an unsupported `If-None-Match`, which that save handles itself.
                 if (outcome.kind === 'saved') {
@@ -72972,7 +73091,9 @@ async function saveToS3Streaming(tier, objectKey, entries, tar, primaryKey) {
                 // A streamed body cannot be replayed, so the one retry is a file-mode save, which keeps
                 // the condition.
                 log/* log */.R.info(`A concurrent write to s3://${bucket}/${objectKey} conflicted with this upload; retrying it once from a temporary archive file.`);
-                return await saveToS3FileMode(tier, objectKey, entries, primaryKey, false);
+                return await saveToS3FileMode(tier, objectKey, entries, primaryKey, {
+                    retryConflict: false,
+                });
             }
             throw withStderrTail(err, stderrTail.lines());
         }
@@ -73061,7 +73182,7 @@ async function openArchiveStream(tier, found) {
  * Streaming restore (Task 8): pipes the GetObject body through the sha256 tap into a spawned
  * tar extract reading from stdin, so nothing touches disk except the extracted files themselves.
  */
-async function restoreFromS3Streaming(tier, found, tar, hit) {
+async function restoreFromS3Streaming(tier, found, tar, hit, replaceable) {
     const { bucket } = tier.storage;
     let body;
     let child;
@@ -73114,10 +73235,7 @@ async function restoreFromS3Streaming(tier, found, tar, hit) {
         if (expectedSha256) {
             const actualSha256 = tap.digest();
             if (actualSha256 !== expectedSha256) {
-                return {
-                    kind: 'error',
-                    error: new Error(`Integrity check failed for s3://${bucket}/${found.objectKey}: expected sha256 ${expectedSha256}, got ${actualSha256}; files may already have been extracted`),
-                };
+                return integrityFailure(`Integrity check failed for s3://${bucket}/${found.objectKey}: expected sha256 ${expectedSha256}, got ${actualSha256}; files may already have been extracted`, found, replaceable);
             }
         }
         else {
@@ -74551,6 +74669,22 @@ async function restoreImpl(stateProvider, earlyExit) {
                 case 'miss':
                     break;
                 case 'error':
+                    if (source === 's3' && outcome.rejected) {
+                        // The save reads this and replaces the object, if it still has this ETag.
+                        stateProvider.setState(constants/* State */.Uw.CacheS3RejectedKey, JSON.stringify(outcome.rejected));
+                        if (config.deleteCorruptCache && s3) {
+                            // A delete is a write, so every setting that forbids writes stops it.
+                            if (config.readOnly) {
+                                log/* log */.R.info('delete-corrupt-cache does not delete: read-only is true.');
+                            }
+                            else if (!isCacheWritable(cacheMode)) {
+                                log/* log */.R.info(`delete-corrupt-cache does not delete: ACTIONS_CACHE_MODE is '${cacheMode}', which does not permit writes.`);
+                            }
+                            else {
+                                await deleteRejectedObject(s3, outcome.rejected, config.primaryKey);
+                            }
+                        }
+                    }
                     if (config.dualCache && config.dualCacheStrict) {
                         throw new Error(`Restoring from ${source} failed: ${outcome.error.message}`, {
                             cause: outcome.error,
@@ -74651,6 +74785,27 @@ async function runRestoreOnly(earlyExit = true) {
 
 
 
+/**
+ * Reads the object that the restore rejected in the integrity check. A value that does not parse
+ * gives undefined, and the save then keeps any object at its key as usual.
+ */
+function readRejected(stateProvider) {
+    const value = stateProvider.getState(constants/* State */.Uw.CacheS3RejectedKey);
+    if (!value) {
+        return undefined;
+    }
+    try {
+        const parsed = JSON.parse(value);
+        if (typeof parsed?.objectKey === 'string' && typeof parsed.etag === 'string') {
+            return { objectKey: parsed.objectKey, etag: parsed.etag };
+        }
+    }
+    catch {
+        // Falls through.
+    }
+    log/* log */.R.debug(`Ignoring the unreadable ${constants/* State */.Uw.CacheS3RejectedKey} state.`);
+    return undefined;
+}
 const ACCESS_DENIED_HINT = 'The credentials may not be allowed to write to the bucket. Set read-only: true to skip the save.';
 /**
  * The S3 save error message, with a hint about read-only when S3 denied a write call. A 403 on a
@@ -74691,7 +74846,7 @@ async function saveImpl_setUpS3(config, stateProvider) {
         return undefined;
     }
 }
-async function saveSingleTier(config, s3, s3ExactHit) {
+async function saveSingleTier(config, s3, s3ExactHit, s3Options) {
     if (s3ExactHit) {
         log/* log */.R.info(`Cache hit occurred on the primary key ${config.primaryKey}, not saving cache.`);
         (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheSavedSources, 'none');
@@ -74700,7 +74855,7 @@ async function saveSingleTier(config, s3, s3ExactHit) {
     // A tier error the step only warned about still makes the outcome an error, not a plain skip.
     let warnedError;
     if (s3) {
-        const outcome = await saveToS3(s3, config.primaryKey, config.paths);
+        const outcome = await saveToS3(s3, config.primaryKey, config.paths, s3Options);
         switch (outcome.kind) {
             case 'saved':
             case 'exists':
@@ -74713,6 +74868,7 @@ async function saveSingleTier(config, s3, s3ExactHit) {
                     transferMs: outcome.transferMs,
                     archiveMs: outcome.archiveMs,
                     outcome: outcome.kind,
+                    replaced: outcome.kind === 'saved' && outcome.replaced === true ? true : undefined,
                 };
             case 'skipped':
                 (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheSavedSources, 'none');
@@ -74756,7 +74912,7 @@ async function saveSingleTier(config, s3, s3ExactHit) {
         ? { sources: [], outcome: 'error', error: warnedError }
         : { sources: [], outcome: 'skipped' };
 }
-async function saveBothTiers(config, s3, s3ExactHit, githubExactHit) {
+async function saveBothTiers(config, s3, s3ExactHit, githubExactHit, s3Options) {
     const present = new Set();
     let size;
     let objectKey;
@@ -74765,6 +74921,7 @@ async function saveBothTiers(config, s3, s3ExactHit, githubExactHit) {
     // Only an upload this step actually performed makes the outcome "saved"; tiers that already
     // held the key report "exists".
     let uploaded = false;
+    let replaced = false;
     // A tier error the step only warned about still makes the outcome an error, not a plain skip.
     let warnedError;
     const tierFailed = (tier, error) => {
@@ -74783,7 +74940,7 @@ async function saveBothTiers(config, s3, s3ExactHit, githubExactHit) {
         present.add('s3');
     }
     else if (!skipBoth && s3) {
-        const outcome = await saveToS3(s3, config.primaryKey, config.paths);
+        const outcome = await saveToS3(s3, config.primaryKey, config.paths, s3Options);
         switch (outcome.kind) {
             case 'saved':
             case 'exists':
@@ -74794,6 +74951,7 @@ async function saveBothTiers(config, s3, s3ExactHit, githubExactHit) {
                 transferMs = outcome.transferMs;
                 archiveMs = outcome.archiveMs;
                 uploaded ||= outcome.kind === 'saved';
+                replaced = outcome.kind === 'saved' && outcome.replaced === true;
                 break;
             case 'skipped':
                 break;
@@ -74863,6 +75021,7 @@ async function saveBothTiers(config, s3, s3ExactHit, githubExactHit) {
         transferMs,
         archiveMs,
         outcome: uploaded ? 'saved' : 'exists',
+        replaced: replaced ? true : undefined,
     };
 }
 async function saveImpl(stateProvider) {
@@ -74950,13 +75109,21 @@ async function saveImpl(stateProvider) {
         }
         const s3ExactHit = stateProvider.getState(constants/* State */.Uw.CacheS3ExactHit) === 'true';
         const githubExactHit = stateProvider.getState(constants/* State */.Uw.CacheGithubExactHit) === 'true';
+        // Set by the restore when the object of the primary key failed the integrity check.
+        const rejected = readRejected(stateProvider);
+        const s3Options = { rejected };
         const s3 = await saveImpl_setUpS3(config, stateProvider);
         provider = s3?.storage.providerConfig.provider;
         compression = s3?.compression.method;
         region = s3?.storage.providerConfig.region;
         const result = config.dualCache
-            ? await saveBothTiers(config, s3, s3ExactHit, githubExactHit)
-            : await saveSingleTier(config, s3, s3ExactHit);
+            ? await saveBothTiers(config, s3, s3ExactHit, githubExactHit, s3Options)
+            : await saveSingleTier(config, s3, s3ExactHit, s3Options);
+        if (stateProvider.getState(constants/* State */.Uw.CacheS3RejectedKey) && result.sources.includes('s3')) {
+            // S3 now holds a replacement or another object of the key. A second save with the same
+            // state (a CLI state file) must not replace that object again.
+            stateProvider.setState(constants/* State */.Uw.CacheS3RejectedKey, '');
+        }
         (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheSaveDurationMs, String(Date.now() - start));
         (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheTransferDurationMs, String(result.transferMs ?? 0));
         (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheBytes, String(result.size ?? 0));
@@ -74971,7 +75138,12 @@ async function saveImpl(stateProvider) {
             archiveDurationMs: result.archiveMs,
             streaming: config.streaming,
             outcome: result.outcome,
-            extra: result.error ? { error: result.error } : undefined,
+            extra: result.error || result.replaced
+                ? {
+                    ...(result.error ? { error: result.error } : {}),
+                    ...(result.replaced ? { replaced: true } : {}),
+                }
+                : undefined,
         });
         await writeSaveSummary({
             jobSummary: config.jobSummary,

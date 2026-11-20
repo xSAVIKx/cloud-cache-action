@@ -88,7 +88,7 @@ sends the call.
 | `CopyObject`                                                                  | `s3:GetObject` and `s3:PutObject` (and `s3:PutObjectTagging` per AWS for the copied tags) | Save: the fallback that writes the checksum metadata after a streamed save                                                     |
 | `AbortMultipartUpload`                                                        | `s3:AbortMultipartUpload`                                                                 | Save, when an upload fails or stops. Also `prune` with `abort-uploads-older-than-hours`                                        |
 | `ListMultipartUploads`                                                        | `s3:ListBucketMultipartUploads`                                                           | `prune` with `abort-uploads-older-than-hours`                                                                                  |
-| `DeleteObject`                                                                | `s3:DeleteObject`                                                                         | `prune` only, when it is not a dry run                                                                                         |
+| `DeleteObject` | `s3:DeleteObject` | `prune` when it is not a dry run. Also a restore with `delete-corrupt-cache: true`, for an object that fails the integrity check |
 
 The action never sends `ListParts`, so `s3:ListMultipartUploadParts` is not needed. The checksum
 tag calls are optional: if a provider or a policy refuses them, the save falls back to the copy and
@@ -97,8 +97,8 @@ check.
 
 A restore needs `s3:ListBucket`, `s3:GetObject` and `s3:GetObjectTagging`. A save needs
 `s3:ListBucket`, `s3:GetObject`, `s3:PutObject`, `s3:PutObjectTagging`, `s3:AbortMultipartUpload`.
-Only `prune` needs `s3:DeleteObject` and `s3:ListBucketMultipartUploads`. Give `prune` its own
-credential.
+Only `prune` needs `s3:ListBucketMultipartUploads`. Only `prune` and the optional
+`delete-corrupt-cache` input need `s3:DeleteObject`. Give `prune` its own credential.
 
 When S3 refuses a call with `403`, the warning names the call, the object, the HTTP status and the
 policy action from this table. A `403` on `HeadObject` has no response body, so the warning cannot
@@ -185,6 +185,24 @@ Use this policy for pull request jobs together with `read-only: true`.
 > are sensitive, use a dedicated bucket for this repository. This guide did not measure this
 > behaviour on AWS.
 
+### Optional: `delete-corrupt-cache`
+
+The restore input `delete-corrupt-cache: true` deletes an object of the exact primary key that
+fails the integrity check (see [How Caches Are Stored](./storage.md#deleting-an-object-that-failed-the-check)).
+Only for this input, add `s3:DeleteObject` to the object statement of the restore credential:
+
+```json
+{
+  "Sid": "DeleteCorruptRepositoryObjects",
+  "Effect": "Allow",
+  "Action": "s3:DeleteObject",
+  "Resource": "arn:aws:s3:::my-actions-cache-bucket/my-org/my-repo/*"
+}
+```
+
+Without this permission, the delete fails with `403`. The restore then logs a warning that names
+`s3:DeleteObject`, and the job continues.
+
 ### Prune policy
 
 Attach this policy to the credential of the [prune](./pruning.md) workflow. Prune lists, deletes,
@@ -253,6 +271,8 @@ example one bucket for the cache of a single repository, if you need a hard boun
 
 The Cloudflare page lists no narrower group than **Object Read & Write**. This guide therefore
 assumes that a token which saves can also delete. Keep the read-write token out of pull request jobs.
+With `delete-corrupt-cache: true`, the restore needs the **Object Read & Write** group. A restore
+with **Object Read only** logs a warning and does not delete.
 
 Checked on 2026-10-20: [Cloudflare R2 API tokens](https://developers.cloudflare.com/r2/api/tokens/).
 
@@ -284,6 +304,8 @@ and `prune` all list objects, and a lookup of a missing key can fail. Use two bi
      prune, create a custom role without `storage.objects.delete`. Do not use only **Storage Object
      Creator**. It has no `storage.objects.get`, so the existence check of a save fails.
    - Read-only job: **Storage Object Viewer** (`roles/storage.objectViewer`).
+   - `delete-corrupt-cache: true` needs `storage.objects.delete`. **Storage Object User** has it.
+     A custom role without it makes the restore log a warning and not delete.
 2. An unconditioned binding that grants `storage.objects.list` on the bucket, for example a custom
    role that holds only that permission. This binding shows the object names of the whole bucket,
    including other repositories. It does not give read access to their contents. Use a dedicated
@@ -335,7 +357,8 @@ bucket name and prefix changed. The example below uses the bucket `ci-cache` and
 ```
 
 For a read-only or prune credential, use the same actions as in the AWS sections. Add `s3:DeleteObject`
-for prune.
+for prune. Add `s3:DeleteObject` to the object statement also when a restore uses
+`delete-corrupt-cache: true`.
 
 RustFS 1.0.0 is tested with this policy on a live server. It enforces the `s3:prefix` condition,
 returns `404` for a `HeadObject` on a missing key, and allows the save, restore and tag calls in

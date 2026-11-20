@@ -35,6 +35,8 @@ jest.unstable_mockModule('../../src/archive/compression', () => ({
 }));
 
 const { restoreImpl } = await import('../../src/core/restoreImpl');
+const { FileStateProvider } = await import('../../src/ci/stateFile');
+const { State } = await import('../../src/constants');
 const { saveImpl } = await import('../../src/core/saveImpl');
 
 const s3 = getTestS3Config();
@@ -246,6 +248,117 @@ describe('archive integrity (sha256)', () => {
       } else {
         expect(log).toContain('skipping integrity check');
       }
+    }
+  );
+
+  itS3(
+    'replaces the object that failed the check on the next save with the same state, and only once',
+    async () => {
+      writeFiles(workspace, { 'data/f.txt': 'integrity-replace-check' });
+      const key = `integrity-replace-${runId}`;
+      const objectKey = (await save({ key, path: 'data' }))['cache-s3-key'];
+      const head = await client.send(new HeadObjectCommand({ Bucket: s3.bucket, Key: objectKey }));
+      if (head.Metadata?.['cloud-cache-sha256'] === undefined) {
+        console.log(`[integrity] ${s3.provider}: no checksum metadata, so no replace to test.`);
+        return;
+      }
+      // Corrupt the body and keep the checksum, as a damaged object does.
+      await client.send(
+        new PutObjectCommand({
+          Bucket: s3.bucket,
+          Key: objectKey,
+          Body: Buffer.alloc(64, 0),
+          Metadata: head.Metadata,
+        })
+      );
+      const badEtag = (
+        await client.send(new HeadObjectCommand({ Bucket: s3.bucket, Key: objectKey }))
+      ).ETag;
+
+      // One state file for restore and both saves, as the CLI uses it.
+      const state = new FileStateProvider(path.join(scratch, 'state.json'));
+      fs.rmSync(path.join(workspace, 'data'), { recursive: true });
+      writeFiles(workspace, { 'data/f.txt': 'integrity-replace-check' });
+      setInputs({ key, path: 'data' });
+      const stdout = captureStdout();
+      try {
+        await restoreImpl(state, false);
+      } finally {
+        stdout.restore();
+      }
+      expect(stdout.text()).toContain('Integrity check failed for s3://');
+      expect(JSON.parse(state.getState(State.CacheS3RejectedKey))).toEqual({
+        objectKey,
+        etag: badEtag,
+      });
+      takeOutputs();
+
+      setInputs({ key, path: 'data' });
+      await saveImpl(state);
+      expect(process.exitCode ?? 0).toBe(0);
+      const replaced = await client.send(
+        new HeadObjectCommand({ Bucket: s3.bucket, Key: objectKey })
+      );
+      expect(replaced.ETag).not.toBe(badEtag);
+      expect(replaced.Metadata?.['cloud-cache-sha256']).toMatch(/^[0-9a-f]{64}$/);
+      expect(state.getState(State.CacheS3RejectedKey)).toBe('');
+      takeOutputs();
+
+      // A second save with the same state keeps the good object.
+      setInputs({ key, path: 'data' });
+      await saveImpl(state);
+      const after = await client.send(new HeadObjectCommand({ Bucket: s3.bucket, Key: objectKey }));
+      expect(after.ETag).toBe(replaced.ETag);
+      takeOutputs();
+
+      fs.rmSync(path.join(workspace, 'data'), { recursive: true });
+      const { outputs } = await restore({ key, path: 'data' });
+      expect(outputs['cache-hit']).toBe('true');
+      expect(fs.readFileSync(path.join(workspace, 'data', 'f.txt'), 'utf8')).toBe(
+        'integrity-replace-check'
+      );
+    }
+  );
+
+  itS3(
+    'with delete-corrupt-cache, deletes the object that failed the check, so a save with no state writes a good one',
+    async () => {
+      writeFiles(workspace, { 'data/f.txt': 'integrity-delete-check' });
+      const key = `integrity-delete-${runId}`;
+      const objectKey = (await save({ key, path: 'data' }))['cache-s3-key'];
+      const head = await client.send(new HeadObjectCommand({ Bucket: s3.bucket, Key: objectKey }));
+      if (head.Metadata?.['cloud-cache-sha256'] === undefined) {
+        console.log(`[integrity] ${s3.provider}: no checksum metadata, so no delete to test.`);
+        return;
+      }
+      await client.send(
+        new PutObjectCommand({
+          Bucket: s3.bucket,
+          Key: objectKey,
+          Body: Buffer.alloc(64, 0),
+          Metadata: head.Metadata,
+        })
+      );
+
+      const stdout = captureStdout();
+      try {
+        await restore({ key, path: 'data', 'delete-corrupt-cache': 'true' });
+      } finally {
+        stdout.restore();
+      }
+      expect(stdout.text()).toContain(`Deleted s3://${s3.bucket}/${objectKey}`);
+      await expect(
+        client.send(new HeadObjectCommand({ Bucket: s3.bucket, Key: objectKey }))
+      ).rejects.toMatchObject({ $metadata: { httpStatusCode: 404 } });
+
+      // A save with a fresh state, as the save sub-action runs it.
+      await save({ key, path: 'data' });
+      fs.rmSync(path.join(workspace, 'data'), { recursive: true });
+      const { outputs } = await restore({ key, path: 'data' });
+      expect(outputs['cache-hit']).toBe('true');
+      expect(fs.readFileSync(path.join(workspace, 'data', 'f.txt'), 'utf8')).toBe(
+        'integrity-delete-check'
+      );
     }
   );
 

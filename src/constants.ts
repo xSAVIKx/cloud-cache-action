@@ -8,6 +8,7 @@ export enum Inputs {
   EnableCrossOsArchive = 'enableCrossOsArchive',
   FailOnCacheMiss = 'fail-on-cache-miss',
   LookupOnly = 'lookup-only',
+  DeleteCorruptCache = 'delete-corrupt-cache',
   ReadOnly = 'read-only',
   Preset = 'preset',
 
@@ -122,6 +123,8 @@ export enum State {
   CacheDualCacheStrict = 'CACHE_DUAL_CACHE_STRICT',
   CacheS3ExactHit = 'CACHE_S3_EXACT_HIT',
   CacheGithubExactHit = 'CACHE_GITHUB_EXACT_HIT',
+  /** JSON `{objectKey, etag}` of the S3 object that failed the integrity check on restore. */
+  CacheS3RejectedKey = 'CACHE_S3_REJECTED_KEY',
   CacheHitSource = 'CACHE_HIT_SOURCE',
   CacheJobSummary = 'CACHE_JOB_SUMMARY',
   CacheMetricsFile = 'CACHE_METRICS_FILE',

@@ -2,9 +2,31 @@ import {
   detectProvider,
   isKnownProvider,
   resolveProviderDefaults,
+  supportsConditionalDelete,
+  type StorageProvider,
 } from '../../src/storage/providers';
 
 describe('Storage Providers', () => {
+  describe('supportsConditionalDelete', () => {
+    it('is true only for AWS S3 (documented) and RustFS (measured)', () => {
+      const others: StorageProvider[] = [
+        'r2',
+        'gcs',
+        'b2',
+        'fastly',
+        'garage',
+        'seaweedfs',
+        'minio',
+        'generic-s3',
+      ];
+      expect(supportsConditionalDelete('aws')).toBe(true);
+      expect(supportsConditionalDelete('rustfs')).toBe(true);
+      for (const provider of others) {
+        expect(supportsConditionalDelete(provider)).toBe(false);
+      }
+    });
+  });
+
   describe('detectProvider', () => {
     it('detects AWS when no endpoint is provided', () => {
       expect(detectProvider()).toBe('aws');

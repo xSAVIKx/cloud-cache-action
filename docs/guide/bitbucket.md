@@ -116,7 +116,7 @@ With OIDC, no long-lived AWS key is stored in Bitbucket. Bitbucket gives each st
 1. In IAM, create an OIDC identity provider for your Bitbucket workspace. Use the values that the OpenID Connect page of the repository settings shows. Enter the issuer URL in the field **Provider URL**.
 2. Create an IAM role. Set the trusted entity type to **Web identity**. Select the identity provider.
 3. Write a trust policy for the role. Limit it to your repository.
-4. Give the role access to the bucket (`s3:GetObject`, `s3:PutObject`, `s3:ListBucket`, and `s3:DeleteObject` for `prune`).
+4. Give the role access to the bucket (`s3:GetObject`, `s3:PutObject`, `s3:ListBucket`, and `s3:DeleteObject` for `prune` or `--delete-corrupt-cache`).
 5. Set `oidc: true` on the step.
 6. Pass the role ARN with `--role-arn` or with the variable `CLOUD_CACHE_ROLE_ARN`. Set the variable as a repository or deployment variable.
 

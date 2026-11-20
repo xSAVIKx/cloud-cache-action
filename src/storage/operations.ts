@@ -2,6 +2,7 @@ import {
   S3Client,
   AbortMultipartUploadCommand,
   CopyObjectCommand,
+  DeleteObjectCommand,
   HeadObjectCommand,
   GetObjectCommand,
   GetObjectTaggingCommand,
@@ -55,6 +56,20 @@ export async function checkObjectExists(
     }
     throw err;
   }
+}
+
+/**
+ * Deletes one object. With `ifMatch`, the server deletes it only while it has that ETag, and
+ * answers 412 otherwise. Send `ifMatch` only to a provider that evaluates it on a delete (see
+ * `supportsConditionalDelete`).
+ */
+export async function deleteObject(
+  client: S3Client,
+  bucket: string,
+  key: string,
+  ifMatch?: string
+): Promise<void> {
+  await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key, IfMatch: ifMatch }));
 }
 
 /** Lists every object under `prefix`, following continuation tokens, in the order S3 lists them. */

@@ -184,7 +184,7 @@ When the container runs:
 
 - **Checksums**: for this provider, the action sends request checksums only when S3 requires them, because many S3-compatible services reject the CRC checksums recent AWS SDKs send by default. Nothing to configure.
 - **Concurrent saves**: MinIO enforces the conditional create (`If-None-Match`). See [Safe Concurrent Saves](../guide/storage.md#safe-concurrent-saves).
-- **Expiry**: the action never deletes caches. Add a lifecycle rule that expires objects after 30–60 days so old caches do not accumulate.
+- **Expiry**: the action does not expire caches. Add a lifecycle rule that expires objects after 30–60 days so old caches do not accumulate.
 - **Incomplete uploads**: MinIO lists no incomplete multipart upload for a prefix that is not a full object key (measured on 2026-10-21 with the CI image). The `prune` input `abort-uploads-older-than-hours` therefore finds no upload and aborts none. Use the `--abort-incomplete-multipart-upload-days` lifecycle rule above instead.
 
 ### Live CI workflow
