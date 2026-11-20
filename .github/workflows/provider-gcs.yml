@@ -10,6 +10,9 @@ on:
   schedule:
     - cron: '0 4 * * *'
 
+permissions:
+  contents: read
+
 jobs:
   test-gcs:
     name: Google Cloud Storage Live Integration
@@ -25,10 +28,11 @@ jobs:
 
       - name: Check Google Cloud Storage credentials
         id: check-secrets
+        env:
+          ACCESS_ID: ${{ secrets.GCS_HMAC_ACCESS_ID || secrets.GCS_ACCESS_KEY_ID }}
+          SECRET_KEY: ${{ secrets.GCS_HMAC_SECRET || secrets.GCS_SECRET_ACCESS_KEY }}
+          BUCKET: ${{ secrets.GCS_BUCKET }}
         run: |
-          ACCESS_ID="${{ secrets.GCS_HMAC_ACCESS_ID || secrets.GCS_ACCESS_KEY_ID }}"
-          SECRET_KEY="${{ secrets.GCS_HMAC_SECRET || secrets.GCS_SECRET_ACCESS_KEY }}"
-          BUCKET="${{ secrets.GCS_BUCKET }}"
           if [ -z "$ACCESS_ID" ] || [ -z "$SECRET_KEY" ] || [ -z "$BUCKET" ]; then
             echo "has_secrets=false" >> "$GITHUB_OUTPUT"
             echo "::notice::Google Cloud Storage secrets (GCS_BUCKET, GCS_HMAC_ACCESS_ID/GCS_ACCESS_KEY_ID, GCS_HMAC_SECRET/GCS_SECRET_ACCESS_KEY) are not configured. Skipping live GCS integration test."

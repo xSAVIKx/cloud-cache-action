@@ -29,12 +29,12 @@ jobs:
 
       - name: Check AWS credentials
         id: check-secrets
+        env:
+          BUCKET: ${{ secrets.AWS_S3_BUCKET || secrets.AWS_BUCKET }}
+          ROLE: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          ACCESS_KEY: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          SECRET_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         run: |
-          BUCKET="${{ secrets.AWS_S3_BUCKET || secrets.AWS_BUCKET }}"
-          ROLE="${{ secrets.AWS_ROLE_TO_ASSUME }}"
-          ACCESS_KEY="${{ secrets.AWS_ACCESS_KEY_ID }}"
-          SECRET_KEY="${{ secrets.AWS_SECRET_ACCESS_KEY }}"
-
           if [ -z "$BUCKET" ]; then
             echo "has_secrets=false" >> "$GITHUB_OUTPUT"
             echo "::notice::AWS S3 bucket secret (AWS_S3_BUCKET or AWS_BUCKET) is not configured. Skipping live AWS S3 integration test."

@@ -33,7 +33,7 @@ jobs:
           node-version: 24
 
       - name: Ensure cache directory exists
-        run: mkdir -p ~/.npm docs/.vitepress/dist
+        run: mkdir -p ~/.npm
 
       - name: Restore npm cache via Cloud Cache Action
         uses: xSAVIKx/cloud-cache-action@v1
@@ -45,15 +45,6 @@ jobs:
           use-fallback: true
 
       - run: npm ci
-
-      - name: Restore VitePress build cache via Cloud Cache Action
-        uses: xSAVIKx/cloud-cache-action@v1
-        with:
-          path: docs/.vitepress/dist
-          key: ${{ runner.os }}-vitepress-${{ hashFiles('docs/**', 'package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-vitepress-
-          use-fallback: true
 
       - run: npm run docs:build
 
