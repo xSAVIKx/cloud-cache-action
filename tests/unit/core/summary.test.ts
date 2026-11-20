@@ -571,14 +571,54 @@ describe('redactError', () => {
     expect(redactError('connect to http://key:secret@10.1.2.3:9000/bucket failed')).toBe(
       'connect to http://10.1.2.3:9000/bucket failed'
     );
-    expect(redactError('see s3://token@bucket/key')).toBe('see s3://bucket/key');
   });
 
-  it('removes all of the user info when the password holds a slash or an @', () => {
-    expect(redactError('GET http://AKIA:abc/def+ghi@host:9000/k failed')).toBe(
-      'GET http://host:9000/k failed'
-    );
+  it('removes all of the user info when the password holds an @', () => {
     expect(redactError('GET http://key:p@ss@host/k failed')).toBe('GET http://host/k failed');
+  });
+
+  it('ends the user info at the first slash, so an @ in a path or in later text stays', () => {
+    // A raw / in a password makes the URL invalid, so the rule does not look past the first /.
+    const texts = [
+      'HeadObject s3://ci-cache/octo/app/Linux-node@20-abc/cache.tar.zst returned HTTP 403 Forbidden.',
+      'GetObject s3://ci-cache/k/v@1 failed after 3 attempts: socket hang up',
+      'request {"url":"https://h.example/a","user":"bot@example.com"}',
+      'debug {"a":"https://h.example/x","b":"http://k.example/y/z@w","c":"me@example.com"}',
+      'file:///home/u/node_modules/@types/node/index.d.ts',
+      'see https://h.example/@scope/pkg',
+    ];
+    for (const text of texts) {
+      expect(redactSecrets(text)).toBe(text);
+    }
+  });
+
+  it('keeps an s3:// key with @, ?, sig= and signature= as it is', () => {
+    const texts = [
+      'GetObject s3://ci-cache/k/Linux-node@20/cache.tar.zst returned 404',
+      'GetObject s3://ci-cache/k/a?b=1&sig=abc/cache.tar.zst returned 404',
+      'GetObject s3://b/k/sig=abc/cache.tar.zst returned 404',
+      'tar: /home/runner/work/x/signature=1/file: Cannot open',
+    ];
+    for (const text of texts) {
+      expect(redactSecrets(text)).toBe(text);
+    }
+  });
+
+  it('keeps prose that names a credential or a signature', () => {
+    const texts = [
+      'Invalid credential: the key is wrong',
+      'Signature: the request signature does not match',
+      'bad request: sig=abc X-Amz-Signature=def',
+    ];
+    for (const text of texts) {
+      expect(redactSecrets(text)).toBe(text);
+    }
+  });
+
+  it('removes the query string of a JSON-escaped URL', () => {
+    expect(redactSecrets(String.raw`{"url":"https:\/\/h\/k?sig=abc&se=1"}`)).toBe(
+      String.raw`{"url":"https:\/\/h\/k?[query removed]"}`
+    );
   });
 
   it('removes a part of the user info that the length cut leaves with no @', () => {
@@ -615,16 +655,6 @@ describe('redactError', () => {
     );
   });
 
-  it('removes signature and credential values outside a URL', () => {
-    expect(
-      redactError(
-        'bad request: sig=abc X-Amz-Signature=def&X-Amz-Credential=AKIA/x X-Amz-Security-Token=tok end'
-      )
-    ).toBe(
-      'bad request: sig=[removed] X-Amz-Signature=[removed]&X-Amz-Credential=[removed] X-Amz-Security-Token=[removed] end'
-    );
-  });
-
   it('removes Credential= and Signature= of an Authorization header value', () => {
     expect(
       redactError(
@@ -647,13 +677,23 @@ describe('redactError', () => {
     );
   });
 
-  it('removes X-Goog-Signature, X-Goog-Credential and S3 SigV2 values', () => {
+  it('removes X-Goog-Signature, X-Goog-Credential and S3 SigV2 values in a URL query', () => {
     expect(
       redactError(
-        'X-Goog-Signature=a1b2 X-Goog-Credential=svc%40p.iam/2026 AWSAccessKeyId=AKIA Signature=xyz%3D'
+        'GET https://storage.googleapis.com/b/k?X-Goog-Credential=svc%40p.iam%2F2026&X-Goog-Signature=a1b2 and https://b.s3.amazonaws.com/k?AWSAccessKeyId=AKIA&Signature=xyz%3D failed'
       )
     ).toBe(
-      'X-Goog-Signature=[removed] X-Goog-Credential=[removed] AWSAccessKeyId=[removed] Signature=[removed]'
+      'GET https://storage.googleapis.com/b/k?[query removed] and https://b.s3.amazonaws.com/k?[query removed] failed'
+    );
+  });
+
+  it('removes X-Goog and X-Amz values in a percent-encoded URL query', () => {
+    expect(
+      redactSecrets(
+        'u=https%3A%2F%2Fh%2Fk%3FX-Goog-Credential%3Dsvc%26X-Goog-Signature%3Da1b2%26AWSAccessKeyId%3DAKIA%26Signature%3Dxyz'
+      )
+    ).toBe(
+      'u=https%3A%2F%2Fh%2Fk%3FX-Goog-Credential%3D[removed]%26X-Goog-Signature%3D[removed]%26AWSAccessKeyId%3D[removed]%26Signature%3D[removed]'
     );
   });
 
@@ -661,7 +701,11 @@ describe('redactError', () => {
     expect(redactError('bad url https%3A%2F%2Fh%2Fk%3Fsig%3Dabc%26se%3D2026 here')).toBe(
       'bad url https%3A%2F%2Fh%2Fk%3Fsig%3D[removed]%26se%3D2026 here'
     );
-    expect(redactError('X-Amz-Signature%253Ddeadbeef')).toBe('X-Amz-Signature%253D[removed]');
+    expect(redactError('k%253FX-Amz-Signature%253Ddeadbeef')).toBe(
+      'k%253FX-Amz-Signature%253D[removed]'
+    );
+    // With no encoded ? or & before it, the name is not in a URL query.
+    expect(redactError('X-Amz-Signature%253Ddeadbeef')).toBe('X-Amz-Signature%253Ddeadbeef');
   });
 
   it('keeps a message with no URL and no signature as it is', () => {
@@ -707,6 +751,24 @@ describe('redactSecrets', () => {
     const started = performance.now();
     redactSecrets('a.'.repeat(40_000));
     // The bound is generous, so a loaded host does not make the test fail.
+    expect(performance.now() - started).toBeLessThan(500);
+  });
+});
+
+describe('redactSecrets takes linear time', () => {
+  // The bound is generous, so a loaded host does not make the tests fail.
+  it.each([
+    ['a://', 'a://'.repeat(20_000)],
+    ['http://', 'http://'.repeat(Math.ceil(80_000 / 7))],
+    [
+      'a JSON line of URLs',
+      '{"u":"https://h.example/a/b?x=1","v":"http://k.example/c@d","w":"https://e"},'.repeat(1_100),
+    ],
+    ['a line of URLs with no quotes', 'https://h/a,http://u:p@k/b?s=1,'.repeat(2_600)],
+  ])('redacts 80,000 characters of %s in under 500 ms', (_name, text) => {
+    expect(text.length).toBeGreaterThanOrEqual(80_000);
+    const started = performance.now();
+    redactSecrets(text);
     expect(performance.now() - started).toBeLessThan(500);
   });
 });

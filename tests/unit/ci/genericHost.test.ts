@@ -174,16 +174,16 @@ describe('GenericHost', () => {
     const out = jest.spyOn(process.stdout, 'write').mockReturnValue(true);
     const err = jest.spyOn(process.stderr, 'write').mockReturnValue(true);
     const loud = host({ debug: true });
-    const secret = 'PUT http://AKIA:a/b@h:9000/k sig=abc';
+    const secret = 'PUT http://AKIA:pw@h:9000/k?sig=abc';
     loud.log.debug(secret);
     loud.log.warning(secret);
     loud.log.error(secret);
     loud.setFailed(secret);
-    expect(out).toHaveBeenCalledWith('debug: PUT http://h:9000/k sig=[removed]\n');
+    expect(out).toHaveBeenCalledWith('debug: PUT http://h:9000/k?[query removed]\n');
     expect(err.mock.calls.map((c) => c[0])).toEqual([
-      'warning: PUT http://h:9000/k sig=[removed]\n',
-      'error: PUT http://h:9000/k sig=[removed]\n',
-      'error: PUT http://h:9000/k sig=[removed]\n',
+      'warning: PUT http://h:9000/k?[query removed]\n',
+      'error: PUT http://h:9000/k?[query removed]\n',
+      'error: PUT http://h:9000/k?[query removed]\n',
     ]);
     out.mockRestore();
     err.mockRestore();

@@ -173,13 +173,20 @@ When a tier failed and no tier gave a cache (also when the S3 client setup faile
 is `No cache restored: the s3 tier failed (see the warning above). Keys searched: ...` instead, and
 the Result is `error (no cache)`.
 
-The action removes secrets from each warning, error, failure and debug line, from each `Error:`
-line of the summary, and from each error that the CLI prints. It removes the user info of a URL
-(`https://user:password@host` becomes `https://host`), the query string of an HTTP URL
-(`?[query removed]`), the value of a signature or credential parameter or header (`sig`,
-`Signature`, `Credential`, `AWSAccessKeyId`, `X-Amz-Signature`, `X-Amz-Credential`,
-`X-Amz-Security-Token`, `X-Goog-Signature`, `X-Goog-Credential`, also percent-encoded), and the text
-of an `Authorization:` header. Other text stays. Info lines do not change.
+The action removes secrets from its own warning, error, failure and debug lines, from each
+`Error:` line of the summary, and from each error that the CLI prints. It removes the user info of
+an HTTP URL (`https://user:password@host` becomes `https://host`), the query string of an HTTP URL
+(`?[query removed]`, also in a JSON-escaped URL), a signature or credential parameter in a
+percent-encoded URL query (`sig`, `Signature`, `Credential`, `AWSAccessKeyId`, `X-Amz-Signature`,
+`X-Amz-Credential`, `X-Amz-Security-Token`, `X-Goog-Signature`, `X-Goog-Credential`), the value of
+an `X-Amz-Security-Token`, `X-Amz-Credential`, `X-Amz-Signature`, `X-Goog-Credential` or
+`X-Goog-Signature` header, the credential and the signature of a SigV4 `Authorization` value, and
+the text of an `Authorization:` header. Other text stays: an `s3://` path, a file path and normal
+text do not change, also when they contain `@`, `?` or `sig=`. Info lines do not change.
+
+The action does not redact lines that other code prints directly: the messages of
+`@actions/cache` (the GitHub Actions Cache tier), lines of the AWS SDK, and the raw `tar` stderr
+that the action passes through to the log.
 
 ## Restore and save actions
 
