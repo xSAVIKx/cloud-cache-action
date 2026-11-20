@@ -1,7 +1,13 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { formatTuning, tuneTransfer, type TuningInput } from '../../../src/core/transferTuning';
+import {
+  budgetConcurrency,
+  formatTuning,
+  minUploadPartSize,
+  tuneTransfer,
+  type TuningInput,
+} from '../../../src/core/transferTuning';
 import type { StorageProvider } from '../../../src/storage/providers';
 
 const MiB = 1024 * 1024;
@@ -28,6 +34,21 @@ describe('tuneTransfer', () => {
       partSize: 16 * MiB,
     });
     expect(tuneTransfer(input({ sizeBytes: 0 }))).toEqual({ concurrency: 1, partSize: 16 * MiB });
+  });
+
+  it('counts the download parts from a part size that the workflow set', () => {
+    expect(tuneTransfer(input({ sizeBytes: 20 * MiB, fixed: { partSize: MiB } }))).toEqual({
+      concurrency: 16,
+      partSize: MiB,
+    });
+    expect(tuneTransfer(input({ sizeBytes: 100 * MiB, fixed: { partSize: 4 * MiB } }))).toEqual({
+      concurrency: 16,
+      partSize: 4 * MiB,
+    });
+    expect(tuneTransfer(input({ sizeBytes: 20 * MiB, fixed: { partSize: 8 * MiB } }))).toEqual({
+      concurrency: 3,
+      partSize: 8 * MiB,
+    });
   });
 
   it('uploads up to 256 MiB in 16 MiB parts, 16 at a time', () => {
@@ -68,9 +89,44 @@ describe('tuneTransfer', () => {
     expect(r2.partSize).toBe(52 * MiB);
   });
 
-  it('keeps the upload part size within the 128 MiB input limit', () => {
-    expect(tuneTransfer(input({ direction: 'upload', sizeBytes: 5000 * GiB })).partSize).toBe(
-      128 * MiB
+  it('grows the upload part size above the 128 MiB input limit for the 10,000-part limit', () => {
+    const sizeBytes = 2048 * GiB;
+    const settings = tuneTransfer(input({ direction: 'upload', sizeBytes }));
+    expect(settings.partSize).toBe(210 * MiB);
+    expect(Math.ceil(sizeBytes / settings.partSize)).toBeLessThanOrEqual(10_000);
+  });
+
+  it('grows a part size that the workflow set when the upload needs more than 10,000 parts', () => {
+    const sizeBytes = 60 * GiB;
+    const settings = tuneTransfer(
+      input({ direction: 'upload', sizeBytes, fixed: { partSize: 5 * MiB } })
+    );
+    expect(settings.partSize).toBe(7 * MiB);
+    expect(Math.ceil(sizeBytes / settings.partSize)).toBeLessThanOrEqual(10_000);
+    // The memory budget uses the grown part size.
+    expect(
+      tuneTransfer(
+        input({
+          direction: 'upload',
+          sizeBytes,
+          freeMemoryBytes: 64 * MiB,
+          fixed: { partSize: 5 * MiB },
+        })
+      )
+    ).toEqual({ concurrency: 1, partSize: 7 * MiB });
+  });
+
+  it('keeps a set upload part size that is large enough', () => {
+    expect(
+      tuneTransfer(
+        input({ direction: 'upload', sizeBytes: 40 * GiB, fixed: { partSize: 5 * MiB } })
+      ).partSize
+    ).toBe(5 * MiB);
+  });
+
+  it('does not grow a download part size', () => {
+    expect(tuneTransfer(input({ sizeBytes: 60 * GiB, fixed: { partSize: MiB } })).partSize).toBe(
+      MiB
     );
   });
 
@@ -90,7 +146,8 @@ describe('tuneTransfer', () => {
     const settings = tuneTransfer(
       input({ direction: 'upload', sizeBytes: 5000 * GiB, freeMemoryBytes: 256 * GiB })
     );
-    expect(settings).toEqual({ concurrency: 7, partSize: 128 * MiB });
+    // 512 MiB parts for 10,000 parts; two of them fill the 1 GiB.
+    expect(settings).toEqual({ concurrency: 1, partSize: 512 * MiB });
   });
 
   it('bounds the tuned concurrency by a part size that the workflow set', () => {
@@ -109,8 +166,36 @@ describe('tuneTransfer', () => {
     });
   });
 
+  it('lowers a set upload concurrency only when the 10,000-part limit raises the part size', () => {
+    expect(
+      tuneTransfer(
+        input({ direction: 'upload', sizeBytes: 2048 * GiB, fixed: { concurrency: 32 } })
+      )
+    ).toEqual({ concurrency: 3, partSize: 210 * MiB });
+    expect(
+      tuneTransfer(input({ direction: 'upload', sizeBytes: 2 * GiB, fixed: { concurrency: 32 } }))
+    ).toEqual({ concurrency: 32, partSize: 32 * MiB });
+  });
+
   it('never goes below one transfer at a time', () => {
     expect(tuneTransfer(input({ freeMemoryBytes: 0 })).concurrency).toBe(1);
+  });
+});
+
+describe('budgetConcurrency', () => {
+  it('keeps concurrency + 1 parts within the budget, and at least 1', () => {
+    expect(budgetConcurrency(11 * MiB, 512 * MiB)).toBe(10);
+    expect(budgetConcurrency(105 * MiB, 16 * GiB)).toBe(8);
+    expect(budgetConcurrency(GiB, 16 * GiB)).toBe(1);
+  });
+});
+
+describe('minUploadPartSize', () => {
+  it('rounds the smallest part size for 10,000 parts up to whole MiB', () => {
+    expect(minUploadPartSize(0)).toBe(0);
+    expect(minUploadPartSize(10_000 * MiB)).toBe(MiB);
+    expect(minUploadPartSize(10_000 * MiB + 1)).toBe(2 * MiB);
+    expect(minUploadPartSize(60 * GiB)).toBe(7 * MiB);
   });
 });
 
@@ -133,6 +218,13 @@ describe('formatTuning', () => {
         partSize: 128 * MiB,
       })
     ).toBe('Transfer tuning: auto selected 7 x 128 MiB (set) for the upload of 2.0 GiB');
+    expect(
+      formatTuning('upload', { concurrency: 16, partSize: 7 * MiB }, 60 * GiB, {
+        partSize: 5 * MiB,
+      })
+    ).toBe(
+      'Transfer tuning: auto selected 16 x 7 MiB (raised from the set 5 MiB) for the upload of 60.0 GiB'
+    );
   });
 
   it('stays free of runtime imports, so any CI front end can use it', () => {

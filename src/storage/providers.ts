@@ -15,6 +15,8 @@ export interface ProviderConfig {
   endpoint?: string;
   region: string;
   forcePathStyle: boolean;
+  /** The largest request body the server accepts, so the largest upload part. Unset: no limit. */
+  maxPartSize?: number;
 }
 
 export const KNOWN_PROVIDERS = [
