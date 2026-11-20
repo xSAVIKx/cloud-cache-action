@@ -1,6 +1,7 @@
 import { getHost } from '../ci/host';
 import type { InputOptions } from '../ci/host';
 import { log } from '../ci/log';
+import { parseBoolean } from './bool';
 
 export function getInputAsArray(name: string, options?: InputOptions): string[] {
   return getHost()
@@ -9,9 +10,6 @@ export function getInputAsArray(name: string, options?: InputOptions): string[] 
     .map((s) => s.trim())
     .filter((x) => x !== '');
 }
-
-const TRUE_VALUES = ['true', 'True', 'TRUE'];
-const FALSE_VALUES = ['false', 'False', 'FALSE'];
 
 export function getInputAsBool(
   name: string,
@@ -22,11 +20,9 @@ export function getInputAsBool(
   if (!value) {
     return defaultValue;
   }
-  if (TRUE_VALUES.includes(value)) {
-    return true;
-  }
-  if (FALSE_VALUES.includes(value)) {
-    return false;
+  const parsed = parseBoolean(value);
+  if (parsed !== undefined) {
+    return parsed;
   }
   log.warning(
     `Input "${name}" must be one of true, True, TRUE, false, False, FALSE; got "${value}". Using "${defaultValue}".`
