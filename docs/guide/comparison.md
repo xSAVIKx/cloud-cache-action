@@ -21,7 +21,7 @@ give the feature. It does not mean that the project does not have it.
 | `actions/cache` inputs | The inputs of v4 to v6, except `save-always` | "All the official options" of v5 | `key`, `path`, `restore-keys` and `lookup-only` | `key`, `path`, `restore-keys`, `upload-chunk-size`, `enableCrossOsArchive`, `fail-on-cache-miss` and `lookup-only` | `key`, `path` and `restore-keys` |
 | Restore and save sub-actions | Yes | Yes | Yes | Yes | Not stated |
 | Prune old caches | Yes, `prune` sub-action | Not stated. The RunsOn bucket has a 10-day lifecycle rule. | Not stated | Not stated | Not stated |
-| Lookup inspection | `lookup-only`, `explain` and the `inspect` sub-action | `lookup-only` | `lookup-only` and a `check` sub-action | `lookup-only` | Not stated |
+| Lookup inspection | `lookup-only`, `explain` and the `inspect` sub-action | `lookup-only` | `lookup-only`. The README shows a `check` sub-action, but the repository tree has no `check` directory. | `lookup-only` | Not stated |
 | Checksum check on restore | Yes, sha256 | Not stated | Not stated | Not stated | Not stated |
 | Conditional writes | Yes, `If-None-Match` where the provider enforces it | Not stated | Not stated | Not stated | Not stated |
 | Fallback to the GitHub cache | Yes, `use-fallback` and `dual-cache` | Yes, when no bucket is set | Yes, `use-fallback` | Not stated | Yes, `use-fallback` |
@@ -38,7 +38,7 @@ give the feature. It does not mean that the project does not have it.
   [Dual Caching](./dual-caching.md), [The cloud-cache CLI](./cli.md) and the
   [Changelog](../changelog.md).
 - runs-on/cache: the README, `action.yml` and the GitHub Releases page.
-- tespkg/actions-cache: the README, `action.yml` and the GitHub Releases page.
+- tespkg/actions-cache: the README, `action.yml`, the repository tree and the GitHub Releases page.
 - whywaita/actions-cache-s3: the README, `action.yml` and the GitHub Releases page.
 - everpcpc/actions-cache: the README, `action.yml` and the GitHub Releases page.
 

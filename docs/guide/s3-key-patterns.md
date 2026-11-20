@@ -34,6 +34,12 @@ my-org/my-project/refs%2Fheads%2Fmain/linux-node-18-a1b2c3/27747e0d22df7792/cach
 | `${version}`           | 16-character hash of `path`, the compression method and (on Windows) `enableCrossOsArchive` | `27747e0d22df7792`                |
 | `${archive_filename}`  | Archive name                                                                                 | `cache.tar.zst` or `cache.tar.gz` |
 
+Keep `${ref}` in a path segment of its own, apart from `${key}`. When `${ref}` shares a segment with
+`${key}`, for example `${ref}-${key}`, the branch `main-linux` with key `abc` writes the same object
+key as the branch `main` with key `linux-abc`. A restore for one ref can then hit the cache of the
+other ref. When `scoped-to-ref` is on and a ref is known, the action warns about this pattern. It
+does so whatever else the pattern contains.
+
 Write special placeholders in braces. A pattern without `${ref}` or `${version}` works, but the action warns:
 
 - Without `${ref}`, every branch shares caches.
@@ -105,13 +111,13 @@ Object key: `global-rust-toolchain-v1/<version>/cache.tar.zst`
 - uses: xSAVIKx/cloud-cache-action@v1
   with:
     bucket: my-bucket
-    s3-key-pattern: 'builds/${GITHUB_REPOSITORY}/${ref}/${prefix}${key}/${version}.tar.zst'
+    s3-key-pattern: 'builds/${GITHUB_REPOSITORY}/${ref}/${prefix}${key}/${version}/${archive_filename}'
     prefix: release-v1/
     key: app-bundle
     path: dist/
 ```
 
-Object key: `builds/my-org/my-repo/refs%2Fheads%2Fmain/release-v1/app-bundle/<version>.tar.zst`
+Object key: `builds/my-org/my-repo/refs%2Fheads%2Fmain/release-v1/app-bundle/<version>/cache.tar.zst`
 
 ### 4. Per-workload isolated cache
 
@@ -138,5 +144,7 @@ deletes objects whose whole key matches the pattern. Keep `${GITHUB_REPOSITORY}`
 path segments of their own, separated from `${key}` and `${version}` by `/`: when they share a
 segment, keys from other repositories or refs could match, and the prune action refuses to run
 whenever it cannot tell them apart.
+The pattern must also contain `${archive_filename}`. Without it, the prune action refuses to run.
+
 Starting the pattern with `${ref}` also leaves no fixed listing prefix for pruning every ref, so
 set its `ref` input in that case.

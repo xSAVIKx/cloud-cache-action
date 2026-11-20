@@ -87,7 +87,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Cache node_modules (Dual Mode: GitHub + S3 Sync)
+      - name: 'Cache node_modules (Dual Mode: GitHub + S3 Sync)'
         id: cache-deps
         uses: xSAVIKx/cloud-cache-action@v1
         with:
