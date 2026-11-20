@@ -170,6 +170,26 @@ describe('GenericHost', () => {
     expect(err).toHaveBeenCalledWith('error: boom\n');
   });
 
+  it('redacts each warning, error, failure and debug line on the CLI', () => {
+    const out = jest.spyOn(process.stdout, 'write').mockReturnValue(true);
+    const err = jest.spyOn(process.stderr, 'write').mockReturnValue(true);
+    const loud = host({ debug: true });
+    const secret = 'PUT http://AKIA:a/b@h:9000/k sig=abc';
+    loud.log.debug(secret);
+    loud.log.warning(secret);
+    loud.log.error(secret);
+    loud.setFailed(secret);
+    expect(out).toHaveBeenCalledWith('debug: PUT http://h:9000/k sig=[removed]\n');
+    expect(err.mock.calls.map((c) => c[0])).toEqual([
+      'warning: PUT http://h:9000/k sig=[removed]\n',
+      'error: PUT http://h:9000/k sig=[removed]\n',
+      'error: PUT http://h:9000/k sig=[removed]\n',
+    ]);
+    out.mockRestore();
+    err.mockRestore();
+    process.exitCode = undefined;
+  });
+
   it('logs with prefixes and streams', () => {
     const out = jest.spyOn(process.stdout, 'write').mockReturnValue(true);
     const err = jest.spyOn(process.stderr, 'write').mockReturnValue(true);

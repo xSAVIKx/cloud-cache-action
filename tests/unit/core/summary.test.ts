@@ -4,12 +4,8 @@ import * as core from '@actions/core';
 import { makeTempDir, removeDir, setEnv } from '../../support/tempTree';
 import { setHost, type CiHost } from '../../../src/ci/host';
 import { TextSummaryWriter } from '../../../src/ci/textSummary';
-import {
-  MAX_ERROR_LENGTH,
-  redactError,
-  writeRestoreSummary,
-  writeSaveSummary,
-} from '../../../src/core/summary';
+import { writeRestoreSummary, writeSaveSummary } from '../../../src/core/summary';
+import { MAX_ERROR_LENGTH, redactError, redactSecrets } from '../../../src/utils/redact';
 
 describe('writeRestoreSummary / writeSaveSummary', () => {
   let dir: string;
@@ -48,8 +44,9 @@ describe('writeRestoreSummary / writeSaveSummary', () => {
     expect(content).toContain('Linux-npm-abc');
     expect(content).toContain('Matched key');
     expect(content).toContain('Linux-npm-old');
-    expect(content).toContain('Cache hit');
-    expect(content).toContain('false');
+    expect(content).not.toContain('Cache hit');
+    expect(content).toContain('<h3>Cloud cache restore</h3>');
+    expect(content).toContain('<td>partial hit (restore key)</td>');
     expect(content).toContain('Source');
     expect(content).toContain('s3');
     expect(content).toContain('Size');
@@ -147,7 +144,7 @@ describe('writeRestoreSummary / writeSaveSummary', () => {
     });
 
     const content = fs.readFileSync(summaryFile, 'utf8');
-    expect(content).toContain('Cloud cache save');
+    expect(content).toContain('<h3>Cloud cache save</h3>');
     expect(content).toContain('Key');
     expect(content).toContain('Linux-npm-abc');
     expect(content).toContain('Saved to');
@@ -306,7 +303,7 @@ describe('the Result column and the error lines', () => {
     durationMs: 410,
   };
   const restoreHeader =
-    '<tr><th>Result</th><th>Primary key</th><th>Matched key</th><th>Cache hit</th><th>Source</th><th>Size</th><th>Duration</th></tr>';
+    '<tr><th>Result</th><th>Primary key</th><th>Matched key</th><th>Source</th><th>Size</th><th>Duration</th></tr>';
   const s3Error =
     'Restoring from s3 failed, so it counts as a cache miss: HeadObject s3://ci-cache/k returned HTTP 403 Forbidden.';
 
@@ -321,7 +318,7 @@ describe('the Result column and the error lines', () => {
     const content = fs.readFileSync(summaryFile, 'utf8');
     expect(content).toContain(restoreHeader);
     expect(content).toContain(
-      '<tr><td>exact hit</td><td>Linux-npm-abc</td><td>Linux-npm-abc</td><td>true</td><td>s3</td><td>2.00 KB</td><td>0.41 s</td></tr>'
+      '<tr><td>exact hit</td><td>Linux-npm-abc</td><td>Linux-npm-abc</td><td>s3</td><td>2.00 KB</td><td>0.41 s</td></tr>'
     );
     expect(content).not.toContain('Error:');
   });
@@ -335,7 +332,7 @@ describe('the Result column and the error lines', () => {
       size: 2048,
     });
     expect(fs.readFileSync(summaryFile, 'utf8')).toContain(
-      '<tr><td>partial hit (restore key)</td><td>Linux-npm-abc</td><td>Linux-npm-old</td><td>false</td><td>s3</td><td>2.00 KB</td><td>0.41 s</td></tr>'
+      '<tr><td>partial hit (restore key)</td><td>Linux-npm-abc</td><td>Linux-npm-old</td><td>s3</td><td>2.00 KB</td><td>0.41 s</td></tr>'
     );
   });
 
@@ -354,7 +351,7 @@ describe('the Result column and the error lines', () => {
     await writeRestoreSummary({ ...restoreBase, cacheHit: false, source: 'none', errors: [] });
     const content = fs.readFileSync(summaryFile, 'utf8');
     expect(content).toContain(
-      '<tr><td>miss</td><td>Linux-npm-abc</td><td>—</td><td>false</td><td>none</td><td>—</td><td>0.41 s</td></tr>'
+      '<tr><td>miss</td><td>Linux-npm-abc</td><td>—</td><td>none</td><td>—</td><td>0.41 s</td></tr>'
     );
     expect(content).not.toContain('Error:');
   });
@@ -368,7 +365,7 @@ describe('the Result column and the error lines', () => {
     });
     const content = fs.readFileSync(summaryFile, 'utf8');
     expect(content).toContain(
-      '<tr><td>error (no cache)</td><td>Linux-npm-abc</td><td>—</td><td>false</td><td>none</td><td>—</td><td>0.41 s</td></tr>'
+      '<tr><td>error (no cache)</td><td>Linux-npm-abc</td><td>—</td><td>none</td><td>—</td><td>0.41 s</td></tr>'
     );
     expect(content).toContain(`</table>\n<p>Error: ${s3Error}</p>`);
   });
@@ -383,7 +380,7 @@ describe('the Result column and the error lines', () => {
     });
     const content = fs.readFileSync(summaryFile, 'utf8');
     expect(content).toContain(
-      '<tr><td>exact hit</td><td>Linux-npm-abc</td><td>Linux-npm-abc</td><td>true</td><td>github</td><td>—</td><td>0.41 s</td></tr>'
+      '<tr><td>exact hit</td><td>Linux-npm-abc</td><td>Linux-npm-abc</td><td>github</td><td>—</td><td>0.41 s</td></tr>'
     );
     expect(content).toContain(`<p>Error: ${s3Error}</p>`);
   });
@@ -521,9 +518,9 @@ describe('the summary on a host with a text summary (Bitbucket)', () => {
     });
     expect(printed).toBe(
       [
-        '# Cloud cache restore',
-        'Result            Primary key    Matched key  Cache hit  Source  Size  Duration',
-        'error (no cache)  Linux-npm-abc  —            false      none    —     0.41 s',
+        '### Cloud cache restore',
+        'Result            Primary key    Matched key  Source  Size  Duration',
+        'error (no cache)  Linux-npm-abc  —            none    —     0.41 s',
         'Error: Restoring from s3 failed, so it counts as a cache miss: HTTP 403 Forbidden',
         '',
       ].join('\n')
@@ -555,11 +552,11 @@ describe('the summary on a host with a text summary (Bitbucket)', () => {
     });
     expect(printed).toBe(
       [
-        '# Cloud cache save',
+        '### Cloud cache save',
         'Result             Key            Saved to  Size  Duration',
         'error (not saved)  Linux-npm-abc  none      —     2.00 s',
         'Error: Failed to save cache to S3: SlowDown',
-        '# Cloud cache save',
+        '### Cloud cache save',
         'Result   Key            Saved to  Size  Duration',
         'skipped  Linux-npm-abc  none      —     0.01 s',
         'Skipped: GitHub Actions Cache did not save this key (see the messages above)',
@@ -694,6 +691,22 @@ describe('redactError', () => {
     const text = 'a.a://'.repeat(Math.floor(MAX_ERROR_LENGTH / 6));
     const started = performance.now();
     redactError(text);
+    expect(performance.now() - started).toBeLessThan(500);
+  });
+});
+
+describe('redactSecrets', () => {
+  it('applies the same rules as redactError, with no length cut', () => {
+    const long = `${'x'.repeat(MAX_ERROR_LENGTH * 3)} GET https://u:p@h/k?sig=abc failed`;
+    expect(redactSecrets(long)).toBe(
+      `${'x'.repeat(MAX_ERROR_LENGTH * 3)} GET https://h/k?[query removed] failed`
+    );
+  });
+
+  it('redacts a long dotted text with no cut quickly', () => {
+    const started = performance.now();
+    redactSecrets('a.'.repeat(40_000));
+    // The bound is generous, so a loaded host does not make the test fail.
     expect(performance.now() - started).toBeLessThan(500);
   });
 });

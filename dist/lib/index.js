@@ -61059,7 +61059,10 @@ function resolveRefCandidates(env = process.env, readFile = (file) => (0,externa
 
 // EXTERNAL MODULE: ./src/state.ts
 var state = __nccwpck_require__(2462);
+// EXTERNAL MODULE: ./src/utils/redact.ts
+var redact = __nccwpck_require__(8476);
 ;// CONCATENATED MODULE: ./src/ci/github.ts
+
 
 
 
@@ -61079,10 +61082,12 @@ class GitHubActionsHost {
     fixedEnv;
     state = new state/* StateProvider */.v();
     log = {
-        debug: (message) => core/* debug */.Yz(message),
+        debug: (message) => core/* debug */.Yz((0,redact/* redactSecrets */.fp)(message)),
         info: (message) => core/* info */.pq(message),
-        warning: (message, title) => (title ? core/* warning */.$e(message, { title }) : core/* warning */.$e(message)),
-        error: (message) => core/* error */.z3(message),
+        warning: (message, title) => title
+            ? core/* warning */.$e((0,redact/* redactSecrets */.fp)(message), { title })
+            : core/* warning */.$e((0,redact/* redactSecrets */.fp)(message)),
+        error: (message) => core/* error */.z3((0,redact/* redactSecrets */.fp)(message)),
         startGroup: (title) => core/* startGroup */.Oh(title),
         endGroup: () => core/* endGroup */.N4(),
     };
@@ -61112,7 +61117,8 @@ class GitHubActionsHost {
         core/* setOutput */.uH(name, value);
     }
     setFailed(message) {
-        core/* setFailed */.C1(message);
+        // core.setFailed prints an Error with toString(), so this keeps its text.
+        core/* setFailed */.C1((0,redact/* redactSecrets */.fp)(message instanceof Error ? message.toString() : message));
     }
     get summary() {
         return this.env.GITHUB_STEP_SUMMARY ? core/* summary */.z : undefined;
@@ -61528,6 +61534,67 @@ function parsePositiveInt(raw, name) {
         throw new Error(`Input "${name}" must be a positive integer; got "${raw}".`);
     }
     return Number(trimmed);
+}
+
+
+/***/ }),
+
+/***/ 8476:
+/***/ ((__unused_webpack_module, __webpack_exports__, __nccwpck_require__) => {
+
+/* harmony export */ __nccwpck_require__.d(__webpack_exports__, {
+/* harmony export */   fp: () => (/* binding */ redactSecrets),
+/* harmony export */   ki: () => (/* binding */ redactError)
+/* harmony export */ });
+/* unused harmony export MAX_ERROR_LENGTH */
+/** The longest error text, in characters, that one `Error:` line shows. */
+const MAX_ERROR_LENGTH = 1000;
+/** A URL scheme starts here only when no scheme character comes before it (a linear match). */
+const SCHEME = String.raw `(?<![a-z0-9+.-])[a-z][a-z0-9+.-]*:\/\/`;
+/** `scheme://user:pass@` -> `scheme://`. It takes all text up to the last `@` before the host. */
+const USER_INFO = new RegExp(String.raw `(${SCHEME})[^\s?#]*@`, 'gi');
+/** The authority at the end of a cut text, which can hold part of the user info with no `@`. */
+const CUT_AUTHORITY = new RegExp(String.raw `(${SCHEME})[^\s/?#]*$`, 'i');
+/** `http(s)://host/path?query` -> `http(s)://host/path?[query removed]`. A quote, `)` or `,` ends it. */
+const QUERY = /(?<![a-z0-9+.-])(https?:\/\/[^\s?#"'),]*)\?[^\s#"'),]*/gi;
+/**
+ * A signature or credential parameter or header outside a URL query: `key=value`, `key%3Dvalue`
+ * (percent-encoded, also after an encoded `?` or `&`), or `key: value` (header text). The value ends at white space, `&`, `%26`, a
+ * comma, a quote or `)`.
+ */
+const SECRET_PARAMETER = new RegExp(String.raw `(?:(?<![a-z0-9-])|(?<=%3F|%26|%253F|%2526))(sig|signature|credential|AWSAccessKeyId|X-Amz-Signature|X-Amz-Credential|X-Amz-Security-Token|X-Goog-Signature|X-Goog-Credential)(=|%3D|%253D|:[ \t]*)(?:(?!%26)[^\s&,"')])+`, 'gi');
+/** The text of an `Authorization:` header, to the end of the line. */
+const AUTHORIZATION_HEADER = /(?<![a-z0-9-])(authorization:)[^\r\n]*/gi;
+/**
+ * Removes secrets from a text that the action prints: the user info of each URL, the query string
+ * of each HTTP URL (a presigned or SAS URL holds its signature there), the value of each signature
+ * or credential parameter or header, and the text of an `Authorization:` header. The rest of the
+ * text stays. Each rule takes linear time, so a long text is safe. The CI hosts call this for each
+ * warning, error, failure and debug line, and the CLI for each error that it prints.
+ */
+function redactSecrets(text) {
+    return text
+        .replace(USER_INFO, '$1')
+        .replace(QUERY, '$1?[query removed]')
+        .replace(SECRET_PARAMETER, '$1$2[removed]')
+        .replace(AUTHORIZATION_HEADER, '$1 [removed]');
+}
+/**
+ * Makes an error text safe and short for one `Error:` line of the job summary. First it cuts the
+ * text to `MAX_ERROR_LENGTH` characters. Then `redactSecrets` removes the secrets.
+ */
+function redactError(text) {
+    const cut = text.length > MAX_ERROR_LENGTH;
+    let redacted = cut ? text.slice(0, MAX_ERROR_LENGTH) : text;
+    if (cut) {
+        // The cut can end inside the user info of a URL, before its `@`.
+        redacted = redacted.replace(CUT_AUTHORITY, '$1[cut]');
+    }
+    redacted = redactSecrets(redacted);
+    if (cut) {
+        redacted += `... (${text.length - MAX_ERROR_LENGTH} more characters in the log)`;
+    }
+    return redacted;
 }
 
 
@@ -72483,7 +72550,10 @@ async function restoreFromS3Streaming(tier, found, tar, hit) {
     }
 }
 
+// EXTERNAL MODULE: ./src/utils/redact.ts
+var redact = __nccwpck_require__(8476);
 ;// CONCATENATED MODULE: ./src/core/summary.ts
+
 
 
 
@@ -72531,48 +72601,6 @@ function addPresetLine(preset, paths) {
     const list = (paths ?? []).map((p) => `<code>${escapeHtml(p)}</code>`).join(', ');
     writer().addRaw(`<p>Preset <code>${escapeHtml(preset)}</code>, path ${list}</p>`, true);
 }
-/** The longest error text, in characters, that one `Error:` line shows. */
-const MAX_ERROR_LENGTH = 1000;
-/** A URL scheme starts here only when no scheme character comes before it (a linear match). */
-const SCHEME = String.raw `(?<![a-z0-9+.-])[a-z][a-z0-9+.-]*:\/\/`;
-/** `scheme://user:pass@` -> `scheme://`. It takes all text up to the last `@` before the host. */
-const USER_INFO = new RegExp(String.raw `(${SCHEME})[^\s?#]*@`, 'gi');
-/** The authority at the end of a cut text, which can hold part of the user info with no `@`. */
-const CUT_AUTHORITY = new RegExp(String.raw `(${SCHEME})[^\s/?#]*$`, 'i');
-/** `http(s)://host/path?query` -> `http(s)://host/path?[query removed]`. A quote, `)` or `,` ends it. */
-const QUERY = /(?<![a-z0-9+.-])(https?:\/\/[^\s?#"'),]*)\?[^\s#"'),]*/gi;
-/**
- * A signature or credential parameter or header outside a URL query: `key=value`, `key%3Dvalue`
- * (percent-encoded, also after an encoded `?` or `&`), or `key: value` (header text). The value ends at white space, `&`, `%26`, a
- * comma, a quote or `)`.
- */
-const SECRET_PARAMETER = new RegExp(String.raw `(?:(?<![a-z0-9-])|(?<=%3F|%26|%253F|%2526))(sig|signature|credential|AWSAccessKeyId|X-Amz-Signature|X-Amz-Credential|X-Amz-Security-Token|X-Goog-Signature|X-Goog-Credential)(=|%3D|%253D|:[ \t]*)(?:(?!%26)[^\s&,"')])+`, 'gi');
-/** The text of an `Authorization:` header, to the end of the line. */
-const AUTHORIZATION_HEADER = /(?<![a-z0-9-])(authorization:)[^\r\n]*/gi;
-/**
- * Makes an error text safe for the summary page. First it cuts the text to `MAX_ERROR_LENGTH`
- * characters, so that each rule below runs on a short text. Then it removes the user info of each
- * URL, the query string of each HTTP URL (a presigned or SAS URL holds its signature there), the
- * value of each signature or credential parameter or header, and the text of an `Authorization:`
- * header. The rest of the text stays.
- */
-function redactError(text) {
-    const cut = text.length > MAX_ERROR_LENGTH;
-    let redacted = cut ? text.slice(0, MAX_ERROR_LENGTH) : text;
-    if (cut) {
-        // The cut can end inside the user info of a URL, before its `@`.
-        redacted = redacted.replace(CUT_AUTHORITY, '$1[cut]');
-    }
-    redacted = redacted
-        .replace(USER_INFO, '$1')
-        .replace(QUERY, '$1?[query removed]')
-        .replace(SECRET_PARAMETER, '$1$2[removed]')
-        .replace(AUTHORIZATION_HEADER, '$1 [removed]');
-    if (cut) {
-        redacted += `... (${text.length - MAX_ERROR_LENGTH} more characters in the log)`;
-    }
-    return redacted;
-}
 /**
  * One line for each error, under the table. A line break becomes `<br>`: a blank line in the text
  * (for example in a tar stderr tail) would otherwise end the HTML block, and GitHub would read the
@@ -72580,7 +72608,7 @@ function redactError(text) {
  */
 function addErrorLines(errors) {
     for (const error of errors ?? []) {
-        const html = escapeHtml(redactError(error)).replace(/\r\n|\r|\n/g, '<br>');
+        const html = escapeHtml((0,redact/* redactError */.ki)(error)).replace(/\r\n|\r|\n/g, '<br>');
         writer().addRaw(`<p>Error: ${html}</p>`, true);
     }
 }
@@ -72645,13 +72673,12 @@ async function writeRestoreSummary(data) {
         return;
     }
     writer()
-        .addHeading('Cloud cache restore')
+        .addHeading('Cloud cache restore', 3)
         .addTable([
         [
             { data: 'Result', header: true },
             { data: 'Primary key', header: true },
             { data: 'Matched key', header: true },
-            { data: 'Cache hit', header: true },
             { data: 'Source', header: true },
             { data: 'Size', header: true },
             { data: 'Duration', header: true },
@@ -72660,7 +72687,6 @@ async function writeRestoreSummary(data) {
             restoreResult(data),
             escapeHtml(data.primaryKey),
             data.matchedKey === undefined ? '—' : escapeHtml(data.matchedKey),
-            data.skipped === undefined ? String(data.cacheHit) : 'skipped',
             escapeHtml(data.source),
             formatOptionalSize(data.size),
             formatDuration(data.durationMs),
@@ -72681,7 +72707,7 @@ async function writeSaveSummary(data) {
         return;
     }
     writer()
-        .addHeading('Cloud cache save')
+        .addHeading('Cloud cache save', 3)
         .addTable([
         [
             { data: 'Result', header: true },
@@ -72891,7 +72917,7 @@ async function writeExplainSummary(report, jobSummary) {
         return;
     }
     (0,host/* getHost */.L)()
-        .summary?.addHeading('Cache lookup explained')
+        .summary?.addHeading('Cache lookup explained', 3)
         .addRaw(`<pre>${renderExplain(report).map(escapeHtml).join('\n')}</pre>`, true);
     await flush();
 }

@@ -60,7 +60,7 @@ On a self-hosted Windows runner, the account can lack the `SeCreateSymbolicLinkP
    - With `streaming: true`, extracts the archive as it downloads instead, verifying the checksum at the end: a network or `tar` failure mid-stream, or a checksum mismatch, becomes a cache miss with the workspace possibly partly extracted, and there is no whole-download retry as there is in the default file mode.
    - Decompresses the archive using `zstd` (or `gzip` fallback) directly into your workspace.
    - Sets outputs (`cache-hit`, `cache-primary-key`, `cache-matched-key`, `cache-size`, `cache-storage-provider`, `cache-s3-key`, `cache-etag`, `cache-metadata`, `cache-hit-source`) plus the timings described in [Metrics and Timings](#metrics-and-timings).
-   - Writes a job summary table with the result, the key, hit status, source, size and duration, unless `job-summary: false`.
+   - Writes a job summary table with the result, the key, source, size and duration, unless `job-summary: false`.
 
 2. **Save Phase (Post)**:
    - If `read-only: true` or if an exact key match occurred during restore, saving is automatically skipped.
@@ -122,7 +122,7 @@ Every step — restore, save, `prune` and `inspect` — also writes one `cloud-c
 ## Job summary
 
 After both restore and save, a step summary table is written via `core.summary` — a "Cloud cache
-restore" table with the result, the primary/matched key, cache hit, source, size and duration, and a
+restore" table with the result, the primary/matched key, source, size and duration, and a
 "Cloud cache save" table with the result, the key, tiers saved to, size and duration. This is on by
 default; set `job-summary: false` to turn it off. No summary is written when `GITHUB_STEP_SUMMARY` is
 not set. A step that fails before it reads its inputs (for example on a bad boolean input or an
@@ -151,14 +151,14 @@ Each tier error that the step logged as a warning, and the error that failed the
 `Error:` line under the table. A hit from the GitHub fallback after an S3 error shows `exact hit` or
 `partial hit (restore key)`, and the S3 error stays under the table. In the same way, a dual-cache
 save that writes to one tier while the other tier fails shows `saved`, with the error under the
-table. Each `Error:` line has no URL user info, no URL query string and no signature value, and
-it shows at most 1000 characters; the step log has the full text. The `cache-hit` output does not
-change. A restore with a wrong secret key gives this table:
+table. An `Error:` line shows at most 1000 characters; the step log has the full text. The
+`cache-hit` output still gives `true` for an exact hit only. Each table has a level-3 heading. A
+restore with a wrong secret key gives this table:
 
 ```text
 Cloud cache restore
-| Result           | Primary key   | Matched key | Cache hit | Source | Size | Duration |
-| error (no cache) | Linux-npm-9f2 | —           | false     | none   | —    | 0.41 s   |
+| Result           | Primary key   | Matched key | Source | Size | Duration |
+| error (no cache) | Linux-npm-9f2 | —           | none   | —    | 0.41 s   |
 
 Error: Restoring from s3 failed, so it counts as a cache miss: HeadObject s3://my-ci-cache-bucket/...
 returned HTTP 403 Forbidden. Check access-key, secret-key and region, ...
@@ -172,6 +172,14 @@ refs/heads/feature-x, then refs/heads/main. Set explain: true to list each candi
 When a tier failed and no tier gave a cache (also when the S3 client setup failed), the last line
 is `No cache restored: the s3 tier failed (see the warning above). Keys searched: ...` instead, and
 the Result is `error (no cache)`.
+
+The action removes secrets from each warning, error, failure and debug line, from each `Error:`
+line of the summary, and from each error that the CLI prints. It removes the user info of a URL
+(`https://user:password@host` becomes `https://host`), the query string of an HTTP URL
+(`?[query removed]`), the value of a signature or credential parameter or header (`sig`,
+`Signature`, `Credential`, `AWSAccessKeyId`, `X-Amz-Signature`, `X-Amz-Credential`,
+`X-Amz-Security-Token`, `X-Goog-Signature`, `X-Goog-Credential`, also percent-encoded), and the text
+of an `Authorization:` header. Other text stays. Info lines do not change.
 
 ## Restore and save actions
 

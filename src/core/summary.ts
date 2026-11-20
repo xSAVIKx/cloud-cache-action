@@ -1,6 +1,7 @@
 import { getHost, type SummaryWriter } from '../ci/host';
 import { log } from '../ci/log';
 import { formatSize } from '../utils/inputUtils';
+import { redactError } from '../utils/redact';
 import { toError } from './outcomes';
 
 export type CacheSource = 's3' | 'github' | 'none';
@@ -114,59 +115,6 @@ function addPresetLine(preset: string | undefined, paths: readonly string[] | un
   writer().addRaw(`<p>Preset <code>${escapeHtml(preset)}</code>, path ${list}</p>`, true);
 }
 
-/** The longest error text, in characters, that one `Error:` line shows. */
-export const MAX_ERROR_LENGTH = 1000;
-
-/** A URL scheme starts here only when no scheme character comes before it (a linear match). */
-const SCHEME = String.raw`(?<![a-z0-9+.-])[a-z][a-z0-9+.-]*:\/\/`;
-
-/** `scheme://user:pass@` -> `scheme://`. It takes all text up to the last `@` before the host. */
-const USER_INFO = new RegExp(String.raw`(${SCHEME})[^\s?#]*@`, 'gi');
-
-/** The authority at the end of a cut text, which can hold part of the user info with no `@`. */
-const CUT_AUTHORITY = new RegExp(String.raw`(${SCHEME})[^\s/?#]*$`, 'i');
-
-/** `http(s)://host/path?query` -> `http(s)://host/path?[query removed]`. A quote, `)` or `,` ends it. */
-const QUERY = /(?<![a-z0-9+.-])(https?:\/\/[^\s?#"'),]*)\?[^\s#"'),]*/gi;
-
-/**
- * A signature or credential parameter or header outside a URL query: `key=value`, `key%3Dvalue`
- * (percent-encoded, also after an encoded `?` or `&`), or `key: value` (header text). The value ends at white space, `&`, `%26`, a
- * comma, a quote or `)`.
- */
-const SECRET_PARAMETER = new RegExp(
-  String.raw`(?:(?<![a-z0-9-])|(?<=%3F|%26|%253F|%2526))(sig|signature|credential|AWSAccessKeyId|X-Amz-Signature|X-Amz-Credential|X-Amz-Security-Token|X-Goog-Signature|X-Goog-Credential)(=|%3D|%253D|:[ \t]*)(?:(?!%26)[^\s&,"')])+`,
-  'gi'
-);
-
-/** The text of an `Authorization:` header, to the end of the line. */
-const AUTHORIZATION_HEADER = /(?<![a-z0-9-])(authorization:)[^\r\n]*/gi;
-
-/**
- * Makes an error text safe for the summary page. First it cuts the text to `MAX_ERROR_LENGTH`
- * characters, so that each rule below runs on a short text. Then it removes the user info of each
- * URL, the query string of each HTTP URL (a presigned or SAS URL holds its signature there), the
- * value of each signature or credential parameter or header, and the text of an `Authorization:`
- * header. The rest of the text stays.
- */
-export function redactError(text: string): string {
-  const cut = text.length > MAX_ERROR_LENGTH;
-  let redacted = cut ? text.slice(0, MAX_ERROR_LENGTH) : text;
-  if (cut) {
-    // The cut can end inside the user info of a URL, before its `@`.
-    redacted = redacted.replace(CUT_AUTHORITY, '$1[cut]');
-  }
-  redacted = redacted
-    .replace(USER_INFO, '$1')
-    .replace(QUERY, '$1?[query removed]')
-    .replace(SECRET_PARAMETER, '$1$2[removed]')
-    .replace(AUTHORIZATION_HEADER, '$1 [removed]');
-  if (cut) {
-    redacted += `... (${text.length - MAX_ERROR_LENGTH} more characters in the log)`;
-  }
-  return redacted;
-}
-
 /**
  * One line for each error, under the table. A line break becomes `<br>`: a blank line in the text
  * (for example in a tar stderr tail) would otherwise end the HTML block, and GitHub would read the
@@ -247,13 +195,12 @@ export async function writeRestoreSummary(data: RestoreSummaryData): Promise<voi
     return;
   }
   writer()
-    .addHeading('Cloud cache restore')
+    .addHeading('Cloud cache restore', 3)
     .addTable([
       [
         { data: 'Result', header: true },
         { data: 'Primary key', header: true },
         { data: 'Matched key', header: true },
-        { data: 'Cache hit', header: true },
         { data: 'Source', header: true },
         { data: 'Size', header: true },
         { data: 'Duration', header: true },
@@ -262,7 +209,6 @@ export async function writeRestoreSummary(data: RestoreSummaryData): Promise<voi
         restoreResult(data),
         escapeHtml(data.primaryKey),
         data.matchedKey === undefined ? '—' : escapeHtml(data.matchedKey),
-        data.skipped === undefined ? String(data.cacheHit) : 'skipped',
         escapeHtml(data.source),
         formatOptionalSize(data.size),
         formatDuration(data.durationMs),
@@ -287,7 +233,7 @@ export async function writeSaveSummary(data: SaveSummaryData): Promise<void> {
     return;
   }
   writer()
-    .addHeading('Cloud cache save')
+    .addHeading('Cloud cache save', 3)
     .addTable([
       [
         { data: 'Result', header: true },

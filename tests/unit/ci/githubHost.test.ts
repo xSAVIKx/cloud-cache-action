@@ -104,6 +104,26 @@ describe('GitHubActionsHost', () => {
     expect(coreMock.setFailed).toHaveBeenCalledWith('boom');
   });
 
+  it('redacts each warning, error, failure and debug text, and keeps an info line', () => {
+    const { log: hostLog } = new GitHubActionsHost({});
+    const secret = 'GET https://key:pw@h/k?X-Amz-Signature=s1 failed';
+    const redacted = 'GET https://h/k?[query removed] failed';
+    hostLog.debug(secret);
+    hostLog.info(secret);
+    hostLog.warning(secret);
+    hostLog.warning(secret, 'Cloud cache save');
+    hostLog.error(secret);
+    new GitHubActionsHost({}).setFailed(secret);
+    new GitHubActionsHost({}).setFailed(new Error(secret));
+    expect(coreMock.debug).toHaveBeenCalledWith(redacted);
+    expect(coreMock.info).toHaveBeenCalledWith(secret);
+    expect(coreMock.warning).toHaveBeenCalledWith(redacted);
+    expect(coreMock.warning).toHaveBeenCalledWith(redacted, { title: 'Cloud cache save' });
+    expect(coreMock.error).toHaveBeenCalledWith(redacted);
+    expect(coreMock.setFailed).toHaveBeenCalledWith(redacted);
+    expect(coreMock.setFailed).toHaveBeenCalledWith(`Error: ${redacted}`);
+  });
+
   it('setOutput delegates to core.setOutput', () => {
     new GitHubActionsHost({}).setOutput('cache-hit', true);
     expect(coreMock.setOutput).toHaveBeenCalledWith('cache-hit', true);
