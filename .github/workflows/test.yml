@@ -37,6 +37,10 @@ jobs:
             exit 1
           fi
       - run: npm run docs:build
+      - name: Check the built docs use the site origin
+        env:
+          REQUIRE_DOCS_BUILD: '1'
+        run: npm test -- tests/unit/siteOrigin.test.ts
 
   unit:
     name: Jest (${{ matrix.os }})
@@ -56,6 +60,16 @@ jobs:
         run: node tests/ci/startSeaweedfs.ts
       - name: Run Jest (unit, contract and integration)
         run: npm test
+      # The cli job tests the CLI bundle on Linux. These steps test it on macOS and Windows.
+      - name: Build the CLI bundle
+        if: runner.os != 'Linux'
+        run: npm run build:cli
+      - name: Run the CLI integration test against SeaweedFS
+        if: runner.os != 'Linux'
+        env:
+          TEST_CLI: '1'
+          REQUIRE_S3: '1'
+        run: npm test -- tests/integration/cli.test.ts --testTimeout=60000
 
   provider-compat:
     name: S3 compatibility (${{ matrix.server }})

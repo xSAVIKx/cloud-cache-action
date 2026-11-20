@@ -150,7 +150,7 @@ async function ensureBundle(): Promise<void> {
   }
 }
 
-// Only the `cli` CI job sets TEST_CLI. Runs on Windows and macOS come with the per-OS binaries later.
+// TEST_CLI is set by the `cli` CI job (Linux) and by the CLI steps of the `unit` job (macOS, Windows).
 const describeCli = process.env.TEST_CLI === '1' ? describe : describe.skip;
 
 describeCli('cloud-cache CLI bundle against S3', () => {

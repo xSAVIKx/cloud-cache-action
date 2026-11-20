@@ -30,7 +30,7 @@ Add the following step to your GitHub Actions workflow:
 
 For a package manager cache, `preset: npm` (or `yarn`, `pnpm`, `bun`, `pip`, `poetry`, `uv`, `gradle`, `maven`, `cargo`, `go`) gives the `path`, `key` and `restore-keys` for you. See [Cache Presets](./presets.md).
 
-## Paths and Exclusions
+## Paths and exclusions
 
 `path` accepts files, directories, globs, `~` and `!` exclusions, one per line.
 
@@ -50,12 +50,11 @@ Symlinks are archived as links, never followed and re-created as copies. On Wind
 
 On a self-hosted Windows runner, the account can lack the `SeCreateSymbolicLinkPrivilege` privilege, and Developer Mode can be off. Then Git's GNU `tar` cannot create native symlinks, and the extract fails with `Cannot create symlink to ...: Operation not permitted`. When symlinks are the only failure, the action logs a warning and extracts the archive one more time with `MSYS=winsymlinks:deepcopy`. Each symlink is then restored as a copy of its target, not as a link. A symlink whose target is not in the archive still fails the restore. BSD `tar` (`C:\Windows\System32\tar.exe`) does not read `MSYS`, so the action does not retry with it. This retry applies only to the S3 tier in file mode. With `streaming: true`, or for the GitHub tier with `dual-cache: true` (`@actions/cache` runs its own `tar`), the restore still fails. The retry also fails for a symlink whose target is another symlink later in the archive. A copied directory symlink can make the restored tree much larger than the archive.
 
-## How It Works
+## How it works
 
 1. **Restore Phase (Pre/Main)**:
    - Connects to your S3 bucket using modern `@aws-sdk/client-s3`.
-   - Checks if an exact match exists for the `key` parameter.
-   - If not found, evaluates `restore-keys` in order and downloads the most recently updated matching archive.
+   - Looks for the `key`, then for each `restore-keys` entry in order, in the current ref, the pull request base branch and the default branch. The first match wins. [How a restore finds a cache](./s3-key-patterns.md#how-a-restore-finds-a-cache) shows the order in a diagram.
    - Downloads an archive larger than `download-chunk-size` (default 8 MiB) as concurrent `Range` requests, `download-concurrency` (default `8`) at a time, each retried on its own; set `download-concurrency: 1` for a single request. A provider that ignores `Range` gets the single request automatically. With `transfer-tuning: auto`, the action selects these settings from the archive size (see [Automatic tuning](./performance.md#automatic-tuning)).
    - Verifies the archive's sha256 checksum, when the object carries one, before extracting it; a mismatch is logged as a warning and counts as a cache miss (with `dual-cache: true` and `dual-cache-strict: true`, it fails the step).
    - With `streaming: true`, extracts the archive as it downloads instead, verifying the checksum at the end: a network or `tar` failure mid-stream, or a checksum mismatch, becomes a cache miss with the workspace possibly partly extracted, and there is no whole-download retry as there is in the default file mode.
@@ -75,7 +74,7 @@ On a self-hosted Windows runner, the account can lack the `SeCreateSymbolicLinkP
 Cache archives are never deleted automatically; see [Pruning Caches](./pruning.md) for a
 scheduled cleanup sub-action.
 
-## Inspecting a Lookup
+## Inspecting a lookup
 
 When a restore misses and you expected a hit, set `explain: true` to log the whole lookup — the resolved key pattern, the `${version}` hash and what it is computed from, every ref searched and every candidate object with the version it carries — right before the restore runs. The `inspect` sub-action prints the same report as a step of its own, restoring nothing and exposing the result as outputs (`would-hit`, `would-match-key`, `would-match-object`, `candidate-count`, `report`):
 
@@ -91,7 +90,7 @@ When a restore misses and you expected a hit, set `explain: true` to log the who
 
 See [Inspecting Lookups](./inspecting.md) for the full report, how to read the "none has version" reason, and the `fail-on-cache-miss` guard pattern for matrix jobs.
 
-## Metrics and Timings
+## Metrics and timings
 
 Restore and save set four timing and size outputs on every path, so they are always defined: `cache-restore-duration-ms` and `cache-save-duration-ms` (wall-clock milliseconds of the step, `0` when it did not complete), `cache-transfer-duration-ms` (the S3 download or upload alone) and `cache-bytes` (the archive that was restored or saved, `0` when none was).
 
@@ -120,7 +119,7 @@ Every step — restore, save, `prune` and `inspect` — also writes one `cloud-c
 - `prune` and `inspect` write their line once the step has finished its work, so a step that fails earlier writes none. `prune` reports its tallies in `extra` (`prunedCount`, `prunedBytes`, `keptCount`, `dryRun`) and `inspect` reports `candidateCount`.
 - Writing the file is best-effort by design: a machine-readable timing record must never fail a cache step, so a write error only logs `Could not write metrics to <path>: <reason>`.
 
-## Job Summary
+## Job summary
 
 After both restore and save, a step summary table is written via `core.summary` — a "Cloud cache
 restore" table with the primary/matched key, cache hit, source, size and duration, and a "Cloud cache
@@ -128,11 +127,11 @@ save" table with the key, tiers saved to, size and duration. This is on by defau
 `job-summary: false` to turn it off. No summary is written when the step fails with an error, or
 when `GITHUB_STEP_SUMMARY` is not set.
 
-## Restore and Save Actions
+## Restore and save actions
 
 As with `actions/cache/restore` and `actions/cache/save`, you can run the restore and the save as separate steps:
 
-### Restore Only
+### Restore only
 
 ```yaml
 - name: Restore cache
@@ -144,7 +143,7 @@ As with `actions/cache/restore` and `actions/cache/save`, you can run the restor
     path: build/
 ```
 
-### Save Only
+### Save only
 
 ```yaml
 - name: Save cache
@@ -177,7 +176,7 @@ The post step only runs when the job succeeds. To save a cache even when a later
     path: ~/.cache
 ```
 
-### Action Metadata Definitions
+### Action metadata definitions
 
 You can inspect the full action specification files directly in the repository:
 

@@ -191,7 +191,8 @@ function repoLink(absFile: string, ctx: FileContext): string {
 
 /**
  * Changes one Markdown file to the text of llms-full.txt: no front matter, Markdown includes
- * resolved, code includes changed to a link, and relative links made absolute.
+ * resolved, code includes changed to a link, Vue components removed, and relative links made
+ * absolute.
  */
 function renderMarkdown(src: string, ctx: FileContext, depth: number): string {
   const { body } = splitFrontmatter(src);
@@ -236,6 +237,9 @@ function renderMarkdown(src: string, ctx: FileContext, depth: number): string {
       }
       continue;
     }
+
+    // A diagram component has no text. The prose next to it says the same thing.
+    if (/^\s*<[A-Z][A-Za-z]*\s*\/>\s*$/.test(line)) continue;
 
     const code = /^\s*<<<\s+(\S+)/.exec(line);
     if (code) {

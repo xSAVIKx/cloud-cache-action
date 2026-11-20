@@ -64,14 +64,14 @@ The [Getting Started](https://xsavikx.github.io/cloud-cache-action/guide/getting
 Paste this prompt into your coding agent, for example Claude Code, Cursor or Copilot:
 
 ```text
-Migrate all GitHub Actions cache steps in this repository to `xSAVIKx/cloud-cache-action@v1`. Discover all workflow files in `.github/workflows/`, replace `actions/cache@*` (and /restore or /save) preserving all keys, paths, and inputs, detect or ask which storage provider (Cloudflare R2, AWS S3, GCS, MinIO) to configure, and provide a checklist of required GitHub Secrets.
+Migrate all GitHub Actions cache steps in this repository to `xSAVIKx/cloud-cache-action@v1`. Discover all workflow files in `.github/workflows/`, replace `actions/cache@*` (and /restore or /save) preserving all keys, paths, and inputs, detect or ask which storage provider to configure (AWS S3, Cloudflare R2, Google Cloud Storage, Backblaze B2, Fastly Object Storage, or a self-hosted Garage, SeaweedFS, MinIO or RustFS), and provide a checklist of required GitHub Secrets.
 ```
 
 The [Migration](https://xsavikx.github.io/cloud-cache-action/guide/migration.html) guide has the full prompt and the secrets that each provider needs.
 
 ## Why use it
 
-- **The same inputs and outputs as `actions/cache` v4 to v6.** Change the `uses:` line, add a bucket and credentials, and keep your `key`, `path` and `restore-keys`.
+- **The same inputs and outputs as `actions/cache` v4 to v6, except `save-always`.** Change the `uses:` line, add a bucket and credentials, and keep your `key`, `path` and `restore-keys`.
 - **Your bucket, your limits.** The GitHub Actions cache gives each repository 10 GB at no cost and evicts entries above the limit ([GitHub docs](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching#usage-limits-and-eviction-policy)). A bucket has the limits and the prices of your storage provider, and no cache is removed unless you remove it. With Cloudflare R2, there are no egress fees.
 - **Any S3-compatible storage.** AWS S3 (static keys or OIDC), Cloudflare R2, Google Cloud Storage, Backblaze B2, Fastly, and self-hosted Garage, SeaweedFS, MinIO and RustFS.
 - **Fast transfers.** Multi-threaded `zstd` compression, parallel ranged downloads and parallel multipart uploads. See [Performance](https://xsavikx.github.io/cloud-cache-action/guide/performance.html).

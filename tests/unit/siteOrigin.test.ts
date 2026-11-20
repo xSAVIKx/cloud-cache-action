@@ -65,13 +65,19 @@ describe('site origin', () => {
 });
 
 /**
- * These run against a real build. Skipped rather than failed when dist/ is
- * absent, so `npm test` on a clean checkout does not require a docs build —
- * but they run in CI, where docs are built.
+ * These run against a real build. Locally they skip when dist/ is absent, so
+ * `npm test` on a clean checkout does not require a docs build. The checks
+ * job in CI builds the docs and sets REQUIRE_DOCS_BUILD=1. With that variable
+ * set, an absent dist/ fails the suite. Other jobs do not set it.
  */
-const describeBuilt = existsSync(DIST) ? describe : describe.skip;
+const describeBuilt =
+  existsSync(DIST) || process.env.REQUIRE_DOCS_BUILD === '1' ? describe : describe.skip;
 
 describeBuilt('built output', () => {
+  it('has a docs build to check', () => {
+    expect(existsSync(DIST)).toBe(true);
+  });
+
   /**
    * Read the constants as text rather than importing: the definition is ESM
    * that Jest's transform will not load, and reading the literal asserts what
@@ -124,15 +130,18 @@ describeBuilt('built output', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('generates the three files that used to be copied verbatim', () => {
+  it('generates the two files that used to be copied verbatim', () => {
     const { url } = siteUrl();
     // If these were still copied from public/, they would not contain the
     // current SITE_URL after a hostname change - they would contain the old one.
-    for (const file of ['llms.txt', 'llms-full.txt', 'robots.txt']) {
+    for (const file of ['llms.txt', 'llms-full.txt']) {
       expect(readFileSync(path.join(DIST, file), 'utf8')).toContain(url);
     }
-    expect(readFileSync(path.join(DIST, 'robots.txt'), 'utf8')).toContain(
-      `Sitemap: ${url}sitemap.xml`
-    );
+  });
+
+  it('does not publish a robots.txt under the project path', () => {
+    // Crawlers read robots.txt only at the origin root. The hub repository
+    // generates that file, so a copy here has no effect.
+    expect(existsSync(path.join(DIST, 'robots.txt'))).toBe(false);
   });
 });

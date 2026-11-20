@@ -8,6 +8,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 Conventional Commit messages on `main`. Entries up to v1.9.0 follow
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.11.0](https://github.com/xSAVIKx/cloud-cache-action/compare/v1.10.1...v1.11.0) (2026-10-29)
+
+
+### Added
+
+* add a Bitbucket Pipelines adapter to the cloud-cache CLI ([#34](https://github.com/xSAVIKx/cloud-cache-action/issues/34)) ([065fbb0](https://github.com/xSAVIKx/cloud-cache-action/commit/065fbb00cf0ae52d21578968725dbcad6f2de347))
+
+
+### Dependencies
+
+* bump @biomejs/biome ([#40](https://github.com/xSAVIKx/cloud-cache-action/issues/40)) ([6543a3d](https://github.com/xSAVIKx/cloud-cache-action/commit/6543a3d6458932dbbc400b2fa0e553edc73b683b))
+
 ## [1.10.1](https://github.com/xSAVIKx/cloud-cache-action/compare/v1.10.0...v1.10.1) (2026-10-29)
 
 
