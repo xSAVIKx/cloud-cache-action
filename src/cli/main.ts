@@ -14,6 +14,7 @@ import { INPUT_DEFAULTS } from './defaults';
 import { expandHashTemplates } from './hashTemplate';
 import { checkTar } from './tarCheck';
 import { CLI_VERSION } from './version';
+import { withWorkflowCommandsRouted } from './workflowCommands';
 
 /** Exit code of a command line that the CLI cannot run. */
 const USAGE_EXIT_CODE = 2;
@@ -61,8 +62,7 @@ function warnOnStateMismatch(state: FileStateProvider, stateFile: string): void 
  */
 async function expandKeyInputs(
   inputs: Record<string, string>,
-  workspace: string,
-  onDebug: (text: string) => void
+  workspace: string
 ): Promise<{ inputs: Record<string, string>; unmatched: string[] }> {
   const out = { ...inputs };
   const unmatched: string[] = [];
@@ -77,7 +77,7 @@ async function expandKeyInputs(
     }
     const lines: string[] = [];
     for (const line of value.split('\n')) {
-      const expanded = await expandHashTemplates(line, workspace, onDebug);
+      const expanded = await expandHashTemplates(line, workspace);
       lines.push(expanded.text);
       unmatched.push(...expanded.unmatched);
     }
@@ -125,7 +125,16 @@ async function run(args: CliRun): Promise<void> {
       : new GenericHost(options)
   );
   const host = getHost();
+  await withWorkflowCommandsRouted(host.log, () => runOnHost(args, platform, inputs));
+}
 
+/** Runs the command on the active host. */
+async function runOnHost(
+  args: CliRun,
+  platform: 'generic' | 'bitbucket',
+  inputs: Record<string, string>
+): Promise<void> {
+  const host = getHost();
   if (skipSave(args, platform)) {
     host.log.info(
       `The step failed (BITBUCKET_EXIT_CODE=${process.env.BITBUCKET_EXIT_CODE}), so save is skipped. ` +
@@ -135,7 +144,7 @@ async function run(args: CliRun): Promise<void> {
   }
 
   const workspace = host.context().workspace;
-  const expanded = await expandKeyInputs(inputs, workspace, (text) => host.log.debug(text));
+  const expanded = await expandKeyInputs(inputs, workspace);
   Object.assign(inputs, expanded.inputs);
   for (const glob of expanded.unmatched) {
     host.log.warning(`The {hash:${glob}} template matched no file under ${workspace}.`);
