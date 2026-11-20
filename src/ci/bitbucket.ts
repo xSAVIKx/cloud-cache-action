@@ -1,5 +1,4 @@
 import { appendFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { refCandidates } from '../core/refs';
 import { runnerOs } from './env';
 import {
@@ -71,6 +70,8 @@ export class BitbucketHost extends GenericHost {
       baseRef = toBranchName(env.CLOUD_CACHE_BASE_REF) ?? baseRef;
     }
     const configuredDefault = toBranchName(env.CLOUD_CACHE_DEFAULT_BRANCH);
+    // CLOUD_CACHE_WORKSPACE wins, so that a monorepo step can use a subfolder of the clone.
+    const workspace = env.CLOUD_CACHE_WORKSPACE || env.BITBUCKET_CLONE_DIR || process.cwd();
     const defaultBranch = configuredDefault || DEFAULT_BRANCH;
 
     if (!this.contextLogged) {
@@ -80,19 +81,11 @@ export class BitbucketHost extends GenericHost {
           ? `Default branch: ${configuredDefault}`
           : `Default branch: ${DEFAULT_BRANCH} (set CLOUD_CACHE_DEFAULT_BRANCH to change it)`
       );
-      // BITBUCKET_CLONE_DIR is the workspace on Bitbucket, as bitbucket.md documents.
-      const workspace = env.CLOUD_CACHE_WORKSPACE;
-      const cloneDir = env.BITBUCKET_CLONE_DIR;
-      // Windows paths do not depend on case.
-      const same = (a: string, b: string): boolean =>
-        process.platform === 'win32'
-          ? resolve(a).toLowerCase() === resolve(b).toLowerCase()
-          : resolve(a) === resolve(b);
-      if (workspace && cloneDir && !same(workspace, cloneDir)) {
-        this.log.warning(
-          `CLOUD_CACHE_WORKSPACE ignored on Bitbucket. Relative paths and {hash:} globs use BITBUCKET_CLONE_DIR (${cloneDir}).`
-        );
-      }
+      this.log.debug(
+        env.CLOUD_CACHE_WORKSPACE
+          ? `Workspace: ${env.CLOUD_CACHE_WORKSPACE} (from CLOUD_CACHE_WORKSPACE)`
+          : `Workspace: ${workspace} (from ${env.BITBUCKET_CLONE_DIR ? 'BITBUCKET_CLONE_DIR' : 'the current directory'})`
+      );
       if (overrides.length > 0) {
         if (useOverride) {
           this.log.info(
@@ -112,7 +105,7 @@ export class BitbucketHost extends GenericHost {
       repository,
       refs: refCandidates({ current, baseRef, defaultBranch }),
       eventName: pullRequestId ? 'pull_request' : 'push',
-      workspace: env.BITBUCKET_CLONE_DIR || env.CLOUD_CACHE_WORKSPACE || process.cwd(),
+      workspace,
       homeDir: env.HOME || env.USERPROFILE || osHomeDir(),
       runnerOs: runnerOs(env),
       labels: (this.labels ??= runnerLabels(env)),

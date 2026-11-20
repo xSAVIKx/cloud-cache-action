@@ -86,61 +86,48 @@ describe('BitbucketHost context', () => {
     expect(host(env).context().refs).toEqual({ current: undefined, restore: [] });
   });
 
-  it('workspace falls back to CLOUD_CACHE_WORKSPACE, then cwd', () => {
-    spyOut();
-    const { BITBUCKET_CLONE_DIR: _c, ...env } = BRANCH_ENV;
-    expect(host({ ...env, CLOUD_CACHE_WORKSPACE: '/w' }).context().workspace).toBe('/w');
-    expect(host(env).context().workspace).toBe(process.cwd());
-  });
-
-  it('uses BITBUCKET_CLONE_DIR over CLOUD_CACHE_WORKSPACE and warns once', () => {
+  it('uses CLOUD_CACHE_WORKSPACE when it is set, with no warning', () => {
     spyOut();
     const err = spyErr();
     const h = host({ ...BRANCH_ENV, CLOUD_CACHE_WORKSPACE: '/b/service-a' });
-    expect(h.context().workspace).toBe('/b');
-    h.context();
-    expect(err).toHaveBeenCalledTimes(1);
-    const text = String(err.mock.calls[0]?.[0]);
-    expect(text).toContain('CLOUD_CACHE_WORKSPACE ignored on Bitbucket');
-    expect(text).toContain('BITBUCKET_CLONE_DIR (/b)');
-  });
-
-  it('does not warn when CLOUD_CACHE_WORKSPACE is the clone directory', () => {
-    spyOut();
-    const err = spyErr();
-    expect(host({ ...BRANCH_ENV, CLOUD_CACHE_WORKSPACE: '/b/' }).context().workspace).toBe('/b');
+    expect(h.context().workspace).toBe('/b/service-a');
     expect(err).not.toHaveBeenCalled();
   });
 
-  it('resolves a relative CLOUD_CACHE_WORKSPACE from the current directory', () => {
+  it('uses BITBUCKET_CLONE_DIR when CLOUD_CACHE_WORKSPACE is not set, then cwd', () => {
     spyOut();
-    const err = spyErr();
-    const cwd = process.cwd();
-    expect(
-      host({ ...BRANCH_ENV, BITBUCKET_CLONE_DIR: cwd, CLOUD_CACHE_WORKSPACE: '.' }).context()
-        .workspace
-    ).toBe(cwd);
-    expect(err).not.toHaveBeenCalled();
-    host({ ...BRANCH_ENV, BITBUCKET_CLONE_DIR: cwd, CLOUD_CACHE_WORKSPACE: 'service-a' }).context();
-    expect(err).toHaveBeenCalledTimes(1);
+    expect(host(BRANCH_ENV).context().workspace).toBe('/b');
+    expect(host({ ...BRANCH_ENV, CLOUD_CACHE_WORKSPACE: '' }).context().workspace).toBe('/b');
+    const { BITBUCKET_CLONE_DIR: _c, ...env } = BRANCH_ENV;
+    expect(host(env).context().workspace).toBe(process.cwd());
   });
 
-  it('compares the directories without case on Windows only', () => {
+  it('keeps a relative CLOUD_CACHE_WORKSPACE as it is, as the generic host does', () => {
+    spyOut();
+    expect(host({ ...BRANCH_ENV, CLOUD_CACHE_WORKSPACE: 'service-a' }).context().workspace).toBe(
+      'service-a'
+    );
+  });
+
+  it('keeps a Windows CLOUD_CACHE_WORKSPACE as it is, case included', () => {
     spyOut();
     const err = spyErr();
-    const platform = Object.getOwnPropertyDescriptor(process, 'platform');
-    const env = { ...BRANCH_ENV, BITBUCKET_CLONE_DIR: '/Build', CLOUD_CACHE_WORKSPACE: '/build' };
-    try {
-      Object.defineProperty(process, 'platform', { value: 'win32' });
-      host(env).context();
-      expect(err).not.toHaveBeenCalled();
-    } finally {
-      Object.defineProperty(process, 'platform', platform as PropertyDescriptor);
-    }
-    if (process.platform !== 'win32') {
-      host(env).context();
-      expect(err).toHaveBeenCalledTimes(1);
-    }
+    const env = {
+      ...BRANCH_ENV,
+      BITBUCKET_CLONE_DIR: 'C:\\Build',
+      CLOUD_CACHE_WORKSPACE: 'c:\\build\\svc',
+    };
+    expect(host(env).context().workspace).toBe('c:\\build\\svc');
+    expect(err).not.toHaveBeenCalled();
+  });
+
+  it('names the chosen workspace in a debug line', () => {
+    const out = spyOut();
+    host({ ...BRANCH_ENV, CLOUD_CACHE_WORKSPACE: '/b/service-a' }, { debug: true }).context();
+    host(BRANCH_ENV, { debug: true }).context();
+    const text = out.mock.calls.map(([m]) => String(m)).join('');
+    expect(text).toContain('debug: Workspace: /b/service-a (from CLOUD_CACHE_WORKSPACE)');
+    expect(text).toContain('debug: Workspace: /b (from BITBUCKET_CLONE_DIR)');
   });
 
   it('ignores CLOUD_CACHE_EVENT_NAME', () => {
