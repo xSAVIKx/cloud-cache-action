@@ -551,8 +551,10 @@ export async function restoreFromS3(
     }
   }
 
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cloud-cache-restore-'));
+  // Created inside the try: a failure here is a failed tier, not a failed step.
+  let tempDir: string | undefined;
   try {
+    tempDir = fs.mkdtempSync(path.join(getHost().context().tempDir, 'cloud-cache-restore-'));
     const archivePath = path.join(tempDir, tier.compression.archiveFilename);
     const { bucket } = tier.storage;
     const transferStart = Date.now();
@@ -587,7 +589,9 @@ export async function restoreFromS3(
   } catch (err) {
     return { kind: 'error', error: toError(err) };
   } finally {
-    fs.rmSync(tempDir, { recursive: true, force: true });
+    if (tempDir) {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
   }
 }
 
@@ -649,7 +653,7 @@ async function saveToS3FileMode(
   omitTags = false
 ): Promise<SaveOutcome> {
   const { client, bucket } = tier.storage;
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cloud-cache-save-'));
+  const tempDir = fs.mkdtempSync(path.join(getHost().context().tempDir, 'cloud-cache-save-'));
   try {
     const archivePath = path.join(tempDir, tier.compression.archiveFilename);
     const archiveStart = Date.now();
@@ -1057,7 +1061,7 @@ async function saveToS3Streaming(
   primaryKey: string
 ): Promise<SaveOutcome> {
   const { client, bucket } = tier.storage;
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cloud-cache-save-'));
+  const tempDir = fs.mkdtempSync(path.join(getHost().context().tempDir, 'cloud-cache-save-'));
   let child: ChildProcess | undefined;
   let tarClose: Promise<number> | undefined;
   // Set once the inner catch below has killed tar and waited for it, so the outer catch (which
@@ -1340,7 +1344,7 @@ async function restoreFromS3Streaming(
       compression: tier.compression.method,
       archivePath: '-',
       workspace: tier.workspace,
-      tempDir: os.tmpdir(),
+      tempDir: getHost().context().tempDir,
     });
 
     child = spawnArchiveCommand(command, ['pipe', 'ignore', 'pipe']);

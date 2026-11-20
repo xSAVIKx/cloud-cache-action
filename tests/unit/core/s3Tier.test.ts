@@ -13,7 +13,7 @@ import { computeCacheVersion } from '../../../src/core/version';
 import type { StorageContext } from '../../../src/storage/client';
 import type { CacheObjectMetadata, ObjectStreamResult } from '../../../src/storage/operations';
 import type { PartDownloadOptions } from '../../../src/storage/parallelDownload';
-import { makeTempDir, removeDir } from '../../support/tempTree';
+import { makeTempDir, removeDir, setEnv } from '../../support/tempTree';
 
 const mockWarning = jest.fn<(message: string) => void>();
 const mockCreateStorageContext = jest.fn<(options: { maxAttempts: number }) => StorageContext>();
@@ -587,6 +587,34 @@ describe('restoreFromS3', () => {
     expect([bucket, key, path.basename(target)]).toEqual(['bucket', objectKey, 'cache.tar.zst']);
     expect(mockExtractArchive).toHaveBeenCalledWith(target, zstd, '/ws');
     expect(fs.existsSync(path.dirname(target))).toBe(false);
+  });
+
+  it('returns an error when the temporary directory cannot be created', async () => {
+    put(FEATURE, 'k', 1);
+    const root = makeTempDir('restore-missing-tmp');
+    const restoreEnv = setEnv({ RUNNER_TEMP: path.join(root, 'missing') });
+    try {
+      const outcome = await restoreFromS3(tier(), 'k', [], false);
+      expect(outcome.kind === 'error' && outcome.error.message).toContain('ENOENT');
+      expect(mockDownloadFile).not.toHaveBeenCalled();
+    } finally {
+      restoreEnv();
+      removeDir(root);
+    }
+  });
+
+  it('downloads under RUNNER_TEMP on GitHub when it is set', async () => {
+    put(FEATURE, 'k', 1);
+    const root = makeTempDir('restore-runner-temp');
+    const restoreEnv = setEnv({ RUNNER_TEMP: root });
+    try {
+      await restoreFromS3(tier(), 'k', [], false);
+      const target = mockDownloadFile.mock.calls[0][3];
+      expect(path.dirname(path.dirname(target))).toBe(root);
+    } finally {
+      restoreEnv();
+      removeDir(root);
+    }
   });
 
   it('returns a download failure as an error without extracting', async () => {
