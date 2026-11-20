@@ -4,14 +4,16 @@ import { GenericHost } from '../ci/generic';
 import { getHost, setHost } from '../ci/host';
 import { FileStateProvider } from '../ci/stateFile';
 import { State } from '../constants';
+import { gitHubCacheServiceProblem } from '../core/cacheMode';
 import { inspectImpl } from '../core/inspectImpl';
 import { pruneImpl } from '../core/pruneImpl';
 import { restoreImpl } from '../core/restoreImpl';
 import { saveImpl } from '../core/saveImpl';
-import { getInputAsArray } from '../utils/inputUtils';
+import { getInputAsArray, TRUE_VALUES } from '../utils/inputUtils';
 import { type CliArgs, type CliRun, parseCliArgs, shortUsage, UsageError, usage } from './args';
 import { INPUT_DEFAULTS } from './defaults';
 import { expandHashTemplates } from './hashTemplate';
+import { applySaveFlags } from './saveFlags';
 import { checkTar } from './tarCheck';
 import { CLI_VERSION } from './version';
 
@@ -56,6 +58,23 @@ function warnOnStateMismatch(state: FileStateProvider, stateFile: string): void 
 }
 
 /**
+ * Save handles an error during the save as a warning, so a failed write of an output would not
+ * fail the command. Check the output files first, and stop before the upload.
+ */
+function checkOutputFiles(): void {
+  const host = getHost();
+  if (!(host instanceof GenericHost)) {
+    return;
+  }
+  try {
+    host.checkOutputFiles();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`${message}. Save did not upload the cache.`, { cause: error });
+  }
+}
+
+/**
  * Expands the {hash:} templates in key and restore-keys. The value comes from the flag, else from
  * the environment. It returns the expanded values and the templates that matched no file.
  */
@@ -92,6 +111,34 @@ function resolvePlatform(args: CliRun): 'generic' | 'bitbucket' {
     return args.platform;
   }
   return process.env.BITBUCKET_BUILD_NUMBER ? 'bitbucket' : 'generic';
+}
+
+/** The inputs that need the GitHub Actions cache service. */
+const GITHUB_TIER_INPUTS = ['dual-cache', 'use-fallback'] as const;
+
+/**
+ * Rejects --dual-cache and --use-fallback when the GitHub Actions cache service is not available.
+ * The GitHub tier would only warn on each call, so a usage error tells the user at once.
+ */
+function rejectGitHubTierInputs(command: CliRun['command']): void {
+  const problem = gitHubCacheServiceProblem();
+  if (problem === undefined) {
+    return;
+  }
+  const host = getHost();
+  const set = GITHUB_TIER_INPUTS.filter(
+    (name) => name in INPUT_DEFAULTS[command] && TRUE_VALUES.includes(host.input(name))
+  );
+  if (set.length === 0) {
+    return;
+  }
+  const names = set
+    .map((name) => `--${name} (CLOUD_CACHE_${name.toUpperCase().replace(/-/g, '_')})`)
+    .join(' and ');
+  throw new UsageError(
+    `${names} ${set.length === 1 ? 'needs' : 'need'} the GitHub Actions cache service. ${problem} ` +
+      'Remove the flag and the env var, or set them to false.'
+  );
 }
 
 /** True when the Bitbucket step failed and the user did not ask to save anyway. */
@@ -140,6 +187,7 @@ async function run(args: CliRun): Promise<void> {
   for (const glob of expanded.unmatched) {
     host.log.warning(`The {hash:${glob}} template matched no file under ${workspace}.`);
   }
+  rejectGitHubTierInputs(args.command);
 
   const oidc =
     platform === 'bitbucket'
@@ -171,9 +219,11 @@ async function runCommand(args: CliRun): Promise<void> {
       return;
     }
     case 'save': {
+      checkOutputFiles();
       await checkTar();
       const state = new FileStateProvider(args.stateFile);
       warnOnStateMismatch(state, args.stateFile);
+      applySaveFlags(state, args.inputs, args.stateFile);
       await saveImpl(state);
       return;
     }

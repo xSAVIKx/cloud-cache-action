@@ -1,4 +1,3 @@
-import { appendFileSync } from 'node:fs';
 import { refCandidates } from '../core/refs';
 import { runnerOs } from './env';
 import {
@@ -9,6 +8,7 @@ import {
   toFullRef,
 } from './generic';
 import type { CiContext } from './host';
+import { appendToOutputFile } from './outputsFile';
 import { type RunnerLabels, runnerLabels } from './runnerLabels';
 import { TextSummaryWriter } from './textSummary';
 
@@ -123,11 +123,14 @@ export class BitbucketHost extends GenericHost {
       return;
     }
     const variable = `CLOUD_CACHE_${name.toUpperCase().replace(/-/g, '_')}`;
-    try {
-      appendFileSync(file, `${variable}=${text}\n`);
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
-      throw new Error(`Cannot write the variables file ${file}: ${reason}`, { cause: error });
+    appendToOutputFile(file, `${variable}=${text}\n`, 'variables file');
+  }
+
+  override checkOutputFiles(): void {
+    super.checkOutputFiles();
+    const file = this.env.BITBUCKET_PIPELINES_VARIABLES_PATH;
+    if (file) {
+      appendToOutputFile(file, '', 'variables file');
     }
   }
 }

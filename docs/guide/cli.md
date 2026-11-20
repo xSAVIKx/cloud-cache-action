@@ -160,6 +160,8 @@ Set `CLOUD_CACHE_REF` in every job that uses a scoped cache.
 - Use the same `--state-file` for `restore` and `save` if the two commands run with different `TMPDIR` values.
 - Each `restore` starts with an empty state file. It removes the state of the previous restore.
 - After a `restore`, `save` takes the key and the paths from the state file, not from its flags. If `--key` or `--path` differ from the state, `save` prints a warning that names both values. The state from restore wins.
+- For the other settings that `restore` writes to the state file, a flag on the `save` command line wins. Examples are `--read-only`, `--metadata`, `--tags`, `--prefix` and `--job-summary`. `save` prints one warning that names each flag with a value that differs from the state. A setting that you do not give as a flag comes from the state. An environment variable is not a flag. The state wins over it. The flags do not change the state file, so a second `save` reads the state of `restore` again.
+- If a winning flag changes the object key (`--prefix`, `--s3-key-pattern`, `--scoped-to-repository` or `--scoped-to-ref`), `save` ignores the exact hit of `restore`. That hit was for another object.
 - Use one state file for each cache, and for each job that runs at the same time on one machine.
 - If the file does not exist, `save` works as if no restore ran.
 - If the file is not valid JSON, the CLI prints a warning and ignores it.
@@ -169,6 +171,8 @@ Set `CLOUD_CACHE_REF` in every job that uses a scoped cache.
 The action sets step outputs. The CLI prints each output to the standard output as `name=value`. For example, `cache-hit=true`.
 
 With `--outputs-file`, the CLI also appends each output to that file. The directory of the file must exist. If the CLI cannot write the file, the command fails with this error: `Cannot write the outputs file <path>: <reason>`.
+
+`save` checks the outputs file before it uploads the cache. On Bitbucket, it also checks the file in `BITBUCKET_PIPELINES_VARIABLES_PATH`. If the CLI cannot write one of these files, `save` stops with exit code 1 and uploads nothing. The error ends with `Save did not upload the cache.`
 
 A line has the form `name=value`.
 
@@ -194,7 +198,7 @@ This is the same format as the `GITHUB_OUTPUT` file of GitHub Actions.
 | ---- | -------------------------------------------------------------------------------- |
 | 0    | Success. A cache miss is also success.                                           |
 | 1    | A failure. For example, a required input is missing, `--fail-on-cache-miss=true` with a miss, or a failure with `--dual-cache-strict=true`. |
-| 2    | A usage error. For example, an unknown command or flag.                          |
+| 2    | A usage error. For example, an unknown command or flag, or `--dual-cache` without the GitHub Actions cache service. |
 
 The CLI fails in the same cases in which the action fails the step. A storage error during restore or save is a warning. The exit code is 0.
 
@@ -231,9 +235,10 @@ To save the cache when the build fails, run `cloud-cache save` in a step that al
 
 ## Limits
 
-- `--use-fallback` and `--dual-cache` need the GitHub Actions cache service. This service is not available outside GitHub Actions. Do not use these flags with the CLI.
-  - With `--use-fallback`, a `restore` that misses in S3 asks the GitHub service. It waits about 10 seconds, prints a warning, and reports a miss.
-  - With `--dual-cache`, a `restore` also asks the GitHub service, with the same delay and warning. The S3 result is used.
-  - With `--dual-cache`, a `save` writes to S3 and prints a warning for the GitHub cache. With `--dual-cache-strict=true`, that `save` fails with exit code 1.
+- `--use-fallback` and `--dual-cache` need the GitHub Actions cache service. The runner gives this service only to JavaScript and container actions. Outside such an action, the service is not available. This is also true for a `run:` step in GitHub Actions.
+  - The CLI reads the same variables as `@actions/cache` to find out if the service is available: `ACTIONS_CACHE_SERVICE_V2`, `ACTIONS_RESULTS_URL`, `ACTIONS_CACHE_URL` and `GITHUB_SERVER_URL`.
+  - When the service is not available, `restore`, `save` and `inspect` stop with exit code 2 if one of these flags, or its `CLOUD_CACHE_*` env var, is `true`. The value `false` is accepted.
+  - A `save` that the CLI skips after a failed Bitbucket step does not do this check.
+  - CLI versions 1.11.0 and earlier accepted the flags. Each call to the service waited about 10 seconds and then failed with a warning.
 - `--job-summary` has no effect on the generic platform. The CLI does not write a job summary there. On Bitbucket, the CLI prints a plain-text summary.
 - The CLI reads the repository and the refs from the `CLOUD_CACHE_*` context variables. On Bitbucket, it reads the `BITBUCKET_*` variables. See [Bitbucket Pipelines](./bitbucket.md).
