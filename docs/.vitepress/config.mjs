@@ -274,6 +274,7 @@ export default defineConfig({
           { text: 'Getting Started', link: '/guide/getting-started' },
           { text: 'Cache Presets', link: '/guide/presets' },
           { text: 'Migrate from actions/cache', link: '/guide/migration' },
+          { text: 'Troubleshooting', link: '/guide/troubleshooting' },
           { text: 'Upgrading', link: '/guide/upgrading' },
           { text: 'FAQ', link: '/guide/faq' },
         ],
@@ -306,6 +307,7 @@ export default defineConfig({
         text: 'Reference',
         items: [
           { text: 'Inputs and Outputs', link: '/guide/reference' },
+          { text: 'How It Works', link: '/guide/how-it-works' },
           { text: 'How Caches Are Stored', link: '/guide/storage' },
           { text: 'Comparison', link: '/guide/comparison' },
           { text: 'Changelog', link: '/changelog' },

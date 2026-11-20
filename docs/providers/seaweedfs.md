@@ -91,6 +91,10 @@ Save your credentials in **Settings** > **Secrets and variables** > **Actions** 
 
 ## Workflow example
 
+The general examples in these docs use the secret names `S3_ACCESS_KEY` and `S3_SECRET_KEY`.
+This page uses `SEAWEED_ACCESS_KEY` and `SEAWEED_SECRET_KEY` for the same two values. The secret
+names in your repository and the secret names in your workflow must be the same.
+
 ```yaml
 - name: Cache dependencies using SeaweedFS
   uses: xSAVIKx/cloud-cache-action@v1
@@ -100,7 +104,7 @@ Save your credentials in **Settings** > **Secrets and variables** > **Actions** 
     provider: seaweedfs
     access-key: ${{ secrets.SEAWEED_ACCESS_KEY }}
     secret-key: ${{ secrets.SEAWEED_SECRET_KEY }}
-    key: ${{ runner.os }}-build-${{ hashFiles('**/lock') }}
+    key: ${{ runner.os }}-build-${{ hashFiles('**/package-lock.json') }}
     restore-keys: |
       ${{ runner.os }}-build-
     path: build/

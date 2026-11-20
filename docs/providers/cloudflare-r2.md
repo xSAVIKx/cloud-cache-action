@@ -71,6 +71,10 @@ Cloudflare shows the credentials **one time**. Copy them into **Settings** > **S
 
 ## Workflow example
 
+The general examples in these docs use the secret names `S3_ACCESS_KEY` and `S3_SECRET_KEY`.
+This page uses `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` for the same two values. The secret
+names in your repository and the secret names in your workflow must be the same.
+
 ```yaml
 - name: Cache dependencies using Cloudflare R2
   uses: xSAVIKx/cloud-cache-action@v1

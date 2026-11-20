@@ -55,17 +55,16 @@ Cloud Cache Action (`xSAVIKx/cloud-cache-action`) is a GitHub Action that restor
 - uses: xSAVIKx/cloud-cache-action@v1
   with:
     bucket: my-ci-cache-bucket
-    endpoint: https://<account_id>.r2.cloudflarestorage.com # Omit for AWS S3
+    # AWS S3: remove the endpoint line and set region.
+    endpoint: https://<account-id>.r2.cloudflarestorage.com
     access-key: ${{ secrets.S3_ACCESS_KEY }}
     secret-key: ${{ secrets.S3_SECRET_KEY }}
-    path: |
-      ~/.npm
-      node_modules
+    path: ~/.npm
     key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
     restore-keys: |
       ${{ runner.os }}-node-
 ```
 
-The step restores the cache. A post step saves it when the job succeeds, as `actions/cache` does. The [Getting Started](./guide/getting-started.md) guide tells how a restore and a save work.
+The step restores the cache. A post step saves it when the job succeeds, as `actions/cache` does. The [Getting Started](./guide/getting-started.md) guide gives the set-up in four steps and tells how to check the first cache hit. To move an existing workflow, read [Migrate from actions/cache](./guide/migration.md).
 
 **Works with:** [AWS S3](./providers/aws-s3.md), [Cloudflare R2](./providers/cloudflare-r2.md), [Google Cloud Storage](./providers/google-cloud-storage.md), [Backblaze B2](./providers/backblaze-b2.md), [Fastly Object Storage](./providers/fastly-storage.md), [Garage](./providers/garage.md), [SeaweedFS](./providers/seaweedfs.md), [MinIO](./providers/minio.md), [RustFS](./providers/rustfs.md), and [Bitbucket Pipelines](./guide/bitbucket.md) through the CLI.

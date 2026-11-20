@@ -70,7 +70,7 @@ section and on the [Benchmarks](./benchmarks.md) page.
 The measured restore and save times for each provider are in the sections below.
 
 The restore's `cloud-cache-metrics` line reports the number of parts as `downloadParts`; see
-[Metrics and Timings](./getting-started.md#metrics-and-timings).
+[Metrics and Timings](./how-it-works.md#metrics-and-timings).
 
 ## How the numbers were measured
 

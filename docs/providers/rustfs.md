@@ -43,6 +43,10 @@ The [Security guide](../guide/security.md#minio-and-rustfs) shows a policy that 
 
 ## Workflow example
 
+The general examples in these docs use the secret names `S3_ACCESS_KEY` and `S3_SECRET_KEY`.
+This page uses `RUSTFS_ACCESS_KEY` and `RUSTFS_SECRET_KEY` for the same two values. The secret
+names in your repository and the secret names in your workflow must be the same.
+
 Use `provider: rustfs` to select path-style addressing and the `us-east-1` default region.
 
 ```yaml

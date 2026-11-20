@@ -90,6 +90,10 @@ Store the credentials in **Settings** > **Secrets and variables** > **Actions** 
 
 ## Workflow example
 
+The general examples in these docs use the secret names `S3_ACCESS_KEY` and `S3_SECRET_KEY`.
+This page uses `MINIO_ACCESS_KEY` and `MINIO_SECRET_KEY` for the same two values. The secret
+names in your repository and the secret names in your workflow must be the same.
+
 > [!TIP]
 > **Path-Style Addressing**: Set `force-path-style: true` for MinIO, unless you configured wildcard DNS subdomains (virtual-host style) for your buckets.
 
@@ -159,7 +163,7 @@ For a persistent MinIO server or cluster on private infrastructure (for example,
     access-key: ${{ secrets.MINIO_ACCESS_KEY }}
     secret-key: ${{ secrets.MINIO_SECRET_KEY }}
     force-path-style: true
-    key: ${{ runner.os }}-build-${{ hashFiles('**/lock') }}
+    key: ${{ runner.os }}-build-${{ hashFiles('**/package-lock.json') }}
     path: build/
 ```
 

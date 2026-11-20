@@ -237,6 +237,6 @@ or its own `inspect` step.
 
 Every step — restore, save, prune and `inspect` — writes one `cloud-cache-metrics <json>` debug
 line, and appends the same JSON as one line to `metrics-file` when that input is set. See
-[Metrics and timings](./getting-started.md#metrics-and-timings) for the line's shape; `inspect` reports
+[Metrics and timings](./how-it-works.md#metrics-and-timings) for the line's shape; `inspect` reports
 `"step":"inspect"` with an outcome of `would-hit` or `would-miss` and a `candidateCount` in
 `extra`. As with `prune`, a step that fails before finishing the lookup writes no line at all.
