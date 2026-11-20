@@ -73,3 +73,11 @@ Store the credentials in **Settings** > **Secrets and variables** > **Actions** 
 
 - **Checksums**: for this provider, the action sends request checksums only when S3 requires them, because many S3-compatible services reject the CRC checksums recent AWS SDKs send by default. Nothing to configure.
 - **Expiry**: the action never deletes caches. Use the lifecycle rule above, or the [`prune` sub-action](../guide/pruning.md).
+
+### Live CI workflow
+
+The repository has a live test workflow for Fastly Object Storage. The workflow file is [`.github/workflows/provider-fastly.yml`](https://github.com/xSAVIKx/cloud-cache-action/blob/main/.github/workflows/provider-fastly.yml). It runs on `main`, every night and on manual dispatch. It saves a cache, restores it, and compares the checksum. When the repository has no Fastly secrets, the job skips the test and does not fail.
+
+::: details `.github/workflows/provider-fastly.yml` (Click to view full workflow)
+<<< ../../.github/workflows/provider-fastly.yml{yaml}
+:::
