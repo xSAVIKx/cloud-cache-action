@@ -137,7 +137,7 @@ const notImplemented = () =>
     $metadata: { httpStatusCode: 501 },
   });
 
-/** Every UploadId aborted so far, in order. */
+/** Every UploadId aborted so far, in order. lib-storage and completeOrAbort can both abort one upload. */
 const abortedUploadIds = (): Array<string | undefined> =>
   s3Mock.commandCalls(AbortMultipartUploadCommand).map((call) => {
     expect(call.args[0].input).toMatchObject({ Bucket: 'bucket', Key: OBJECT_KEY });
@@ -183,7 +183,7 @@ describe('saveToS3 multipart uploads that fail to complete', () => {
       archiveMs: expect.any(Number) as unknown as number,
     });
     expect(s3Mock.commandCalls(UploadPartCommand).length).toBeGreaterThan(1);
-    expect(abortedUploadIds()).toEqual(['upload-1']);
+    expect(new Set(abortedUploadIds())).toEqual(new Set(['upload-1']));
   });
 
   it('file mode: aborts the first multipart upload when Complete gets a 501, then saves without the condition', async () => {
@@ -200,7 +200,7 @@ describe('saveToS3 multipart uploads that fail to complete', () => {
       transferMs: expect.any(Number) as unknown as number,
       archiveMs: expect.any(Number) as unknown as number,
     });
-    expect(abortedUploadIds()).toEqual(['upload-1']);
+    expect(new Set(abortedUploadIds())).toEqual(new Set(['upload-1']));
     const completes = s3Mock.commandCalls(CompleteMultipartUploadCommand);
     expect(completes.map((call) => call.args[0].input.IfNoneMatch)).toEqual(['*', undefined]);
   });
@@ -216,7 +216,7 @@ describe('saveToS3 multipart uploads that fail to complete', () => {
       s3: { objectKey: OBJECT_KEY, size: ARCHIVE_SIZE, etag: undefined },
       transferMs: expect.any(Number) as unknown as number,
     });
-    expect(abortedUploadIds()).toEqual(['upload-1']);
+    expect(new Set(abortedUploadIds())).toEqual(new Set(['upload-1']));
   });
 
   it('streaming: aborts the streamed multipart upload when Complete gets a 501, then falls back to file mode', async () => {
@@ -229,7 +229,7 @@ describe('saveToS3 multipart uploads that fail to complete', () => {
     const outcome = await saveToS3(tier(true), 'k', ['node_modules']);
 
     expect(outcome).toMatchObject({ kind: 'saved', s3: { etag: '"fallback"' } });
-    expect(abortedUploadIds()).toEqual(['upload-1']);
+    expect(new Set(abortedUploadIds())).toEqual(new Set(['upload-1']));
     expect(storage.conditionalWriteUnsupported).toBe(true);
   });
 

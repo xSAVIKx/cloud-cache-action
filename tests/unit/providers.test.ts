@@ -27,7 +27,7 @@ describe('Storage Providers', () => {
     });
 
     it('detects Fastly Object Storage from endpoint URL', () => {
-      expect(detectProvider('https://object.us-east-1.fastlystorage.com')).toBe('fastly');
+      expect(detectProvider('https://us-east-1.object.fastlystorage.app')).toBe('fastly');
     });
 
     it('detects Garage from standard port :3900', () => {
@@ -104,13 +104,42 @@ describe('Storage Providers', () => {
       expect(detectProvider('https://unrecognized-s3.example.com')).toBe('generic-s3');
     });
 
+    it('reads the Fastly region from the endpoint host', () => {
+      const eu = resolveProviderDefaults('https://eu-central-1.object.fastlystorage.app');
+      expect(eu.provider).toBe('fastly');
+      expect(eu.region).toBe('eu-central-1');
+
+      const explicit = resolveProviderDefaults(
+        'https://eu-central-1.object.fastlystorage.app',
+        'us-east-1'
+      );
+      expect(explicit.region).toBe('us-east-1');
+    });
+
+    it('names the aws provider explicitly', () => {
+      expect(detectProvider('http://x:1', 'aws')).toBe('aws');
+      expect(detectProvider('http://x:1', 'AWS ')).toBe('aws');
+    });
+
+    it.each(['r2', 'gcs', 'b2', 'fastly', 'garage', 'seaweedfs'])(
+      'keeps an explicit forcePathStyle for %s',
+      (provider) => {
+        expect(resolveProviderDefaults('http://x:1', 'r', true, provider).forcePathStyle).toBe(
+          true
+        );
+        expect(resolveProviderDefaults('http://x:1', 'r', false, provider).forcePathStyle).toBe(
+          false
+        );
+      }
+    );
+
     it('prepends https:// when protocol is omitted from endpoint', () => {
       const config = resolveProviderDefaults('custom-endpoint.domain.com');
       expect(config.endpoint).toBe('https://custom-endpoint.domain.com');
     });
 
     it('resolves defaults for fastly and minio providers', () => {
-      const fastly = resolveProviderDefaults('https://object.us-east-1.fastlystorage.com');
+      const fastly = resolveProviderDefaults('https://us-east-1.object.fastlystorage.app');
       expect(fastly.provider).toBe('fastly');
       expect(fastly.forcePathStyle).toBe(true);
       expect(fastly.region).toBe('us-east-1');
