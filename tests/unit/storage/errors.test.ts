@@ -118,6 +118,13 @@ describe('s3ErrorMessage', () => {
     );
   });
 
+  it('names a 301 and points to the bucket region', () => {
+    const message = s3ErrorMessage(headError(301), head);
+    expect(message).toMatch(/^HeadObject s3:\/\/b\/k returned HTTP 301 Moved Permanently\. /);
+    expect(message).toContain('x-amz-bucket-region');
+    expect(message).toContain('region');
+  });
+
   it('adds the operation and the attempt count to a network error after retries', () => {
     const err = Object.assign(new Error('connect ETIMEDOUT 10.255.255.1:9000'), {
       code: 'ETIMEDOUT',
