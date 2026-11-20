@@ -44,6 +44,16 @@ node cloud-cache.mjs --version
 
 Replace `<version>` with the version that you want. Use the version of a release that has the `cloud-cache.mjs` asset. The command `sha256sum -c` prints `cloud-cache.mjs: OK` when the file is correct. On macOS, use `shasum -a 256 -c SHA256SUMS`.
 
+### Verify the build provenance
+
+A new release also has a build provenance attestation for `cloud-cache.mjs`. The attestation shows that the release workflow of this repository built the file. To verify it, install the [GitHub CLI](https://cli.github.com/) and run this command in the directory that has the file:
+
+```sh
+gh attestation verify cloud-cache.mjs --repo xSAVIKx/cloud-cache-action
+```
+
+The command exits with code 0 when the attestation is correct. An older release has no attestation, and the command fails for it. For an older release, use the checksum only.
+
 ## Commands
 
 ```text
