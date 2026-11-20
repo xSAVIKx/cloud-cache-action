@@ -88,22 +88,31 @@ sub-action, a save-only job and a job after a failure on `fail-on-cache-miss: tr
 
 - The restore deletes only the object of the exact primary key that failed the check in this
   restore. It never deletes a match through `restore-keys`.
-- The restore deletes the object only while it has the ETag that the restore read. On AWS S3 and
-  RustFS, the delete sends `If-Match` with that ETag. On the other providers, the restore sends a
-  `HeadObject` and compares the ETag right before the delete. The HEAD and the delete are two
-  requests, so a write between them can be deleted. The next save then writes the key again.
-- When the object has another ETag or is gone, the restore keeps it and logs an info line.
+- The restore deletes only an object under the ref of the job. An exact match on a fallback ref,
+  for example the default branch in a pull request job, is never deleted. The log then shows
+  one info line that tells why.
+- Right before the delete, the restore sends a `HeadObject` and compares the ETag with the ETag
+  that the restore read. When the ETag is different, the HEAD gives no ETag, or the object is
+  gone, the restore keeps the object and logs an info line.
+- On AWS S3 and RustFS, the delete also sends `If-Match` with that ETag. A write after the HEAD
+  then makes the delete fail with `412`, and the restore keeps the object. On the other
+  providers, the HEAD and the delete are two requests, so a write between them can be deleted.
+  The next save then writes the key again.
 - A failed or refused delete only logs a warning. The restore stays a miss, and the job continues
   as before. A `403` warning tells you to grant `s3:DeleteObject` on the cache keys. The
   [Security guide](./security.md#optional-delete-corrupt-cache) shows the policy statement.
 - The restore deletes before `fail-on-cache-miss: true` or `dual-cache-strict: true` fails the
   step.
-- The restore does not delete when `ACTIONS_CACHE_MODE` does not permit writes.
+- A setting that forbids writes stops the delete: `read-only: true`, or an `ACTIONS_CACHE_MODE`
+  that does not permit writes. The log then shows one info line.
 - The input works in the main action, the `restore` sub-action and the CLI
   (`--delete-corrupt-cache`). The replacement of the previous section stays in effect. After a
   delete, the save finds no object and uses the usual conditional create.
 - RustFS is known by the `provider: rustfs` input. Without it, an endpoint on port 9000 counts as
-  MinIO, and the restore uses the HEAD compare.
+  MinIO, and the delete does not send `If-Match`.
+- In a bucket with versioning, the delete adds a delete marker. The bad version stays as a
+  noncurrent version, and you pay for its storage until a lifecycle rule removes noncurrent
+  versions. The cache repair works the same.
 
 Objects with no checksum at all skip verification: caches from v1.1, or objects whose tagging or
 metadata write the provider rejected. This is not a breaking change. An action older than v1.6

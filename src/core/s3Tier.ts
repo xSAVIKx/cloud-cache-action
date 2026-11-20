@@ -603,45 +603,75 @@ export async function restoreFromS3(
 }
 
 /** How `deleteRejectedObject` ended. */
-export type RejectedDeleteResult = 'deleted' | 'changed' | 'gone' | 'failed';
+export type RejectedDeleteResult = 'deleted' | 'changed' | 'gone' | 'other-ref' | 'failed';
+
+/** True for a 404 or a `NoSuchKey`/`NotFound` error: the object is not there. */
+function isNotFound(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null) {
+    return false;
+  }
+  const error = err as { name?: string; $metadata?: { httpStatusCode?: number } };
+  return (
+    error.$metadata?.httpStatusCode === 404 ||
+    error.name === 'NoSuchKey' ||
+    error.name === 'NotFound'
+  );
+}
 
 /**
  * Deletes the object that failed the integrity check in this restore, for `delete-corrupt-cache`.
- * It deletes only while the object has the rejected ETag: with `If-Match` on a provider that
- * evaluates it on a delete, else after a HeadObject compare. The HEAD and the delete are two
- * requests, so on those providers a write between them can be deleted; the next save then writes
- * the key again. Every failure only warns: the restore is already a miss.
+ * Rules:
+ * - Only the object of the primary key under the save ref of this job. A match on a fallback ref
+ *   (the default branch, for example) is never deleted.
+ * - A HeadObject right before the delete must show the rejected ETag. A HEAD with no ETag, another
+ *   ETag or no object stops the delete.
+ * - On a provider that evaluates `If-Match` on a delete (see `supportsConditionalDelete`), the
+ *   delete also sends `If-Match`, so a write after the HEAD gives 412. On the other providers, a
+ *   write between the HEAD and the delete can be deleted; the next save then writes the key again.
+ * - Every failure only logs: the restore is already a miss.
  */
 export async function deleteRejectedObject(
   tier: S3Tier,
-  rejected: RejectedObject
+  rejected: RejectedObject,
+  primaryKey: string
 ): Promise<RejectedDeleteResult> {
   const { client, bucket, providerConfig } = tier.storage;
   const where = `s3://${bucket}/${rejected.objectKey}`;
+  if (rejected.objectKey !== tier.template.objectKey(tier.saveRef, primaryKey)) {
+    log.info(
+      `delete-corrupt-cache keeps ${where}: it is not the object of the primary key under the ref of this job, for example a match on a fallback ref.`
+    );
+    return 'other-ref';
+  }
   const conditional = supportsConditionalDelete(providerConfig.provider);
+  const gone = (): RejectedDeleteResult => {
+    log.info(`${where} is already gone, so delete-corrupt-cache has nothing to delete.`);
+    return 'gone';
+  };
+  const changed = (): RejectedDeleteResult => {
+    log.info(
+      `${where} changed after the integrity check failed, so delete-corrupt-cache keeps it.`
+    );
+    return 'changed';
+  };
   try {
-    if (!conditional) {
-      const current = await checkObjectExists(client, bucket, rejected.objectKey);
-      if (current === null) {
-        log.info(`${where} is already gone, so delete-corrupt-cache has nothing to delete.`);
-        return 'gone';
-      }
-      if (current.etag === undefined || current.etag !== rejected.etag) {
-        log.info(
-          `${where} changed after the integrity check failed, so delete-corrupt-cache keeps it.`
-        );
-        return 'changed';
-      }
+    const current = await checkObjectExists(client, bucket, rejected.objectKey);
+    if (current === null) {
+      return gone();
+    }
+    if (current.etag === undefined || current.etag !== rejected.etag) {
+      return changed();
     }
     await deleteObject(client, bucket, rejected.objectKey, conditional ? rejected.etag : undefined);
     log.info(`Deleted ${where}, because it failed the integrity check (delete-corrupt-cache).`);
     return 'deleted';
   } catch (err) {
+    if (isNotFound(err)) {
+      return gone();
+    }
     if (conditional && isPreconditionFailed(err)) {
-      log.info(
-        `${where} changed after the integrity check failed, so delete-corrupt-cache keeps it.`
-      );
-      return 'changed';
+      // RustFS also answers 412 when the object is gone; both mean "keep, nothing to do".
+      return changed();
     }
     const reason = isAccessDeniedError(err)
       ? 'Grant s3:DeleteObject on the cache keys, or set delete-corrupt-cache: false.'

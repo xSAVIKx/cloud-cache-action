@@ -256,12 +256,15 @@ export async function restoreImpl(
             // The save reads this and replaces the object, if it still has this ETag.
             stateProvider.setState(State.CacheS3RejectedKey, JSON.stringify(outcome.rejected));
             if (config.deleteCorruptCache && s3) {
-              if (isCacheWritable(cacheMode)) {
-                await deleteRejectedObject(s3, outcome.rejected);
-              } else {
+              // A delete is a write, so every setting that forbids writes stops it.
+              if (config.readOnly) {
+                log.info('delete-corrupt-cache does not delete: read-only is true.');
+              } else if (!isCacheWritable(cacheMode)) {
                 log.info(
                   `delete-corrupt-cache does not delete: ACTIONS_CACHE_MODE is '${cacheMode}', which does not permit writes.`
                 );
+              } else {
+                await deleteRejectedObject(s3, outcome.rejected, config.primaryKey);
               }
             }
           }

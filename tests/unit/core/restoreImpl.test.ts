@@ -312,7 +312,11 @@ describe('restoreImpl', () => {
       it('deletes the rejected object, pinned to its ETag, and still counts as a miss', async () => {
         mockRestoreFromS3.mockResolvedValue(rejected(objectKey));
         await expect(restoreImpl(state, false)).resolves.toBeUndefined();
-        expect(mockDeleteRejectedObject).toHaveBeenCalledWith(tier, rejectedObject);
+        expect(mockDeleteRejectedObject).toHaveBeenCalledWith(
+          tier,
+          rejectedObject,
+          'Linux-npm-abc'
+        );
         expect(outputs.get('cache-hit')).toBe('false');
         expect(mockSetFailed).not.toHaveBeenCalled();
       });
@@ -343,7 +347,11 @@ describe('restoreImpl', () => {
         inputs.set(Inputs.FailOnCacheMiss, 'true');
         mockRestoreFromS3.mockResolvedValue(rejected(objectKey));
         await restoreImpl(state, false);
-        expect(mockDeleteRejectedObject).toHaveBeenCalledWith(tier, rejectedObject);
+        expect(mockDeleteRejectedObject).toHaveBeenCalledWith(
+          tier,
+          rejectedObject,
+          'Linux-npm-abc'
+        );
         expect(mockSetFailed).toHaveBeenCalledWith(expect.stringContaining('fail-on-cache-miss'));
       });
 
@@ -352,8 +360,23 @@ describe('restoreImpl', () => {
         inputs.set(Inputs.DualCacheStrict, 'true');
         mockRestoreFromS3.mockResolvedValue(rejected(objectKey));
         await restoreImpl(state, false);
-        expect(mockDeleteRejectedObject).toHaveBeenCalledWith(tier, rejectedObject);
+        expect(mockDeleteRejectedObject).toHaveBeenCalledWith(
+          tier,
+          rejectedObject,
+          'Linux-npm-abc'
+        );
         expect(mockSetFailed).toHaveBeenCalled();
+      });
+
+      it('does not delete with read-only: true, and says why', async () => {
+        inputs.set(Inputs.ReadOnly, 'true');
+        mockRestoreFromS3.mockResolvedValue(rejected(objectKey));
+        await restoreImpl(state, false);
+        expect(mockDeleteRejectedObject).not.toHaveBeenCalled();
+        expect(mockCoreInfo).toHaveBeenCalledWith(
+          'delete-corrupt-cache does not delete: read-only is true.'
+        );
+        expect(outputs.get('cache-hit')).toBe('false');
       });
 
       it('does not delete when ACTIONS_CACHE_MODE does not permit writes', async () => {
@@ -369,7 +392,11 @@ describe('restoreImpl', () => {
       it('also deletes in the restore sub-action, which keeps no state', async () => {
         mockRestoreFromS3.mockResolvedValue(rejected(objectKey));
         await runRestoreOnly(false);
-        expect(mockDeleteRejectedObject).toHaveBeenCalledWith(tier, rejectedObject);
+        expect(mockDeleteRejectedObject).toHaveBeenCalledWith(
+          tier,
+          rejectedObject,
+          'Linux-npm-abc'
+        );
       });
     });
 

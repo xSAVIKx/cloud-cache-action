@@ -782,55 +782,94 @@ describe('deleteRejectedObject', () => {
     mockDeleteObject.mockImplementation(async (_client, _bucket, key, ifMatch) => {
       const found = objects.get(key);
       if (ifMatch !== undefined && found?.etag !== ifMatch) {
-        throw Object.assign(new Error('At least one of the pre-conditions did not hold'), {
-          name: 'PreconditionFailed',
-          $metadata: { httpStatusCode: 412 },
-        });
+        throw preconditionFailed();
       }
       objects.delete(key);
     });
   });
-  const awsTier = () =>
+  const providerTier = (provider: string, endpoint?: string) =>
     tier({
       storage: {
         ...storage,
-        providerConfig: { provider: 'aws', region: 'us-east-1', forcePathStyle: false },
+        providerConfig: { provider, region: 'us-east-1', forcePathStyle: false, endpoint },
       } as StorageContext,
     });
+  const awsTier = () => providerTier('aws');
   const accessDenied = () =>
     Object.assign(new Error('Access Denied'), {
       name: 'AccessDenied',
       $metadata: { httpStatusCode: 403 },
     });
-
-  describe('on AWS S3, with If-Match on the delete', () => {
-    it('deletes the object while it has the rejected ETag, with no HEAD', async () => {
-      const objectKey = put(FEATURE, 'k', 1);
-      await expect(deleteRejectedObject(awsTier(), { objectKey, etag: '"k"' })).resolves.toBe(
-        'deleted'
-      );
-      expect(objects.has(objectKey)).toBe(false);
-      expect(mockDeleteObject).toHaveBeenCalledWith(storage.client, 'bucket', objectKey, '"k"');
-      expect(mockCheckObjectExists).not.toHaveBeenCalled();
-      expect(mockInfo).toHaveBeenCalledWith(
-        `Deleted s3://bucket/${objectKey}, because it failed the integrity check (delete-corrupt-cache).`
-      );
+  /** Changes the object after the HEAD of the delete step: the next HEAD answers, then a write. */
+  const writeAfterHead = (objectKey: string): void => {
+    mockCheckObjectExists.mockImplementationOnce(async (_client, _bucket, key) => {
+      const found = objects.get(key)!;
+      const head = { key, ...found };
+      objects.set(objectKey, { ...found, etag: '"written-after-head"' });
+      return head;
     });
+  };
 
-    it('keeps an object that another job replaced, on the 412, without a warning', async () => {
+  describe('on AWS S3 and RustFS, with a HEAD compare and If-Match on the delete', () => {
+    it.each(['aws', 'rustfs'])(
+      '%s: deletes the object while it has the rejected ETag',
+      async (provider) => {
+        const objectKey = put(FEATURE, 'k', 1);
+        await expect(
+          deleteRejectedObject(providerTier(provider), { objectKey, etag: '"k"' }, 'k')
+        ).resolves.toBe('deleted');
+        expect(objects.has(objectKey)).toBe(false);
+        expect(mockCheckObjectExists).toHaveBeenCalledWith(storage.client, 'bucket', objectKey);
+        expect(mockDeleteObject).toHaveBeenCalledWith(storage.client, 'bucket', objectKey, '"k"');
+        expect(mockInfo).toHaveBeenCalledWith(
+          `Deleted s3://bucket/${objectKey}, because it failed the integrity check (delete-corrupt-cache).`
+        );
+      }
+    );
+
+    it('keeps an object that changed before the HEAD, and sends no delete', async () => {
       const objectKey = put(FEATURE, 'k', 1);
       objects.set(objectKey, { ...objects.get(objectKey)!, etag: '"good"' });
-      await expect(deleteRejectedObject(awsTier(), { objectKey, etag: '"k"' })).resolves.toBe(
+      await expect(deleteRejectedObject(awsTier(), { objectKey, etag: '"k"' }, 'k')).resolves.toBe(
         'changed'
       );
       expect(objects.get(objectKey)?.etag).toBe('"good"');
+      expect(mockDeleteObject).not.toHaveBeenCalled();
       expect(mockWarning).not.toHaveBeenCalled();
+    });
+
+    it('keeps an object written after the HEAD, on the 412, without a warning', async () => {
+      const objectKey = put(FEATURE, 'k', 1);
+      writeAfterHead(objectKey);
+      await expect(deleteRejectedObject(awsTier(), { objectKey, etag: '"k"' }, 'k')).resolves.toBe(
+        'changed'
+      );
+      expect(objects.get(objectKey)?.etag).toBe('"written-after-head"');
+      expect(mockWarning).not.toHaveBeenCalled();
+    });
+
+    it('does the HEAD compare also for provider aws with a custom endpoint', async () => {
+      // A server that ignores If-Match must still not delete a changed object.
+      const objectKey = put(FEATURE, 'k', 1);
+      objects.set(objectKey, { ...objects.get(objectKey)!, etag: '"good"' });
+      mockDeleteObject.mockImplementation(async (_client, _bucket, key) => {
+        objects.delete(key);
+      });
+      await expect(
+        deleteRejectedObject(
+          providerTier('aws', 'https://s3.example.test'),
+          { objectKey, etag: '"k"' },
+          'k'
+        )
+      ).resolves.toBe('changed');
+      expect(objects.get(objectKey)?.etag).toBe('"good"');
+      expect(mockDeleteObject).not.toHaveBeenCalled();
     });
 
     it('only warns, and names the permission, when the delete is denied', async () => {
       const objectKey = put(FEATURE, 'k', 1);
       mockDeleteObject.mockRejectedValue(accessDenied());
-      await expect(deleteRejectedObject(awsTier(), { objectKey, etag: '"k"' })).resolves.toBe(
+      await expect(deleteRejectedObject(awsTier(), { objectKey, etag: '"k"' }, 'k')).resolves.toBe(
         'failed'
       );
       expect(objects.has(objectKey)).toBe(true);
@@ -847,7 +886,7 @@ describe('deleteRejectedObject', () => {
           $metadata: { httpStatusCode: 501 },
         })
       );
-      await expect(deleteRejectedObject(awsTier(), { objectKey, etag: '"k"' })).resolves.toBe(
+      await expect(deleteRejectedObject(awsTier(), { objectKey, etag: '"k"' }, 'k')).resolves.toBe(
         'failed'
       );
       expect(objects.has(objectKey)).toBe(true);
@@ -855,12 +894,29 @@ describe('deleteRejectedObject', () => {
         `Could not delete s3://bucket/${objectKey}, which failed the integrity check: Not Implemented. The object stays.`
       );
     });
+
+    it('logs an info line, not a warning, when the delete answers 404', async () => {
+      const objectKey = put(FEATURE, 'k', 1);
+      mockDeleteObject.mockRejectedValue(
+        Object.assign(new Error('The specified key does not exist.'), {
+          name: 'NoSuchKey',
+          $metadata: { httpStatusCode: 404 },
+        })
+      );
+      await expect(deleteRejectedObject(awsTier(), { objectKey, etag: '"k"' }, 'k')).resolves.toBe(
+        'gone'
+      );
+      expect(mockWarning).not.toHaveBeenCalled();
+      expect(mockInfo).toHaveBeenCalledWith(
+        `s3://bucket/${objectKey} is already gone, so delete-corrupt-cache has nothing to delete.`
+      );
+    });
   });
 
-  describe('on other providers, with a HEAD compare first', () => {
+  describe('on other providers, with the HEAD compare only', () => {
     it('deletes the object without If-Match when the HEAD shows the rejected ETag', async () => {
       const objectKey = put(FEATURE, 'k', 1);
-      await expect(deleteRejectedObject(tier(), { objectKey, etag: '"k"' })).resolves.toBe(
+      await expect(deleteRejectedObject(tier(), { objectKey, etag: '"k"' }, 'k')).resolves.toBe(
         'deleted'
       );
       expect(objects.has(objectKey)).toBe(false);
@@ -871,7 +927,7 @@ describe('deleteRejectedObject', () => {
     it('keeps an object with another ETag, and sends no delete', async () => {
       const objectKey = put(FEATURE, 'k', 1);
       objects.set(objectKey, { ...objects.get(objectKey)!, etag: '"good"' });
-      await expect(deleteRejectedObject(tier(), { objectKey, etag: '"k"' })).resolves.toBe(
+      await expect(deleteRejectedObject(tier(), { objectKey, etag: '"k"' }, 'k')).resolves.toBe(
         'changed'
       );
       expect(objects.get(objectKey)?.etag).toBe('"good"');
@@ -881,22 +937,25 @@ describe('deleteRejectedObject', () => {
     it('keeps an object whose HEAD gives no ETag, and sends no delete', async () => {
       const objectKey = put(FEATURE, 'k', 1);
       mockCheckObjectExists.mockResolvedValueOnce({ key: objectKey, size: 101 });
-      await expect(deleteRejectedObject(tier(), { objectKey, etag: '"k"' })).resolves.toBe(
+      await expect(deleteRejectedObject(tier(), { objectKey, etag: '"k"' }, 'k')).resolves.toBe(
         'changed'
       );
       expect(mockDeleteObject).not.toHaveBeenCalled();
     });
 
-    it('sends no delete when the object is already gone', async () => {
+    it('logs an info line, not a warning, and sends no delete when the object is gone', async () => {
       const objectKey = `octo/app/refs%2Fheads%2Ffeature/k/${VERSION}/cache.tar.zst`;
-      await expect(deleteRejectedObject(tier(), { objectKey, etag: '"k"' })).resolves.toBe('gone');
+      await expect(deleteRejectedObject(tier(), { objectKey, etag: '"k"' }, 'k')).resolves.toBe(
+        'gone'
+      );
       expect(mockDeleteObject).not.toHaveBeenCalled();
+      expect(mockWarning).not.toHaveBeenCalled();
     });
 
     it('only warns, and names the permission, when the delete is denied', async () => {
       const objectKey = put(FEATURE, 'k', 1);
       mockDeleteObject.mockRejectedValue(accessDenied());
-      await expect(deleteRejectedObject(tier(), { objectKey, etag: '"k"' })).resolves.toBe(
+      await expect(deleteRejectedObject(tier(), { objectKey, etag: '"k"' }, 'k')).resolves.toBe(
         'failed'
       );
       expect(objects.has(objectKey)).toBe(true);
@@ -906,12 +965,38 @@ describe('deleteRejectedObject', () => {
     it('only warns when the HEAD fails', async () => {
       const objectKey = put(FEATURE, 'k', 1);
       mockCheckObjectExists.mockRejectedValueOnce(new Error('socket hang up'));
-      await expect(deleteRejectedObject(tier(), { objectKey, etag: '"k"' })).resolves.toBe(
+      await expect(deleteRejectedObject(tier(), { objectKey, etag: '"k"' }, 'k')).resolves.toBe(
         'failed'
       );
       expect(objects.has(objectKey)).toBe(true);
       expect(mockDeleteObject).not.toHaveBeenCalled();
       expect(mockWarning).toHaveBeenCalledWith(expect.stringContaining('socket hang up'));
+    });
+  });
+
+  describe('the ref scope', () => {
+    it.each(['aws', 'seaweedfs'])(
+      '%s: never deletes an exact match on a fallback ref, and says why',
+      async (provider) => {
+        const objectKey = put(MAIN, 'k', 1);
+        await expect(
+          deleteRejectedObject(providerTier(provider), { objectKey, etag: '"k"' }, 'k')
+        ).resolves.toBe('other-ref');
+        expect(objects.has(objectKey)).toBe(true);
+        expect(mockCheckObjectExists).not.toHaveBeenCalled();
+        expect(mockDeleteObject).not.toHaveBeenCalled();
+        expect(mockInfo).toHaveBeenCalledWith(
+          `delete-corrupt-cache keeps s3://bucket/${objectKey}: it is not the object of the primary key under the ref of this job, for example a match on a fallback ref.`
+        );
+      }
+    );
+
+    it('never deletes the object of another key under the same ref', async () => {
+      const objectKey = put(FEATURE, 'other', 1);
+      await expect(deleteRejectedObject(tier(), { objectKey, etag: '"other"' }, 'k')).resolves.toBe(
+        'other-ref'
+      );
+      expect(objects.has(objectKey)).toBe(true);
     });
   });
 });
