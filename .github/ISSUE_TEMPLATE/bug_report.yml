@@ -1,0 +1,69 @@
+name: Bug report
+description: Report a problem with the action or the CLI.
+labels:
+  - bug
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Action or CLI version
+      description: The release tag, the commit SHA, or the CLI version. Example, v1.11.0.
+    validations:
+      required: true
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Storage provider
+      options:
+        - aws
+        - s3
+        - r2
+        - cloudflare
+        - gcs
+        - google
+        - b2
+        - backblaze
+        - fastly
+        - garage
+        - seaweedfs
+        - seaweed
+        - minio
+        - rustfs
+        - other
+    validations:
+      required: true
+  - type: input
+    id: runner-os
+    attributes:
+      label: Runner operating system
+      description: Example, ubuntu-24.04, macos-latest, or windows-latest.
+    validations:
+      required: true
+  - type: textarea
+    id: workflow-step
+    attributes:
+      label: Workflow step
+      description: The step of the workflow that uses the action. Remove secrets.
+      render: yaml
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Log excerpt
+      description: The relevant lines of the log. Remove all secrets, access keys, and signed URLs before you paste the log.
+      render: text
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+      description: What you expected to happen.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual result
+      description: What happened.
+    validations:
+      required: true
