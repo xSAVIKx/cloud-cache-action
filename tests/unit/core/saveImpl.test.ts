@@ -317,11 +317,12 @@ describe('saveImpl', () => {
       );
     });
 
-    it('builds the S3 tier with the compression method the restore step used', async () => {
+    it('builds the S3 tier with the compression method the restore step used, as an uploading step', async () => {
       state.setState(State.CacheCompression, 'gzip');
       await saveImpl(state);
       expect(mockBuildS3Tier).toHaveBeenCalledWith(expect.anything(), process.env, {
         compression: 'gzip',
+        uploads: true,
       });
     });
 

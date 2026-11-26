@@ -140,6 +140,11 @@ export interface S3Match {
 export interface BuildS3TierOptions {
   /** Compression method the restore step used; detected again when absent or unknown. */
   compression?: string;
+  /**
+   * True when this step uploads (a save). Only then does a capped `upload-chunk-size` get a
+   * warning, so restore and inspect steps stay quiet.
+   */
+  uploads?: boolean;
 }
 
 /** True when a failed conditional upload means another job already won the write. */
@@ -289,13 +294,39 @@ export async function buildS3Tier(
     download: { concurrency: config.downloadConcurrency, partSize: config.downloadChunkSize },
     upload: {
       concurrency: config.uploadConcurrency,
-      partSize: config.uploadChunkSize ?? Defaults.DefaultUploadChunkSize,
+      partSize: capUploadPartSize(
+        config.uploadChunkSize ?? Defaults.DefaultUploadChunkSize,
+        storage.providerConfig,
+        config.explicitTransfer.uploadChunkSize && options.uploads === true
+      ),
     },
     metadata: config.metadata,
     tags: config.tags,
     compressionLevel,
     tuning: config.transferTuning === 'auto' ? config.explicitTransfer : undefined,
   };
+}
+
+/**
+ * Caps an upload part at the largest request body the provider accepts. With one part per
+ * request, the cap also limits a single-request upload. A part size the workflow set gets a
+ * warning when the cap changes it.
+ */
+export function capUploadPartSize(
+  partSize: number,
+  provider: Pick<StorageContext['providerConfig'], 'provider' | 'maxPartSize'>,
+  explicit = false
+): number {
+  const max = provider.maxPartSize;
+  if (max === undefined || partSize <= max) {
+    return partSize;
+  }
+  if (explicit) {
+    log.warning(
+      `Input "upload-chunk-size" is ${formatSize(partSize)}, above the ${formatSize(max)} that provider "${provider.provider}" accepts in one request; using ${formatSize(max)}.`
+    );
+  }
+  return max;
 }
 
 /**
@@ -344,6 +375,9 @@ function settingsFor(
     freeMemoryBytes: (tier.memory ?? usableMemory)(),
     fixed,
   });
+  if (direction === 'upload') {
+    settings.partSize = capUploadPartSize(settings.partSize, tier.storage.providerConfig);
+  }
   log.info(formatTuning(direction, settings, sizeBytes, fixed));
   return settings;
 }
