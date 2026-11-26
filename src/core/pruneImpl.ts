@@ -3,6 +3,7 @@ import { getHost } from '../ci/host';
 import { log } from '../ci/log';
 import { Defaults, Inputs, Outputs } from '../constants';
 import { createStorageContext } from '../storage/client';
+import { parseBoolean } from '../utils/bool';
 import {
   getInputAsBool,
   getInputAsInt,
@@ -14,9 +15,6 @@ import { emitMetrics } from './metrics';
 import { toError } from './outcomes';
 import { pruneCaches, type PruneTier } from './prune';
 import { NO_RULE_MESSAGE, hasPruneRule, type PruneRules } from './pruneSelect';
-
-const TRUE_VALUES = ['true', 'True', 'TRUE'];
-const FALSE_VALUES = ['false', 'False', 'FALSE'];
 
 /** Every input the prune step reads. `ref` empty means every ref. */
 export interface PruneConfig {
@@ -43,11 +41,9 @@ function parseDryRun(raw: string): boolean {
   if (raw === '') {
     return false;
   }
-  if (TRUE_VALUES.includes(raw)) {
-    return true;
-  }
-  if (FALSE_VALUES.includes(raw)) {
-    return false;
+  const parsed = parseBoolean(raw);
+  if (parsed !== undefined) {
+    return parsed;
   }
   throw new Error(`Invalid "dry-run" value "${raw}": use true or false.`);
 }

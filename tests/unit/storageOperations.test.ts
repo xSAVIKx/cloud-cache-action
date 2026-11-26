@@ -624,6 +624,89 @@ describe('Storage Operations', () => {
     });
   });
 
+  // lib-storage (3.1156.0) has no explicit stop, but it stops anyway: the uploaders share one
+  // async generator of parts, and the failed uploader leaves its `for await` loop, which closes
+  // that generator. The other uploaders get only the parts that they asked for before the close,
+  // at most one each, and then no new part. Parts already in flight finish. Thus the waste after
+  // a failure has a limit that does not depend on the archive size. These tests pin that limit,
+  // so an SDK update that changes it fails here.
+  describe('a failed part stops the other parts', () => {
+    const PART = 5 * 1024 * 1024;
+    const PARTS = 8;
+    const CONCURRENCY = 4;
+    const serviceUnavailable = () =>
+      Object.assign(new Error('Service Unavailable'), {
+        name: 'ServiceUnavailable',
+        $metadata: { httpStatusCode: 503 },
+      });
+    let startedAfterFailure: number;
+
+    beforeEach(() => {
+      startedAfterFailure = 0;
+      s3Mock.on(CreateMultipartUploadCommand).resolves({ UploadId: 'upload-1' });
+      s3Mock.on(AbortMultipartUploadCommand).resolves({});
+      s3Mock.on(CompleteMultipartUploadCommand).resolves({ ETag: '"multipart"' });
+    });
+
+    /** Part 2 fails. The other parts take some time, as on a real network. */
+    const failPartTwo = (failure: Error) => {
+      let failed = false;
+      s3Mock.on(UploadPartCommand).callsFake(async (input: { PartNumber?: number }) => {
+        if (failed) {
+          startedAfterFailure += 1;
+        }
+        if (input.PartNumber === 2) {
+          failed = true;
+          throw failure;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        return { ETag: '"part"' };
+      });
+    };
+
+    it('createStreamUpload starts at most one part per uploader after the failure and rethrows the part error', async () => {
+      const { createStreamUpload } = await import('../../src/storage/operations');
+      const failure = serviceUnavailable();
+      failPartTwo(failure);
+      const body = Readable.from(Array.from({ length: PARTS }, () => Buffer.alloc(PART, 'z')));
+
+      const upload = createStreamUpload(client, 'test-bucket', 'stream-key', body, {
+        partSize: PART,
+        concurrency: CONCURRENCY,
+      });
+      await expect(upload.done()).rejects.toBe(failure);
+
+      expect(startedAfterFailure).toBeLessThanOrEqual(CONCURRENCY - 1);
+      expect(s3Mock.commandCalls(UploadPartCommand).length).toBeLessThan(PARTS);
+      expect(s3Mock.commandCalls(CompleteMultipartUploadCommand)).toHaveLength(0);
+      expect(s3Mock.commandCalls(AbortMultipartUploadCommand).length).toBeGreaterThanOrEqual(1);
+    }, 30_000);
+
+    it('uploadFile starts at most one part per uploader after the failure and rethrows the part error', async () => {
+      const { uploadFile } = await import('../../src/storage/operations');
+      const failure = serviceUnavailable();
+      failPartTwo(failure);
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-upload-stop-'));
+      const file = path.join(tempDir, 'large.bin');
+      fs.writeFileSync(file, Buffer.alloc(PARTS * PART, 'a'));
+
+      try {
+        await expect(
+          uploadFile(client, 'test-bucket', 'large-key', file, {
+            partSize: PART,
+            concurrency: CONCURRENCY,
+          })
+        ).rejects.toBe(failure);
+        expect(startedAfterFailure).toBeLessThanOrEqual(CONCURRENCY - 1);
+        expect(s3Mock.commandCalls(UploadPartCommand).length).toBeLessThan(PARTS);
+        expect(s3Mock.commandCalls(CompleteMultipartUploadCommand)).toHaveLength(0);
+        expect(s3Mock.commandCalls(AbortMultipartUploadCommand).length).toBeGreaterThanOrEqual(1);
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    }, 30_000);
+  });
+
   describe('getObjectStream', () => {
     it('returns the raw body stream and metadata, without writing anything to disk', async () => {
       const mockStream = new Readable();

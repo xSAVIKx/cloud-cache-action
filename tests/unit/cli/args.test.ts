@@ -43,6 +43,47 @@ describe('parseCliArgs', () => {
     expect(parse(['save', '--debug=false'], { CLOUD_CACHE_DEBUG: 'true' }).debug).toBe(false);
   });
 
+  it('uses the boolean grammar of the action inputs for flags', () => {
+    for (const value of ['true', 'True', 'TRUE']) {
+      expect(parse(['restore', `--lookup-only=${value}`]).inputs['lookup-only']).toBe('true');
+    }
+    for (const value of ['false', 'False', 'FALSE']) {
+      expect(parse(['restore', `--lookup-only=${value}`]).inputs['lookup-only']).toBe('false');
+      expect(parse(['save', `--debug=${value}`], { CLOUD_CACHE_DEBUG: 'true' }).debug).toBe(false);
+    }
+  });
+
+  it('keeps every value that the flag env vars took before', () => {
+    for (const value of ['true', 'True', 'TRUE', 'tRuE', '1', ' 1 ']) {
+      expect(parse(['save'], { CLOUD_CACHE_DEBUG: value }).debug).toBe(true);
+      expect(parse(['save'], { CLOUD_CACHE_SAVE_ON_FAILURE: value }).saveOnFailure).toBe(true);
+    }
+    for (const value of ['false', 'False', 'FALSE', '0', '']) {
+      expect(parse(['save'], { CLOUD_CACHE_DEBUG: value }).debug).toBe(false);
+      expect(parse(['save'], { CLOUD_CACHE_ALLOW_REF_OVERRIDE: value }).allowRefOverride).toBe(
+        false
+      );
+    }
+  });
+
+  it('rejects an unknown boolean value with a clear error', () => {
+    expect(() => parse(['save', '--save-on-failure=yes'])).toThrow(
+      '--save-on-failure takes true, True, TRUE, false, False or FALSE, not "yes"'
+    );
+    expect(() => parse(['save'], { CLOUD_CACHE_SAVE_ON_FAILURE: 'yes' })).toThrow(
+      'CLOUD_CACHE_SAVE_ON_FAILURE takes true, false, 1 or 0 (in any case), not "yes"'
+    );
+    expect(() => parse(['save'], { CLOUD_CACHE_ALLOW_REF_OVERRIDE: 'on' })).toThrow(UsageError);
+    expect(() => parse(['save'], { CLOUD_CACHE_DEBUG: '2' })).toThrow(/CLOUD_CACHE_DEBUG/);
+  });
+
+  it('tells to use "=" when a bare boolean flag is followed by a boolean word', () => {
+    expect(() => parse(['restore', '--lookup-only', 'true'])).toThrow(
+      '--lookup-only takes its value after "=": use --lookup-only=true'
+    );
+    expect(() => parse(['save', '--debug', 'False'])).toThrow('use --debug=False');
+  });
+
   it('env fills a missing flag', () => {
     const fromEnv = parse(['save'], {
       CLOUD_CACHE_STATE_FILE: '/tmp/s.json',

@@ -849,7 +849,7 @@ describe('saveImpl', () => {
 
     await saveImpl(state);
 
-    expect(mockHostMetricsFields).toHaveBeenCalledWith('gzip', 'eu-west-1');
+    expect(mockHostMetricsFields).toHaveBeenCalledWith('gzip', 'eu-west-1', 'save');
     expect(mockEmitMetrics.mock.calls[0][0]).toEqual(
       expect.objectContaining({ step: 'save', platform: 'bitbucket' })
     );

@@ -1,5 +1,6 @@
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { BOOLEAN_VALUES_TEXT, parseBoolean } from '../utils/bool';
 import { BOOLEAN_INPUTS, type CliCommand, INPUT_DEFAULTS, MULTILINE_INPUTS } from './defaults';
 
 export interface CliRun {
@@ -51,13 +52,11 @@ function isCommand(value: string): value is CliCommand {
 }
 
 function parseBool(flag: string, value: string): boolean {
-  if (value === 'true') {
-    return true;
+  const parsed = parseBoolean(value);
+  if (parsed === undefined) {
+    throw new UsageError(`--${flag} takes ${BOOLEAN_VALUES_TEXT}, not "${value}"`);
   }
-  if (value === 'false') {
-    return false;
-  }
-  throw new UsageError(`--${flag} takes true or false, not "${value}"`);
+  return parsed;
 }
 
 const CLI_BOOLEAN_FLAGS = new Set<string>([
@@ -74,8 +73,24 @@ function parsePlatform(value: string): Platform {
   return found;
 }
 
-function envBool(value: string | undefined): boolean {
-  return value !== undefined && ['true', '1'].includes(value.trim().toLowerCase());
+/**
+ * Reads the env var of a boolean CLI flag. It keeps the values that these env vars always took:
+ * true or 1 is true, false or 0 is false, in any case. Unset or empty is false. Before, every
+ * other value was a silent false. Now it is a usage error.
+ */
+function envBool(env: NodeJS.ProcessEnv, name: string): boolean {
+  const value = env[name]?.trim();
+  if (!value) {
+    return false;
+  }
+  const lower = value.toLowerCase();
+  if (lower === 'true' || lower === '1') {
+    return true;
+  }
+  if (lower === 'false' || lower === '0') {
+    return false;
+  }
+  throw new UsageError(`${name} takes true, false, 1 or 0 (in any case), not "${value}"`);
 }
 
 /**
@@ -128,6 +143,10 @@ export function parseCliArgs(argv: string[], env: NodeJS.ProcessEnv = process.en
     ) {
       if (!CLI_BOOLEAN_FLAGS.has(name) && !(name in defaults)) {
         throw unknownFlag(name, command);
+      }
+      const next = rest[i + 1];
+      if (inline === undefined && next !== undefined && parseBoolean(next) !== undefined) {
+        throw new UsageError(`--${name} takes its value after "=": use --${name}=${next}`);
       }
       const value = parseBool(name, inline ?? 'true');
       if (name === CLI_FLAGS.debug) {
@@ -184,12 +203,12 @@ export function parseCliArgs(argv: string[], env: NodeJS.ProcessEnv = process.en
     stateFile:
       stateFile ?? (env.CLOUD_CACHE_STATE_FILE || join(tmpdir(), 'cloud-cache-state.json')),
     outputsFile: outputsFile ?? (env.CLOUD_CACHE_OUTPUTS_FILE || undefined),
-    debug: debug ?? envBool(env.CLOUD_CACHE_DEBUG),
+    debug: debug ?? envBool(env, 'CLOUD_CACHE_DEBUG'),
     platform: parsePlatform(platform ?? (env.CLOUD_CACHE_PLATFORM || 'auto')),
-    allowRefOverride: allowRefOverride ?? envBool(env.CLOUD_CACHE_ALLOW_REF_OVERRIDE),
+    allowRefOverride: allowRefOverride ?? envBool(env, 'CLOUD_CACHE_ALLOW_REF_OVERRIDE'),
     roleArn: roleArn ?? (env.CLOUD_CACHE_ROLE_ARN || undefined),
     saveOnFailure:
-      command === 'save' && (saveOnFailure ?? envBool(env.CLOUD_CACHE_SAVE_ON_FAILURE)),
+      command === 'save' && (saveOnFailure ?? envBool(env, 'CLOUD_CACHE_SAVE_ON_FAILURE')),
   };
 }
 
@@ -274,6 +293,13 @@ export function usage(): string {
     '  CLOUD_CACHE_PLATFORM, CLOUD_CACHE_ALLOW_REF_OVERRIDE, CLOUD_CACHE_ROLE_ARN and',
     '  CLOUD_CACHE_SAVE_ON_FAILURE are the env vars of the flags --platform, --allow-ref-override,',
     '  --role-arn and --save-on-failure.',
+    '  CLOUD_CACHE_WORKSPACE is the directory that relative paths use. Default: the current',
+    '  directory. On bitbucket, BITBUCKET_CLONE_DIR wins over it.',
+    '  CLOUD_CACHE_EVENT_NAME is the name of the event that started the run. Default: cli.',
+    '  On bitbucket, the CLI ignores it and uses push or pull_request.',
+    '  CLOUD_CACHE_SETUP_MS is the setup time in milliseconds for the metrics record of restore.',
+    '  Boolean flags take true, True, TRUE, false, False or FALSE. The env vars of the CLI flags',
+    '  (CLOUD_CACHE_DEBUG and others) take true, false, 1 or 0, in any case.',
     ''
   );
   return lines.join('\n');

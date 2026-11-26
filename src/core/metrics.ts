@@ -76,11 +76,14 @@ export function emitMetrics(metrics: StepMetrics, metricsFile: string, workspace
 
 /**
  * The platform fields for a restore or save record. On GitHub it returns no key, so the GitHub
- * metrics line does not change. A value that is not known is left out.
+ * metrics line does not change. A value that is not known is left out. Only the restore record
+ * gets `setupMs`: the setup runs once before the restore, so the save record does not count it
+ * again.
  */
 export function hostMetricsFields(
   compression: 'zstd' | 'gzip' | undefined,
-  region: string | undefined
+  region: string | undefined,
+  step: 'restore' | 'save'
 ): Partial<StepMetrics> {
   const context = getHost().context();
   if (context.platform === 'github') {
@@ -93,7 +96,7 @@ export function hostMetricsFields(
   if (region) {
     fields.region = region;
   }
-  const setup = context.env.CLOUD_CACHE_SETUP_MS;
+  const setup = step === 'restore' ? context.env.CLOUD_CACHE_SETUP_MS : undefined;
   if (setup !== undefined && setup !== '') {
     if (/^\d+$/.test(setup.trim())) {
       fields.setupMs = Number(setup.trim());

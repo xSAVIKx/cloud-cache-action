@@ -103,7 +103,7 @@ describe('hostMetricsFields', () => {
 
   it('adds the platform, compression, region and runner on Bitbucket', () => {
     setHost(fakeHost('bitbucket'));
-    expect(hostMetricsFields('zstd', 'eu-west-1')).toEqual({
+    expect(hostMetricsFields('zstd', 'eu-west-1', 'restore')).toEqual({
       platform: 'bitbucket',
       compression: 'zstd',
       region: 'eu-west-1',
@@ -113,7 +113,7 @@ describe('hostMetricsFields', () => {
 
   it('leaves out a compression or region that is not known', () => {
     setHost(fakeHost('generic'));
-    expect(hostMetricsFields(undefined, undefined)).toEqual({
+    expect(hostMetricsFields(undefined, undefined, 'save')).toEqual({
       platform: 'generic',
       runner: labels,
     });
@@ -121,19 +121,27 @@ describe('hostMetricsFields', () => {
 
   it('adds setupMs from CLOUD_CACHE_SETUP_MS', () => {
     setHost(fakeHost('bitbucket', { CLOUD_CACHE_SETUP_MS: '1830' }));
-    expect(hostMetricsFields('gzip', 'auto').setupMs).toBe(1830);
+    expect(hostMetricsFields('gzip', 'auto', 'restore').setupMs).toBe(1830);
+    expect(mockWarning).not.toHaveBeenCalled();
+  });
+
+  it('adds no setupMs to the save record', () => {
+    setHost(fakeHost('bitbucket', { CLOUD_CACHE_SETUP_MS: '1830' }));
+    expect('setupMs' in hostMetricsFields('gzip', 'auto', 'save')).toBe(false);
+    setHost(fakeHost('bitbucket', { CLOUD_CACHE_SETUP_MS: 'abc' }));
+    hostMetricsFields('gzip', 'auto', 'save');
     expect(mockWarning).not.toHaveBeenCalled();
   });
 
   it('ignores a CLOUD_CACHE_SETUP_MS that is not a number and warns once', () => {
     setHost(fakeHost('bitbucket', { CLOUD_CACHE_SETUP_MS: 'abc' }));
-    const fields = hostMetricsFields('gzip', 'auto');
+    const fields = hostMetricsFields('gzip', 'auto', 'restore');
     expect('setupMs' in fields).toBe(false);
     expect(mockWarning).toHaveBeenCalledTimes(1);
   });
 
   it('adds no key on GitHub', () => {
     setHost(new GitHubActionsHost());
-    expect(hostMetricsFields('zstd', 'us-east-1')).toEqual({});
+    expect(hostMetricsFields('zstd', 'us-east-1', 'restore')).toEqual({});
   });
 });

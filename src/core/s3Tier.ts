@@ -1,5 +1,5 @@
 import { GitHubActionsHost } from '../ci/github';
-import { getHost } from '../ci/host';
+import { type CiContext, getHost } from '../ci/host';
 import { log } from '../ci/log';
 import type { ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -234,6 +234,13 @@ async function resolveCompression(persisted: string | undefined): Promise<Compre
   return getCompressionConfig();
 }
 
+/** The env var that sets the ref of the run, on each host. The log names it when it is empty. */
+const REF_VARIABLES: Record<CiContext['platform'], string> = {
+  github: 'GITHUB_REF',
+  generic: 'CLOUD_CACHE_REF',
+  bitbucket: 'BITBUCKET_BRANCH (or BITBUCKET_TAG or BITBUCKET_PR_ID)',
+};
+
 export async function buildS3Tier(
   config: CacheConfig,
   env?: NodeJS.ProcessEnv,
@@ -252,7 +259,7 @@ export async function buildS3Tier(
   const refs = ctx.refs;
   const scopedToRef = config.scopedToRef && refs.current !== undefined;
   if (config.scopedToRef && !scopedToRef) {
-    log.debug('GITHUB_REF is not set, so caches are not scoped to a ref.');
+    log.debug(`${REF_VARIABLES[ctx.platform]} is not set, so caches are not scoped to a ref.`);
   }
 
   const template = compileKeyTemplate({

@@ -110,7 +110,7 @@ export async function restoreImpl(
     reported = true;
     const full = {
       ...metrics,
-      ...hostMetricsFields(compression, region),
+      ...hostMetricsFields(compression, region, 'restore'),
       timestamp: new Date().toISOString(),
       durationMs: Date.now() - start,
     };

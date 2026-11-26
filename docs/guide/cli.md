@@ -75,7 +75,9 @@ The default values are the same as the `default:` values in the action manifest 
 
 Follow these rules for flag values:
 
-- A boolean flag takes `true` or `false`. For example, `--lookup-only=true`. A flag without a value means `true`.
+- A boolean flag takes `true`, `True`, `TRUE`, `false`, `False` or `FALSE`. Put the value after `=`, for example `--lookup-only=true`. A flag without a value means `true`.
+- An input environment variable, such as `CLOUD_CACHE_LOOKUP_ONLY`, takes the same values as the flag. The action inputs also take these values. Another value gives a warning, and the CLI uses the default.
+- The variable of a CLI flag, such as `CLOUD_CACHE_DEBUG`, takes `true`, `false`, `1` or `0`, in any case. Another value is a usage error.
 - Some inputs take one value for each line: `path`, `restore-keys`, `metadata` and `tags`. Repeat the flag for each line. The CLI joins the values with a newline.
 - Put secrets in environment variables, not in flags. A flag is visible in the process list.
 
@@ -97,7 +99,7 @@ node cloud-cache.mjs restore \
 | ---------------------- | --------------------------- | ---------------------------------------------------------------- |
 | `--state-file <path>`  | `CLOUD_CACHE_STATE_FILE`    | The state file. Default: `<tmpdir>/cloud-cache-state.json`.      |
 | `--outputs-file <path>` | `CLOUD_CACHE_OUTPUTS_FILE` | The outputs file. Without it, the CLI only prints the outputs.   |
-| `--debug`              | `CLOUD_CACHE_DEBUG`         | Prints debug messages. The variable accepts `true` or `1`.       |
+| `--debug`              | `CLOUD_CACHE_DEBUG`         | Prints debug messages. The variable accepts `true`, `1`, `false` or `0`, in any case. Other values stop the CLI with exit code 2. |
 | `--help`               |                             | Prints the help text.                                            |
 | `--version`            |                             | Prints the version.                                              |
 
@@ -137,6 +139,8 @@ A CI system sets the repository and the refs. The CLI cannot find them, so you s
 | `CLOUD_CACHE_WORKSPACE`        | The directory that relative paths use.                                    | The current directory         |
 | `CLOUD_CACHE_EVENT_NAME`       | The name of the event that started the run.                               | `cli`                         |
 
+On Bitbucket, `BITBUCKET_CLONE_DIR` wins over `CLOUD_CACHE_WORKSPACE`, and the CLI ignores `CLOUD_CACHE_EVENT_NAME`. See [Refs and cache scopes](./bitbucket.md#refs-and-cache-scopes).
+
 These variables are not input values. An input with the same environment name reads only its flag. For example, the `prune` input `ref` reads only `--ref`, not `CLOUD_CACHE_REF`.
 
 If `CLOUD_CACHE_REPOSITORY` is empty, the cache keys have no repository part. All repositories that use the same bucket and prefix then share their caches. The CLI prints a warning when the variable is empty. Set the variable in every job, or set `--scoped-to-repository=false` if you want to share the caches.
@@ -157,7 +161,7 @@ Set `CLOUD_CACHE_REF` in every job that uses a scoped cache.
 `restore` writes a JSON file. `save` reads it. This is how `save` knows which key a `restore` matched. After an exact hit, `save` skips the upload.
 
 - The default path is `cloud-cache-state.json` in the temporary directory of the OS.
-- Use the same `--state-file` for `restore` and `save` if the two commands run with different `TMPDIR` values.
+- The OS reads the temporary directory from `TMPDIR` on Linux and macOS, and from `TEMP` or `TMP` on Windows. Use the same `--state-file` for `restore` and `save` if the two commands run with different values of these variables.
 - Each `restore` starts with an empty state file. It removes the state of the previous restore. This happens before the CLI expands `{hash:}` templates.
 - `restore` records the repository in the state file. If `save` finds a state from another repository, it prints a warning, removes the file, and ignores that state. The check does not use the workspace. `restore` and `save` can run in different directories of one repository.
 - `save` removes the state file after it succeeds. A second `save` does not use the state of the first job.
