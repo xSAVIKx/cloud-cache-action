@@ -6,7 +6,19 @@ description: "Migrate from actions/cache or tespkg/actions-cache to Cloud Cache 
 
 To migrate from `actions/cache` or `tespkg/actions-cache` to Cloud Cache Action, change the `uses:` line and add a bucket and credentials. Keep your `key`, `path` and `restore-keys` inputs. The cache then goes to your S3-compatible bucket, not to the GitHub Actions cache.
 
-This page gives the manual steps first. A prompt for an AI coding agent and a table of the secrets for each provider follow.
+## Migration checklist
+
+1. Create a private bucket. The [Storage Providers](../providers/index.md) pages give the steps.
+2. Add a rule that deletes old caches. The action never deletes a cache. See [Old caches stay in the bucket](#old-caches-stay-in-the-bucket).
+3. Create a key that can read, write and list objects in the bucket. Add its two values as repository secrets. See [Required secrets by provider](#required-secrets-by-provider).
+4. Change the `uses:` line. Add `bucket`, `endpoint` (or `region` for AWS S3) and the two secrets. See [the example](#manual-migration-from-actions-cache-v4-v5-v6).
+5. Run the workflow two times on the default branch. The first run misses and saves. The second run shows a hit in the job summary. See [Check that it works](./getting-started.md#check-that-it-works). If a step logs a warning, see [Troubleshooting](./troubleshooting.md).
+
+Before you merge the change, read [What changes after the move](#what-changes-after-the-move). It gives three differences from `actions/cache` that cost time or money if you do not plan for them.
+
+To move the built-in cache of a `setup-*` action, see [Migrate from `setup-*` caching](#migrate-from-setup-caching).
+
+The sections below give the details. A prompt for an AI coding agent is at [the end of the steps](#automated-migration-with-ai-coding-agents).
 
 ## Manual migration from `actions/cache` (v4, v5, v6)
 
@@ -18,7 +30,7 @@ Cloud Cache Action has the same inputs and outputs as `actions/cache`. Change th
 - name: Cache dependencies
   uses: actions/cache@v4
   with:
-    path: node_modules
+    path: ~/.npm
     key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
     restore-keys: |
       ${{ runner.os }}-node-
@@ -32,12 +44,12 @@ Cloud Cache Action has the same inputs and outputs as `actions/cache`. Change th
   with:
     # 1. Add your S3 bucket & credentials
     bucket: my-ci-cache-bucket
-    endpoint: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com # Optional for AWS S3
+    endpoint: https://<account-id>.r2.cloudflarestorage.com
     access-key: ${{ secrets.S3_ACCESS_KEY }}
     secret-key: ${{ secrets.S3_SECRET_KEY }}
 
     # 2. Keep all your existing inputs exactly as they are
-    path: node_modules
+    path: ~/.npm
     key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
     restore-keys: |
       ${{ runner.os }}-node-
@@ -46,6 +58,83 @@ Cloud Cache Action has the same inputs and outputs as `actions/cache`. Change th
 All existing features (`lookup-only`, `fail-on-cache-miss`, `enableCrossOsArchive`, `read-only`) continue to work identically. `save-always` is not supported: use `xSAVIKx/cloud-cache-action/save@v1` with `if: always()` instead.
 
 See [Parity with actions/cache](#parity-with-actions-cache) for the behaviour that has no input.
+
+## What changes after the move
+
+### Old caches stay in the bucket
+
+`actions/cache` removes an entry that no job accessed for 7 days. This action never deletes a cache, so the bucket grows until something deletes the objects. Use one of these:
+
+- **A lifecycle rule of the bucket**, for example an expiry after 30 days. Each provider page gives the steps.
+- **The [`prune` sub-action](./pruning.md)** on a schedule, for example with `older-than-days: 30`.
+
+Both use the time of the save, not the time of the last restore. A restore does not change the object. A 30-day rule thus also deletes a cache that jobs restore each day. The next run then misses and saves the cache again. To protect the newest caches, set `keep-latest: <N>` together with `older-than-days` on `prune`. `keep-latest` never deletes the N most recently saved archives of each ref.
+
+### The first run of each key misses
+
+The migration does not copy the entries of the GitHub Actions cache to the bucket. The first run of each key is a cache miss, and that run saves the cache to the bucket.
+
+To keep the GitHub caches during the switch, set `dual-cache: true` and `restore-priority: github-first` for some days. The restore then asks the GitHub Actions cache first, with your `key`, `path` and `restore-keys`. The post step saves each cache to the bucket. In the job summary, the "Source" column shows `github` or `s3` for each hit. See [Dual Caching, use case 3](./dual-caching.md#use-case-3-zero-downtime-migration-from-the-github-cache-to-cloud-storage).
+
+### Fork and Dependabot pull requests get no S3 cache
+
+With `actions/cache`, a pull request from a fork restores the cache of the base branch. GitHub does not give repository secrets to a fork pull request or to a Dependabot pull request. The S3 restore then fails, and the step logs a warning that starts with `Restoring from s3 failed, so it counts as a cache miss`. The job does not fail.
+
+If these pull requests need a cache, use the GitHub Actions cache for them:
+
+- **`dual-cache: true`** saves each cache to the bucket and to the GitHub Actions cache. A run with no secrets gets the warning for the S3 tier, and then restores from the GitHub Actions cache. See [Dual Caching](./dual-caching.md).
+- **`use-fallback: true`** makes a restore ask the GitHub Actions cache after an S3 error or an S3 miss, and makes a save go to the GitHub Actions cache when the S3 save fails. Runs that have the secrets save only to the bucket. A run with no secrets thus finds only the caches that other runs with no secrets saved to the GitHub Actions cache.
+
+Do not put `bucket` in a secret for these runs. An empty `bucket` fails the step, unless one of the two inputs above is set. See [Pull requests from forks](./security.md#pull-requests-from-forks) for the security rules.
+
+## Migrate from `setup-*` caching {#migrate-from-setup-caching}
+
+Many workflows have no `actions/cache` step. They use the cache that is built into `actions/setup-node`, `actions/setup-python`, `actions/setup-java` or `actions/setup-go`. That cache is the GitHub Actions cache. To move it to your bucket, turn off the built-in cache and add a step with a [preset](./presets.md).
+
+### Before (`actions/setup-node` with `cache: npm`)
+
+```yaml
+- uses: actions/setup-node@v6
+  with:
+    node-version: 24
+    cache: npm
+- run: npm ci
+```
+
+### After (Cloud Cache Action with `preset: npm`)
+
+```yaml
+- uses: actions/setup-node@v6
+  with:
+    node-version: 24
+    package-manager-cache: false
+
+- name: Cache npm downloads
+  uses: xSAVIKx/cloud-cache-action@v1
+  with:
+    bucket: my-ci-cache-bucket
+    endpoint: https://<account-id>.r2.cloudflarestorage.com
+    access-key: ${{ secrets.S3_ACCESS_KEY }}
+    secret-key: ${{ secrets.S3_SECRET_KEY }}
+    preset: npm
+
+- run: npm ci
+```
+
+Remove the `cache` input and set `package-manager-cache: false`. `actions/setup-node` v5 and later can turn on the npm cache automatically from the `packageManager` field of `package.json` ([README of the action](https://github.com/actions/setup-node#readme)). Without `package-manager-cache: false`, the job can keep a second npm cache in the GitHub Actions cache.
+
+### The other `setup-*` actions
+
+| Action | Built-in cache | How to turn it off | Preset |
+| --- | --- | --- | --- |
+| `actions/setup-node` | `cache: npm`, `yarn` or `pnpm` | Remove `cache`. Set `package-manager-cache: false`. | `npm`, `yarn`, `pnpm` |
+| `actions/setup-python` | `cache: pip`, `poetry` or `pipenv` | Remove `cache`. | `pip`, `poetry` |
+| `actions/setup-java` | `cache: maven`, `gradle` or `sbt` | Remove `cache`. | `maven`, `gradle` |
+| `actions/setup-go` | On by default | Set `cache: false`. | `go` |
+
+There is no preset for `pipenv` or `sbt`. For these, set `path`, `key` and `restore-keys` on the cache step.
+
+A preset does not use the key of the `setup-*` action, so the first run after the change is a cache miss. A preset also uses the default cache directory of the tool. If your job moves that directory, set `path` (see [A custom cache directory](./presets.md#a-custom-cache-directory)).
 
 ## Parity with actions/cache
 
@@ -66,15 +155,7 @@ The action trims the value and ignores its case. A skip logs one info line that 
 
 An S3-only job on one of those low-trust triggers can stop saving after you upgrade to this version. To save from such a job again, set `cache-mode: write` on the job. Only do this when the job cannot run untrusted code, because the read default is there to stop cache poisoning.
 
-**Write denied.** When the storage refuses an S3 write call (`PutObject`, `CreateMultipartUpload`, `UploadPart`, `CompleteMultipartUpload` or `CopyObject`) with `AccessDenied` (or a `403` that is not a credential error), the step logs a warning that the credentials may not be allowed to write to the bucket, and that `read-only: true` skips the save. The job does not fail. With `dual-cache-strict: true`, the step fails, as for every other save error. A `403` for wrong credentials, such as `InvalidAccessKeyId`, `SignatureDoesNotMatch` or `ExpiredToken`, gives the usual warning without the hint. A `403` on a read call, such as the `HeadObject` existence check, also gives no hint: it means a wrong secret or a policy without `s3:ListBucket`, not a read-only key.
-
-**Access errors.** For every S3 `403`, the warning names the S3 call, the object, the HTTP status and the policy action that the call needs. A wrong secret, or a policy without `s3:ListBucket`, makes the first `HeadObject` fail with no response body. The warning then reads, for example:
-
-```text
-Restoring from s3 failed, so it counts as a cache miss: HeadObject s3://<bucket>/<key> returned HTTP 403 Forbidden. Check access-key, secret-key and region, and check that the bucket policy allows s3:ListBucket on the bucket and s3:GetObject on the cache keys. The Security guide lists the permission for each S3 call.
-```
-
-After a tier error, the last restore line is `No cache restored: the s3 tier failed (see the warning above). Keys searched: ...`. The `actions/cache` line `Cache not found for input keys: ...` is only for a true miss. For jobs that must not write, such as pull requests, see the read-only pattern in the [Security guide](./security.md).
+**Access errors.** For an S3 `403` on a restore or a save, see [Troubleshooting](./troubleshooting.md). That page gives the warning text, the cause and the fix. For jobs that must not write, such as pull requests, see the read-only pattern in the [Security guide](./security.md).
 
 **`save-always`.** The action does not support this deprecated input. See [Saving after failed steps](./getting-started.md#saving-after-failed-steps).
 
@@ -99,6 +180,8 @@ If you use `tespkg/actions-cache`, Cloud Cache Action gives these differences:
 ## Required secrets by provider
 
 Use this table when you set up the repository secrets. The [Storage Providers](../providers/index.md) page compares the providers.
+
+The general examples in these docs use two secret names for every provider: `S3_ACCESS_KEY` and `S3_SECRET_KEY`. Each provider page uses the names in this table for the same two values. Select one pair of names. Then use that pair in the repository secrets and in the workflow. If the two places have different names, the action gets an empty value for the key.
 
 | Provider | Required GitHub Secrets | Endpoint Format / Note |
 | :--- | :--- | :--- |
@@ -133,6 +216,10 @@ Please migrate all GitHub Actions caching steps in this repository to `xSAVIKx/c
      - `actions/cache/restore@*`
      - `actions/cache/save@*`
      - `tespkg/actions-cache@*`
+   - Find all steps that use a built-in cache of a setup action:
+     - `actions/setup-node@*` with a `cache` input, or v5 and later with a `packageManager` field in `package.json`
+     - `actions/setup-python@*` or `actions/setup-java@*` with a `cache` input
+     - `actions/setup-go@*` without `cache: false`
 
 2. **Select Storage Provider & Secrets**:
    - Check if this repository already uses cloud infrastructure secrets, or ask me which provider I prefer:
@@ -158,11 +245,13 @@ Please migrate all GitHub Actions caching steps in this repository to `xSAVIKx/c
    - Replace `actions/cache/save@v...` with `xSAVIKx/cloud-cache-action/save@v1`.
    - Preserve all existing cache keys and options: `path`, `key`, `restore-keys`, `lookup-only`, `fail-on-cache-miss`, `enableCrossOsArchive`, `read-only`.
    - Add the required provider inputs (`bucket`, `endpoint`, `access-key`, `secret-key`) referencing GitHub Secrets (`${{ secrets.<SECRET_NAME> }}`).
+   - For each built-in cache of a setup action, turn it off (remove `cache`; set `package-manager-cache: false` on `actions/setup-node`; set `cache: false` on `actions/setup-go`). Then add a `xSAVIKx/cloud-cache-action@v1` step with `preset: <tool>` after the setup step and before the install step. The presets are `npm`, `yarn`, `pnpm`, `bun`, `pip`, `poetry`, `uv`, `gradle`, `maven`, `cargo` and `go`. For `pipenv` and `sbt`, set `path`, `key` and `restore-keys`.
 
 4. **Verify & Summarize**:
    - Check that all modified YAML files have valid syntax and proper indentation.
    - List the modified workflow files with a summary of changes.
    - Provide a clear checklist of the exact secret names I need to configure in GitHub Repository Settings (`Settings > Secrets and variables > Actions`).
+   - Remind me to add a lifecycle rule to the bucket or to schedule `xSAVIKx/cloud-cache-action/prune@v1`, because the action never deletes a cache.
 ```
 
 ## Branch isolation and trust model

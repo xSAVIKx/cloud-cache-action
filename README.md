@@ -33,12 +33,11 @@
 - uses: xSAVIKx/cloud-cache-action@v1
   with:
     bucket: my-ci-cache-bucket
-    endpoint: https://<account_id>.r2.cloudflarestorage.com # Omit for AWS S3
+    # AWS S3: remove the endpoint line and set region.
+    endpoint: https://<account-id>.r2.cloudflarestorage.com
     access-key: ${{ secrets.S3_ACCESS_KEY }}
     secret-key: ${{ secrets.S3_SECRET_KEY }}
-    path: |
-      ~/.npm
-      node_modules
+    path: ~/.npm
     key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
     restore-keys: |
       ${{ runner.os }}-node-
@@ -57,7 +56,7 @@ To use a preset, set `preset` instead of `path`, `key` and `restore-keys`. The p
     preset: npm
 ```
 
-The [Getting Started](https://xsavikx.github.io/cloud-cache-action/guide/getting-started.html) guide tells how a restore and a save work. The [Cache Presets](https://xsavikx.github.io/cloud-cache-action/guide/presets.html) guide lists the paths and the lockfiles of each preset.
+The [Getting Started](https://xsavikx.github.io/cloud-cache-action/guide/getting-started.html) guide gives the set-up and tells how to check the first cache hit. The [Cache Presets](https://xsavikx.github.io/cloud-cache-action/guide/presets.html) guide lists the paths and the lockfiles of each preset.
 
 ### Migrate with an AI coding agent
 

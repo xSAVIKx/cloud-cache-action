@@ -15,7 +15,7 @@ The `restore` and `save` sub-actions take the same inputs, with these exceptions
 
 The [`prune`](./pruning.md#inputs) and [`inspect`](./inspecting.md#outputs) sub-actions
 have their own inputs and outputs, on their own pages. The `action.yml` file of each action is
-the full definition (see [Action Metadata Definitions](./getting-started.md#action-metadata-definitions)).
+the full definition (see [Action Metadata Definitions](./how-it-works.md#action-metadata-definitions)).
 
 ## Sub-actions
 
