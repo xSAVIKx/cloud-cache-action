@@ -50,6 +50,10 @@ parts in memory.
   `s3://<bucket>/<key> does not support ranged GET requests; downloading it in one request.` and
   continues with a single request. AWS S3, Cloudflare R2, Google Cloud Storage, Backblaze B2,
   MinIO, SeaweedFS, RustFS and Garage all serve ranged requests.
+- **One object version.** The first part gives the ETag of the object. Every later part sends it as
+  `If-Match` and must return the same ETag and total size. When another job replaces the object
+  during the restore, the restore stops with the error "the object changed during the download",
+  and the cache counts as a miss. The restore does not retry this error.
 
 **Uploads.** A save sends the multipart upload's parts `upload-concurrency` (default `8`) at a time,
 each `upload-chunk-size` bytes (default 64 MiB). Every part is retried by the S3 SDK with the

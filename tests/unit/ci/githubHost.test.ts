@@ -40,6 +40,13 @@ afterEach(() => {
 });
 
 describe('GitHubActionsHost', () => {
+  it('context puts temporary files under RUNNER_TEMP, or the OS temporary directory without it', () => {
+    expect(new GitHubActionsHost({ RUNNER_TEMP: '/home/runner/_temp' }).context().tempDir).toBe(
+      '/home/runner/_temp'
+    );
+    expect(new GitHubActionsHost({}).context().tempDir).toBe(tmpdir());
+  });
+
   it('context maps the GitHub environment', () => {
     const host = new GitHubActionsHost({
       GITHUB_REPOSITORY: 'octo/app',

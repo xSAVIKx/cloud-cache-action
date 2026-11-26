@@ -155,6 +155,18 @@ describe('restoreImpl', () => {
     );
   });
 
+  it('escapes control characters in the matched key before it goes to the log', async () => {
+    mockRestoreFromS3.mockResolvedValue(s3Hit('Linux-npm-\n::error title=injected::x', false));
+
+    await restoreImpl(state, false);
+
+    const lines = mockCoreInfo.mock.calls.map(([message]) => message);
+    expect(lines.some((line) => line.includes('\n'))).toBe(false);
+    expect(lines).toContain(
+      'Cache restored from s3 with key: Linux-npm-\\n::error title=injected::x'
+    );
+  });
+
   it('reports a partial hit as cache-hit false', async () => {
     mockRestoreFromS3.mockResolvedValue(s3Hit('Linux-npm-old', false));
     await expect(restoreImpl(state, false)).resolves.toBe('Linux-npm-old');
@@ -285,6 +297,15 @@ describe('restoreImpl', () => {
     expect(outputs.get('cache-hit-source')).toBe('github');
     expect(state.values.get(State.CacheGithubExactHit)).toBe('true');
     expect(state.values.has(State.CacheS3ExactHit)).toBe(false);
+  });
+
+  it('treats a rejected S3 restore as an error and still asks GitHub when use-fallback is set', async () => {
+    inputs.set(Inputs.UseFallback, 'true');
+    mockRestoreFromS3.mockRejectedValue(new Error('ENOSPC: no space left on device'));
+    mockRestoreFromGitHub.mockResolvedValue(githubHit('Linux-npm-abc', true));
+    await expect(restoreImpl(state, false)).resolves.toBe('Linux-npm-abc');
+    expect(mockSetFailed).not.toHaveBeenCalled();
+    expect(outputs.get('cache-hit-source')).toBe('github');
   });
 
   it('fails when S3 cannot be set up and no other tier can serve the restore', async () => {

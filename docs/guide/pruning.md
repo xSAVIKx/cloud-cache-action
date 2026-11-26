@@ -56,7 +56,7 @@ Set at least one of `older-than-days`, `keep-latest`, `max-total-size` and `abor
 | `dry-run`                           |    No    |          `false`           | List cache archives that would be pruned without deleting anything          |
 | `endpoint`                         |    No    |          Auto/AWS          | Custom S3-compatible endpoint URL                                           |
 | `region`                           |    No    |      Auto/`us-east-1`      | AWS or S3 provider region                                                    |
-| `provider`                         |    No    |            Auto            | Preset: `aws`, `r2`, `gcs`, `b2`, `fastly`, `garage`, `seaweedfs`, `minio`  |
+| `provider`                         |    No    |            Auto            | Preset: `aws`, `r2`, `gcs`, `b2`, `fastly`, `garage`, `seaweedfs`, `minio`, `rustfs`  |
 | `access-key` / `accessKey`         |    No    |    `AWS_ACCESS_KEY_ID`     | S3 Access Key ID                                                             |
 | `secret-key` / `secretKey`         |    No    |  `AWS_SECRET_ACCESS_KEY`   | S3 Secret Access Key                                                         |
 | `session-token` / `sessionToken`   |    No    |    `AWS_SESSION_TOKEN`     | S3 Session Token                                                             |

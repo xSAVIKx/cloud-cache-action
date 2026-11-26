@@ -1,7 +1,7 @@
+import { getHost } from '../ci/host';
 import { log } from '../ci/log';
 import * as exec from '@actions/exec';
 import * as fs from 'node:fs';
-import * as os from 'node:os';
 import * as path from 'node:path';
 import type { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -191,7 +191,7 @@ export async function createArchive(
   level?: number,
   windowLog?: ZstdWindowLog
 ): Promise<{ sha256: string }> {
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cloud-cache-tar-'));
+  const tempDir = fs.mkdtempSync(path.join(getHost().context().tempDir, 'cloud-cache-tar-'));
   try {
     const manifestPath = path.join(tempDir, 'manifest.txt');
     fs.writeFileSync(manifestPath, formatManifest(entries));
@@ -227,7 +227,7 @@ export async function extractArchive(
   compression: CompressionConfig,
   workspace: string
 ): Promise<void> {
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cloud-cache-tar-'));
+  const tempDir = fs.mkdtempSync(path.join(getHost().context().tempDir, 'cloud-cache-tar-'));
   try {
     fs.mkdirSync(workspace, { recursive: true });
     const tar = await findTar();
