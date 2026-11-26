@@ -17,6 +17,7 @@ import {
   findTar,
   formatManifest,
   MSYS_COPY_SYMLINKS,
+  type ZstdWindowLog,
 } from './commands';
 import {
   captureStderrTail,
@@ -187,7 +188,8 @@ export async function createArchive(
   entries: readonly string[],
   compression: CompressionConfig,
   workspace: string,
-  level?: number
+  level?: number,
+  windowLog?: ZstdWindowLog
 ): Promise<{ sha256: string }> {
   const tempDir = fs.mkdtempSync(path.join(getHost().context().tempDir, 'cloud-cache-tar-'));
   try {
@@ -204,6 +206,7 @@ export async function createArchive(
       tempDir,
       manifestPath,
       level,
+      windowLog,
     };
     // Only GNU tar writes the same bytes to stdout as to a file. BSD tar (libarchive) pads the
     // last record with NULs when it writes to a pipe, which changes the archive bytes. BSD tar

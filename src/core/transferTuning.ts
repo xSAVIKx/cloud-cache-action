@@ -67,7 +67,9 @@ function uploadRule(sizeBytes: number, provider: StorageProvider): TransferSetti
  * holds one part more than the concurrency, so a tuned concurrency goes down until
  * `(concurrency + 1) * partSize` fits the budget, to 1 at the lowest. The part size does not
  * shrink, so a very small budget still gets one part in flight. A concurrency that the workflow
- * set is not reduced.
+ * set is not reduced. In a file-mode upload, each part buffer also holds up to one file read
+ * more (`uploadReadSize` in `operations.ts`, at most 1/16 of a part). The budget does not count
+ * this read; the quarter of the free memory leaves room for it.
  */
 export function tuneTransfer(input: TuningInput): TransferSettings {
   const rule =

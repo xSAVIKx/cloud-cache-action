@@ -69763,8 +69763,24 @@ const external_node_string_decoder_namespaceObject = __WEBPACK_EXTERNAL_createRe
 
 
 
-const ZSTD_COMPRESS = 'zstd -T0 --long=30';
-const ZSTD_DECOMPRESS = 'zstd -d --long=30';
+const ZSTD_WINDOW_LOG = 30;
+const ZSTD_LOW_MEMORY_WINDOW_LOG = 27;
+/**
+ * The memory below which a save uses the 128 MiB window. The value is the total memory of the
+ * machine, or the container limit when it is lower (see `windowMemory` in `s3Tier.ts`). With the
+ * 1 GiB window, zstd held about 1.1 GiB of memory while it compressed a 1 GiB tar (about
+ * 169 MiB with the 128 MiB window). A machine with less than 1.5 GiB cannot give zstd 1.1 GiB.
+ */
+const ZSTD_WINDOW_MIN_MEMORY = 1.5 * 1024 * 1024 * 1024;
+/**
+ * The window for a save on a machine or container with `memoryBytes` of memory. The restore command always
+ * uses `--long=30`, and that decodes an archive with either window. The archive format and the
+ * cache version thus stay the same.
+ */
+function zstdWindowLog(memoryBytes) {
+    return memoryBytes < ZSTD_WINDOW_MIN_MEMORY ? ZSTD_LOW_MEMORY_WINDOW_LOG : ZSTD_WINDOW_LOG;
+}
+const ZSTD_DECOMPRESS = `zstd -d --long=${ZSTD_WINDOW_LOG}`;
 function systemLookup() {
     return {
         platform: process.platform,
@@ -69821,8 +69837,10 @@ function platformFlags(plan) {
     }
     return [];
 }
-function zstdCompressProgram(level) {
-    return level === undefined ? ZSTD_COMPRESS : `zstd -${level} -T0 --long=30`;
+function zstdCompressProgram(level, windowLog = ZSTD_WINDOW_LOG) {
+    return level === undefined
+        ? `zstd -T0 --long=${windowLog}`
+        : `zstd -${level} -T0 --long=${windowLog}`;
 }
 function compressionFlags(method, program, level) {
     if (method === 'zstd') {
@@ -69858,7 +69876,7 @@ function buildCreateCommands(plan) {
     }
     args.push('-T', slashes(plan.manifestPath), ...platformFlags(plan));
     if (!separateZstd) {
-        args.push(...compressionFlags(plan.compression, zstdCompressProgram(plan.level), plan.level));
+        args.push(...compressionFlags(plan.compression, zstdCompressProgram(plan.level, plan.windowLog), plan.level));
         return [{ tool: plan.tar.path, args }];
     }
     return [
@@ -69868,7 +69886,7 @@ function buildCreateCommands(plan) {
             args: [
                 ...(plan.level === undefined ? [] : [`-${plan.level}`]),
                 '-T0',
-                '--long=30',
+                `--long=${plan.windowLog ?? ZSTD_WINDOW_LOG}`,
                 '--force',
                 '-o',
                 slashes(plan.archivePath),
@@ -69883,7 +69901,14 @@ function buildExtractCommands(plan) {
         return [
             {
                 tool: 'zstd',
-                args: ['-d', '--long=30', '--force', '-o', slashes(tarFile), slashes(plan.archivePath)],
+                args: [
+                    '-d',
+                    `--long=${ZSTD_WINDOW_LOG}`,
+                    '--force',
+                    '-o',
+                    slashes(tarFile),
+                    slashes(plan.archivePath),
+                ],
             },
             {
                 tool: plan.tar.path,
@@ -70191,7 +70216,7 @@ async function writeArchiveFromStdout(command, archivePath) {
     }
 }
 /** Creates the archive and returns the sha256 of its bytes. */
-async function createArchive(archivePath, entries, compression, workspace, level) {
+async function createArchive(archivePath, entries, compression, workspace, level, windowLog) {
     const tempDir = external_node_fs_.mkdtempSync(external_node_path_.join((0,host/* getHost */.L)().context().tempDir, 'cloud-cache-tar-'));
     try {
         const manifestPath = external_node_path_.join(tempDir, 'manifest.txt');
@@ -70207,6 +70232,7 @@ async function createArchive(archivePath, entries, compression, workspace, level
             tempDir,
             manifestPath,
             level,
+            windowLog,
         };
         // Only GNU tar writes the same bytes to stdout as to a file. BSD tar (libarchive) pads the
         // last record with NULs when it writes to a pipe, which changes the archive bytes. BSD tar
@@ -71043,6 +71069,26 @@ function resolvePartSize(transfer) {
 function resolveQueueSize(transfer) {
     return Math.max(1, transfer?.concurrency ?? constants/* Defaults */.Hw.DefaultUploadConcurrency);
 }
+/** The Node default read size for a file stream. A smaller read is not useful. */
+const MIN_UPLOAD_READ_SIZE = 64 * 1024;
+/** A read larger than this gave almost no more speed in the local benchmark, but more memory. */
+const MAX_UPLOAD_READ_SIZE = 8 * 1024 * 1024;
+/** One part takes this many reads. */
+const READS_PER_PART = 16;
+/**
+ * The read size for the archive file in a file-mode upload: 1/16 of the part size, from 64 KiB
+ * to 8 MiB. The Node default of 64 KiB needs 16384 reads for 1 GiB. On a busy host, each read
+ * waits for the libuv thread pool and for the event loop, and the reads then limit the upload.
+ *
+ * The read size is not the part size, because of how lib-storage cuts parts from a stream. It
+ * cuts a part only when it holds more than one part of data. It then copies the reads into one
+ * buffer, and the part is a view of that buffer. Each part in flight thus holds `partSize` plus
+ * one read. A read of `partSize` would make each part hold two parts of memory. With 1/16, the
+ * memory that `transferTuning.ts` budgets as `(concurrency + 1) * partSize` grows by 1/16.
+ */
+function uploadReadSize(partSize) {
+    return Math.min(MAX_UPLOAD_READ_SIZE, Math.max(MIN_UPLOAD_READ_SIZE, Math.floor(partSize / READS_PER_PART)));
+}
 /**
  * Awaits `upload.done()`. When it rejects after a multipart upload was created, sends
  * AbortMultipartUpload for it before rethrowing the original error, unchanged.
@@ -71120,8 +71166,8 @@ async function getObjectStream(client, bucket, key) {
 }
 async function uploadFile(client, bucket, key, sourcePath, transfer, options) {
     const stats = external_fs_.statSync(sourcePath);
-    const fileStream = external_fs_.createReadStream(sourcePath);
     const partSize = resolvePartSize(transfer);
+    const fileStream = external_fs_.createReadStream(sourcePath, { highWaterMark: uploadReadSize(partSize) });
     const parallelUpload = new lib_storage_dist_cjs/* Upload */._({
         client,
         params: {
@@ -71814,7 +71860,9 @@ function uploadRule(sizeBytes, provider) {
  * holds one part more than the concurrency, so a tuned concurrency goes down until
  * `(concurrency + 1) * partSize` fits the budget, to 1 at the lowest. The part size does not
  * shrink, so a very small budget still gets one part in flight. A concurrency that the workflow
- * set is not reduced.
+ * set is not reduced. In a file-mode upload, each part buffer also holds up to one file read
+ * more (`uploadReadSize` in `operations.ts`, at most 1/16 of a part). The budget does not count
+ * this read; the quarter of the free memory leaves room for it.
  */
 function tuneTransfer(input) {
     const rule = input.direction === 'download'
@@ -72193,6 +72241,7 @@ function computeCacheVersion(paths, compression, enableCrossOsArchive, platform 
 
 
 
+
 /** Logged when streaming is requested but the plan needs the BSD-tar-plus-zstd two-step on Windows. */
 const STREAMING_FALLBACK_MESSAGE = 'Streaming is not supported with BSD tar and zstd on Windows; using a temporary archive file.';
 /** Prefix listings sent at once while searching one ref. */
@@ -72337,6 +72386,33 @@ async function buildS3Tier(config, env, options = {}) {
  */
 function usableMemory(free = external_node_os_.freemem(), limit = process.constrainedMemory(), rss = process.memoryUsage.rss()) {
     return limit > 0 ? Math.min(free, Math.max(0, limit - rss)) : free;
+}
+/**
+ * The memory that decides the zstd window: the total memory of the machine, or the container
+ * limit when one is set and it is lower. It is not the free memory: on macOS, `os.freemem()`
+ * does not count inactive and cached pages, so it is often a few hundred MB on a runner with
+ * several GiB to use. The total memory is stable on every platform. `process.constrainedMemory()`
+ * is 0 (or a very large value) without a limit.
+ */
+function windowMemory(total = external_node_os_.totalmem(), limit = process.constrainedMemory()) {
+    return limit > 0 ? Math.min(total, limit) : total;
+}
+/**
+ * The zstd window for one save: 1 GiB, or 128 MiB when the machine or the container has too
+ * little memory for the 1 GiB window. Logs one line when it falls back. Undefined for gzip.
+ * `saveToS3` calls this one time per save, so a fallback from a streaming save to a file-mode
+ * save uses the same window and does not log the line again.
+ */
+function saveWindowLog(tier) {
+    if (tier.compression.method !== 'zstd') {
+        return undefined;
+    }
+    const memory = (tier.windowMemory ?? windowMemory)();
+    const windowLog = zstdWindowLog(memory);
+    if (windowLog !== ZSTD_WINDOW_LOG) {
+        log/* log */.R.info(`Memory is ${(0,inputUtils/* formatSize */.Xq)(memory)}, less than the ${(0,inputUtils/* formatSize */.Xq)(ZSTD_WINDOW_MIN_MEMORY)} that zstd --long=${ZSTD_WINDOW_LOG} needs. This save uses zstd --long=${windowLog}. The archive can be larger, and it restores in the same way.`);
+    }
+    return windowLog;
 }
 /**
  * The transfer settings for one object of `sizeBytes`: the tier's settings with `auto` tuning
@@ -72570,14 +72646,15 @@ async function saveToS3(tier, primaryKey, patterns) {
             log/* log */.R.warning('Path Validation Error: Path(s) specified in the action for caching do(es) not exist, hence no cache is being saved.');
             return { kind: 'skipped', reason: 'no paths matched' };
         }
+        const windowLog = saveWindowLog(tier);
         if (tier.streaming) {
             const tar = await findTar();
             if (!usesSeparateZstd({ tar, platform: process.platform, compression: tier.compression.method })) {
-                return await saveToS3Streaming(tier, objectKey, entries, tar, primaryKey);
+                return await saveToS3Streaming(tier, objectKey, entries, tar, primaryKey, windowLog);
             }
             log/* log */.R.info(STREAMING_FALLBACK_MESSAGE);
         }
-        return await saveToS3FileMode(tier, objectKey, entries, primaryKey);
+        return await saveToS3FileMode(tier, objectKey, entries, primaryKey, windowLog);
     }
     catch (err) {
         return { kind: 'error', error: (0,outcomes/* toError */.i)(err) };
@@ -72594,13 +72671,13 @@ async function saveToS3(tier, primaryKey, patterns) {
  * fallback a streamed tagged upload takes, which must not send tags again without latching the
  * tier-wide flag first.
  */
-async function saveToS3FileMode(tier, objectKey, entries, primaryKey, retryConflict = true, omitTags = false) {
+async function saveToS3FileMode(tier, objectKey, entries, primaryKey, windowLog, retryConflict = true, omitTags = false) {
     const { client, bucket } = tier.storage;
     const tempDir = external_node_fs_.mkdtempSync(external_node_path_.join((0,host/* getHost */.L)().context().tempDir, 'cloud-cache-save-'));
     try {
         const archivePath = external_node_path_.join(tempDir, tier.compression.archiveFilename);
         const archiveStart = Date.now();
-        const { sha256: checksum } = await createArchive(archivePath, entries, tier.compression, tier.workspace, tier.compressionLevel);
+        const { sha256: checksum } = await createArchive(archivePath, entries, tier.compression, tier.workspace, tier.compressionLevel, windowLog);
         const archiveMs = Date.now() - archiveStart;
         const archiveSize = getArchiveSize(archivePath);
         log/* log */.R.info(`Uploading ${(0,inputUtils/* formatSize */.Xq)(archiveSize)} to s3://${bucket}/${objectKey}...`);
@@ -72916,7 +72993,7 @@ function withStderrTail(err, tail) {
  * first, so lib-storage can never send the final PutObject/CompleteMultipartUpload for a
  * truncated archive. `If-None-Match` would otherwise keep such a bad object forever.
  */
-async function saveToS3Streaming(tier, objectKey, entries, tar, primaryKey) {
+async function saveToS3Streaming(tier, objectKey, entries, tar, primaryKey, windowLog) {
     const { client, bucket } = tier.storage;
     const tempDir = external_node_fs_.mkdtempSync(external_node_path_.join((0,host/* getHost */.L)().context().tempDir, 'cloud-cache-save-'));
     let child;
@@ -72936,6 +73013,7 @@ async function saveToS3Streaming(tier, objectKey, entries, tar, primaryKey) {
             tempDir,
             manifestPath,
             level: tier.compressionLevel,
+            windowLog,
         });
         child = spawnArchiveCommand(command, ['ignore', 'pipe', 'pipe']);
         const stderrTail = captureStderrTail(child.stderr);
@@ -73026,7 +73104,7 @@ async function saveToS3Streaming(tier, objectKey, entries, tar, primaryKey) {
             // `If-None-Match` does. A streamed body cannot be replayed, so the retry without tags is a
             // file-mode save, which omits them once the flag below is set.
             if (tagging !== undefined && isTaggingUnsupported(err)) {
-                const outcome = await saveToS3FileMode(tier, objectKey, entries, primaryKey, true, true);
+                const outcome = await saveToS3FileMode(tier, objectKey, entries, primaryKey, windowLog, true, true);
                 // Only a save that actually succeeded without tags proves the tags were the problem; the
                 // same 501 also means an unsupported `If-None-Match`, which that save handles itself.
                 if (outcome.kind === 'saved') {
@@ -73045,13 +73123,13 @@ async function saveToS3Streaming(tier, objectKey, entries, tar, primaryKey) {
             if (sendCondition && isConditionUnsupported(err)) {
                 log/* log */.R.debug(`s3://${bucket} rejected the If-None-Match condition; retrying the upload of ${objectKey} without it.`);
                 tier.storage.conditionalWriteUnsupported = true;
-                return await saveToS3FileMode(tier, objectKey, entries, primaryKey);
+                return await saveToS3FileMode(tier, objectKey, entries, primaryKey, windowLog);
             }
             if (sendCondition && isConditionalConflict(err)) {
                 // A streamed body cannot be replayed, so the one retry is a file-mode save, which keeps
                 // the condition.
                 log/* log */.R.info(`A concurrent write to s3://${bucket}/${objectKey} conflicted with this upload; retrying it once from a temporary archive file.`);
-                return await saveToS3FileMode(tier, objectKey, entries, primaryKey, false);
+                return await saveToS3FileMode(tier, objectKey, entries, primaryKey, windowLog, false);
             }
             throw withStderrTail(err, stderrTail.lines());
         }
