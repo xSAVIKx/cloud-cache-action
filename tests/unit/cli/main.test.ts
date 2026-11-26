@@ -530,8 +530,9 @@ describe('main', () => {
       ])
     ).toBe(0);
     expect(seen).toEqual(['', '', 'ci/', 'true', '3', 'true']);
-    // The flags change the state for this process only. A second save reads the restore state.
-    expect(JSON.parse(readFileSync(stateFile, 'utf8'))).toEqual(restored);
+    // A save that succeeds removes the state file. The flags never write to it.
+    expect(existsSync(stateFile)).toBe(false);
+    writeFileSync(stateFile, JSON.stringify(restored));
     expect(await main(['save'])).toBe(0);
     expect(seen).toEqual(['false', '{}', 'ci/', 'true', '3', 'true']);
     expect(warnings()).toEqual([
@@ -567,7 +568,7 @@ describe('main', () => {
     delete process.env.CLOUD_CACHE_READ_ONLY;
 
     // Without a state, there is nothing to override.
-    rmSync(stateFile);
+    rmSync(stateFile, { force: true });
     expect(await main(['save', '--read-only'])).toBe(0);
     expect(warnings()).toEqual([]);
   });
