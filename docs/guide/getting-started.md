@@ -71,8 +71,10 @@ On a self-hosted Windows runner, the account can lack the `SeCreateSymbolicLinkP
    - Emits diagnostics and completes cleanly without breaking the build on non-fatal network interruptions.
    - Writes a job summary table with the key, saved-to tiers, size and duration, unless `job-summary: false`.
 
-Cache archives are never deleted automatically; see [Pruning Caches](./pruning.md) for a
-scheduled cleanup sub-action.
+The action does not expire cache archives. See [Pruning Caches](./pruning.md) for a scheduled
+cleanup sub-action. A restore deletes an archive only when you set `delete-corrupt-cache: true` and
+the archive fails the integrity check. See
+[How Caches Are Stored](./storage.md#deleting-an-object-that-failed-the-check).
 
 ## Inspecting a lookup
 

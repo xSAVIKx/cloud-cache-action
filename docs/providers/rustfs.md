@@ -132,7 +132,7 @@ TEST_S3_ENDPOINT=http://127.0.0.1:9010 TEST_S3_PROVIDER=rustfs REQUIRE_S3=1 npm 
 - **Checksums**: for this provider, the action sends request checksums only when S3 requires them,
   because many S3-compatible services reject the CRC checksums recent AWS SDKs send by default.
   Nothing to configure.
-- **Expiry**: the action never deletes caches. Use a RustFS lifecycle policy, or the
+- **Expiry**: the action does not expire caches. Use a RustFS lifecycle policy, or the
   [`prune` sub-action](../guide/pruning.md), so old caches
   do not accumulate.
 

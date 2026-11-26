@@ -35,7 +35,7 @@ stated" means that these docs do not give the behavior for that provider. The so
 - Credentials that can read, write and list objects in the bucket. The
   [Security guide](../guide/security.md) gives least-privilege policies for AWS S3, Cloudflare R2,
   Google Cloud Storage, MinIO and RustFS.
-- A lifecycle rule or the [`prune` sub-action](../guide/pruning.md). The action never deletes
+- A lifecycle rule or the [`prune` sub-action](../guide/pruning.md). The action does not expire
   caches.
 
 ## Conditional writes

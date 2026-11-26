@@ -11,7 +11,8 @@ The `restore` and `save` sub-actions take the same inputs, with these exceptions
 - `restore` does not take the save inputs: `read-only`, `compression-level`, `upload-chunk-size`,
   `upload-concurrency`, `metadata` and `tags`.
 - `save` does not take the restore inputs: `restore-keys`, `lookup-only`, `fail-on-cache-miss`,
-  `read-only`, `restore-priority`, `explain`, `download-concurrency` and `download-chunk-size`.
+  `delete-corrupt-cache`, `read-only`, `restore-priority`, `explain`, `download-concurrency` and
+  `download-chunk-size`.
 
 The [`prune`](./pruning.md#inputs) and [`inspect`](./inspecting.md#outputs) sub-actions
 have their own inputs and outputs, on their own pages. The `action.yml` file of each action is
@@ -51,6 +52,7 @@ the full definition (see [Action Metadata Definitions](./getting-started.md#acti
 | `scoped-to-ref` | Restore from the current ref, then the PR base, then the default branch; `false` shares caches across refs | No | `true` |
 | `lookup-only` | Check existence without downloading | No | `false` |
 | `fail-on-cache-miss` | Fail workflow if cache is not found | No | `false` |
+| `delete-corrupt-cache` | Delete the S3 object of the exact primary key when it fails the integrity check, so a later save can write a good cache. Needs `s3:DeleteObject`. See [How Caches Are Stored](./storage.md#deleting-an-object-that-failed-the-check) | No | `false` |
 | `enableCrossOsArchive` | Allow Windows runners to save/restore cross-OS caches | No | `false` |
 | `read-only` | Restore cache but never save in post step | No | `false` |
 | `retry` | Enable exponential backoff retries on S3 operations | No | `true` |
