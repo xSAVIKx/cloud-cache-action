@@ -37,6 +37,10 @@ jobs:
             exit 1
           fi
       - run: npm run docs:build
+      - name: Check the built docs use the site origin
+        env:
+          REQUIRE_DOCS_BUILD: '1'
+        run: npm test -- tests/unit/siteOrigin.test.ts
 
   unit:
     name: Jest (${{ matrix.os }})

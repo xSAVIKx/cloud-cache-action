@@ -113,6 +113,21 @@ export function isValidEvent(): boolean {
   return Boolean(event);
 }
 
+const NAMED_ESCAPES: Record<string, string> = { '\n': '\\n', '\r': '\\r', '\t': '\\t' };
+
+/**
+ * Escapes control characters in an object key before it goes into a log line. A listed key is
+ * data from the bucket: a raw line break would let it start a new line, and a line that starts
+ * with `::` is a workflow command. An ordinary key comes back unchanged.
+ */
+export function escapeKey(key: string): string {
+  return key.replace(
+    // eslint-disable-next-line no-control-regex
+    /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g,
+    (char) => NAMED_ESCAPES[char] ?? `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`
+  );
+}
+
 export function formatSize(bytes?: number): string {
   if (bytes === undefined || bytes === null || isNaN(bytes)) {
     return '0 B';

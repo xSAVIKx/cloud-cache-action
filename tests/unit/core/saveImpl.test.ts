@@ -182,6 +182,49 @@ describe('saveImpl', () => {
       );
     });
 
+    it('warns and emits error metrics when S3 fails and the GitHub fallback also fails', async () => {
+      inputs.set(Inputs.UseFallback, 'true');
+      mockSaveToS3.mockResolvedValue(failure('SlowDown'));
+      mockSaveToGitHub.mockResolvedValue(failure('cache service unavailable'));
+      await saveImpl(state);
+
+      expect(mockWarning).toHaveBeenCalledTimes(2);
+      expect(mockWarning).toHaveBeenCalledWith('Failed to save cache to S3: SlowDown');
+      expect(mockWarning).toHaveBeenCalledWith(
+        'Failed to save cache to GitHub Actions Cache: cache service unavailable'
+      );
+      expect(outputs.get('cache-saved-sources')).toBe('none');
+      expect(mockSetFailed).not.toHaveBeenCalled();
+      expect(mockEmitMetrics).toHaveBeenCalledTimes(1);
+      expect(mockEmitMetrics.mock.calls[0][0]).toEqual(
+        expect.objectContaining({
+          step: 'save',
+          outcome: 'error',
+          savedTo: [],
+          extra: { error: 'cache service unavailable' },
+        })
+      );
+    });
+
+    it('warns and skips when no paths are available', async () => {
+      inputs.delete(Inputs.Path);
+      await saveImpl(state);
+
+      expect(mockWarning).toHaveBeenCalledWith(
+        'No paths specified to cache. Set path, or set preset. Skipping save.'
+      );
+      expect(mockSaveToS3).not.toHaveBeenCalled();
+      expect(mockEmitMetrics).toHaveBeenCalledTimes(1);
+      expect(mockEmitMetrics.mock.calls[0][0]).toEqual(
+        expect.objectContaining({
+          step: 'save',
+          outcome: 'skipped',
+          savedTo: [],
+          extra: { reason: 'no paths' },
+        })
+      );
+    });
+
     it('emits error metrics when a non-strict dual-cache save saved to neither tier', async () => {
       inputs.set(Inputs.DualCache, 'true');
       mockSaveToS3.mockResolvedValue(failure('AccessDenied'));

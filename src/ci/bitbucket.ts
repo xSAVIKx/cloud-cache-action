@@ -1,3 +1,4 @@
+import { tmpdir } from 'node:os';
 import { refCandidates } from '../core/refs';
 import { runnerOs } from './env';
 import {
@@ -100,6 +101,7 @@ export class BitbucketHost extends GenericHost {
       eventName: pullRequestId ? 'pull_request' : 'push',
       workspace: env.BITBUCKET_CLONE_DIR || env.CLOUD_CACHE_WORKSPACE || process.cwd(),
       homeDir: env.HOME || env.USERPROFILE || osHomeDir(),
+      tempDir: tmpdir(),
       runnerOs: runnerOs(env),
       labels: (this.labels ??= runnerLabels(env)),
       env,
