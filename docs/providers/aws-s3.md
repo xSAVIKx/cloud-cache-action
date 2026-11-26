@@ -25,6 +25,8 @@ Follow these recommendations when you create and configure the cache bucket.
 - **GitHub-hosted runners**: GitHub hosts these runners in Microsoft Azure. Jobs that use multi-cloud compute can run in AWS or in Azure. GitHub does not state the region ([GitHub docs](https://docs.github.com/en/actions/concepts/runners/github-hosted-runners)). Select a bucket region, then measure the restore time in your own jobs.
 - **Self-hosted EC2 runners**: Create the bucket in the same AWS region and VPC as your runners. This prevents cross-region latency and cross-region data transfer costs.
 
+If the bucket is in a different region than the `region` input, the action follows the S3 region redirect when you use the default AWS endpoint. Set `region` to the bucket region to avoid the extra request. When you set `endpoint` yourself, the action does not follow the redirect. The error then shows `HTTP 301 Moved Permanently` and names the `x-amz-bucket-region` header.
+
 ### 2. Security and access control
 
 - **Block All Public Access**: Enable all 4 settings under **Block Public Access**. Cache bundles contain compiled binaries, source artifacts and dependency manifests. They must never be publicly readable.
