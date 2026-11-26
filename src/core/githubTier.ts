@@ -1,6 +1,17 @@
 import * as cache from '@actions/cache';
 import { isExactKeyMatch } from '../utils/inputUtils';
+import { GitHubCacheUnavailableError, gitHubCacheServiceProblem } from './cacheMode';
 import { toError, type RestoreOutcome, type SaveOutcome } from './outcomes';
+
+/**
+ * The error for a run without the GitHub Actions cache service, or undefined when the service is
+ * available. Without the service, @actions/cache retries each call for about 10 s and then fails.
+ * A save also makes a second archive and leaves a temp directory. So each call checks first.
+ */
+function unavailable(): GitHubCacheUnavailableError | undefined {
+  const problem = gitHubCacheServiceProblem();
+  return problem === undefined ? undefined : new GitHubCacheUnavailableError(problem);
+}
 
 export async function restoreFromGitHub(
   paths: readonly string[],
@@ -9,6 +20,10 @@ export async function restoreFromGitHub(
   lookupOnly: boolean,
   enableCrossOsArchive: boolean
 ): Promise<RestoreOutcome> {
+  const error = unavailable();
+  if (error) {
+    return { kind: 'error', error };
+  }
   try {
     const matchedKey = await cache.restoreCache(
       [...paths],
@@ -28,13 +43,19 @@ export async function restoreFromGitHub(
 
 /**
  * Whether GitHub Actions Cache already holds exactly `key`. A lookup also returns prefix
- * matches, which do not count. Service failures throw so callers can apply strict mode.
+ * matches, which do not count. It throws a GitHubCacheUnavailableError when the service is not
+ * available, so callers can apply strict mode. @actions/cache handles most other service failures
+ * itself and reports a miss.
  */
 export async function existsInGitHub(
   paths: readonly string[],
   key: string,
   enableCrossOsArchive: boolean
 ): Promise<boolean> {
+  const error = unavailable();
+  if (error) {
+    throw error;
+  }
   const matchedKey = await cache.restoreCache(
     [...paths],
     key,
@@ -51,6 +72,10 @@ export async function saveToGitHub(
   uploadChunkSize: number | undefined,
   enableCrossOsArchive: boolean
 ): Promise<SaveOutcome> {
+  const error = unavailable();
+  if (error) {
+    return { kind: 'error', error };
+  }
   try {
     const cacheId = await cache.saveCache(
       [...paths],

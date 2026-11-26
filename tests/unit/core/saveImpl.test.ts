@@ -79,6 +79,7 @@ jest.unstable_mockModule('../../../src/core/metrics', () => ({
 }));
 
 const { runSave, runSaveOnly, saveImpl } = await import('../../../src/core/saveImpl');
+const { GitHubCacheUnavailableError } = await import('../../../src/core/cacheMode');
 
 const tier = {
   storage: { providerConfig: { provider: 'seaweedfs', region: 'eu-west-1' } },
@@ -560,6 +561,28 @@ describe('saveImpl', () => {
       await saveImpl(state);
       expect(mockSetFailed).toHaveBeenCalledWith(
         'Saving to GitHub Actions Cache failed: cache service unavailable'
+      );
+    });
+
+    it('warns once and does not try to save when the GitHub service is not available', async () => {
+      mockExistsInGitHub.mockRejectedValue(new GitHubCacheUnavailableError('no service'));
+      await saveImpl(state);
+      expect(mockSaveToGitHub).not.toHaveBeenCalled();
+      expect(mockWarning).toHaveBeenCalledTimes(1);
+      expect(mockWarning).toHaveBeenCalledWith(
+        'Dual-cache GitHub Actions Cache save error: no service'
+      );
+      expect(mockSetFailed).not.toHaveBeenCalled();
+      expect(outputs.get('cache-saved-sources')).toBe('s3');
+    });
+
+    it('fails the step in strict mode when the GitHub service is not available', async () => {
+      inputs.set(Inputs.DualCacheStrict, 'true');
+      mockExistsInGitHub.mockRejectedValue(new GitHubCacheUnavailableError('no service'));
+      await saveImpl(state);
+      expect(mockSaveToGitHub).not.toHaveBeenCalled();
+      expect(mockSetFailed).toHaveBeenCalledWith(
+        'Saving to GitHub Actions Cache failed: no service'
       );
     });
 

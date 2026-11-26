@@ -472,6 +472,54 @@ jobs:
       - name: Expect a miss in both tiers on the first attempt
         run: test "${{ steps.cache.outputs.cache-hit }}" = "false"
 
+  dual-cache-github-tier:
+    name: GitHub tier round trip on a real runner
+    runs-on: ubuntu-latest
+    env:
+      AWS_ENDPOINT_URL: http://127.0.0.1:8333
+      AWS_ACCESS_KEY_ID: cloudcacheci
+      AWS_SECRET_ACCESS_KEY: cloudcachecisecret
+      KEY: dual-gh-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --omit=dev --no-audit --no-fund
+      - run: node tests/ci/startSeaweedfs.ts
+      - name: Create a payload
+        run: mkdir -p payload && echo "${{ github.run_id }}" > payload/run.txt
+      # The availability check must pass here, so a strict save reaches the GitHub cache.
+      - name: Save to both tiers in strict mode
+        id: save
+        uses: ./save
+        with:
+          bucket: cloud-cache-test
+          key: ${{ env.KEY }}
+          path: payload
+          dual-cache: true
+          dual-cache-strict: true
+      - name: Expect both tiers in the saved sources
+        run: test "${{ steps.save.outputs.cache-saved-sources }}" = "s3,github"
+      - name: Remove the payload
+        run: rm -rf payload
+      - name: Restore from the GitHub tier first
+        id: restore
+        uses: ./restore
+        with:
+          bucket: cloud-cache-test
+          key: ${{ env.KEY }}
+          path: payload
+          dual-cache: true
+          dual-cache-strict: true
+          restore-priority: github-first
+          fail-on-cache-miss: true
+      - name: Expect a GitHub hit and the payload
+        run: |
+          test "${{ steps.restore.outputs.cache-hit-source }}" = "github"
+          test "$(cat payload/run.txt)" = "${{ github.run_id }}"
+
   strict-failure:
     name: Strict dual-cache save failure
     runs-on: ubuntu-latest

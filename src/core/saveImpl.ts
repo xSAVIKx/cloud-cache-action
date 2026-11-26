@@ -4,7 +4,7 @@ import { Outputs, State } from '../constants';
 import { NullStateProvider, type IStateProvider } from '../state';
 import { isWriteAccessDeniedError } from '../storage/errors';
 import { isValidEvent } from '../utils/inputUtils';
-import { getCacheMode, isCacheWritable } from './cacheMode';
+import { GitHubCacheUnavailableError, getCacheMode, isCacheWritable } from './cacheMode';
 import { readCacheConfig, type CacheConfig } from './config';
 import { emitMetrics, hostMetricsFields, type StepMetrics } from './metrics';
 import { formatTimings } from './timings';
@@ -228,9 +228,13 @@ async function saveBothTiers(
       );
     } catch (err) {
       tierFailed('GitHub Actions Cache', toError(err));
+      if (err instanceof GitHubCacheUnavailableError) {
+        // A save attempt would only give the same error a second time.
+        githubTier = undefined;
+      }
     }
     if (githubTier === undefined) {
-      // The tier did not load, and tierFailed has warned. There is nothing to save with.
+      // The tier did not load or has no service, and tierFailed has warned. Nothing to save with.
     } else if (alreadyThere) {
       log.info(
         `GitHub Actions Cache already has key "${config.primaryKey}"; not uploading it again.`

@@ -5,7 +5,15 @@ import type { IStateProvider } from '../state';
 
 /** Keeps the state of a run in a JSON file, so a later process can read it. */
 export class FileStateProvider implements IStateProvider {
+  /** Values that this process reads instead of the file. They are never written to the file. */
+  private readonly overrides = new Map<string, string>();
+
   constructor(private readonly path: string) {}
+
+  /** Makes getState return `value` for `key` in this process only. The file does not change. */
+  override(key: string, value: string): void {
+    this.overrides.set(key, value);
+  }
 
   private read(): Record<string, string> {
     let text: string;
@@ -30,11 +38,16 @@ export class FileStateProvider implements IStateProvider {
   }
 
   getState(key: string): string {
+    const overridden = this.overrides.get(key);
+    if (overridden !== undefined) {
+      return overridden;
+    }
     const value = this.read()[key];
     return typeof value === 'string' ? value : '';
   }
 
   setState(key: string, value: string): void {
+    this.overrides.delete(key);
     const state = this.read();
     state[key] = value;
     mkdirSync(dirname(this.path), { recursive: true });
