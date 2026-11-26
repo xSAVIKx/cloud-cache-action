@@ -168,7 +168,7 @@ first — would hit. Give the listing a moment, or inspect in a later job.
 | `cache-storage-provider` | The resolved S3-compatible storage provider |
 
 The outputs are set once the lookup finishes. A step that fails earlier — a missing `key` or
-`path`, an invalid `max-candidates`, an S3 error — sets none of them, so guard on
+`path`, an invalid `max-candidates`, an S3 error — sets none of them (except `cache-storage-provider`, which the action sets before the S3 lookup), so guard on
 `steps.<id>.outcome` before reading them in a later step (`prune` behaves the same way). A
 `fail-on-cache-miss` failure is the exception: the lookup did finish, so the outputs are set and
 `would-hit` is `'false'`.
@@ -222,7 +222,10 @@ To report instead of fail, leave `fail-on-cache-miss` at `false` and branch on `
 ```yaml
       - uses: xSAVIKx/cloud-cache-action/inspect@v1
         id: lookup
-        with: { bucket: my-ci-cache-bucket, path: ~/.npm, key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }} }
+        with:
+          bucket: my-ci-cache-bucket
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
 
       - name: Warm the cache
         if: steps.lookup.outputs.would-hit != 'true'

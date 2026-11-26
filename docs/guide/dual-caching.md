@@ -87,7 +87,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: "Cache node_modules (Dual Mode: GitHub + S3 Sync)"
+      - name: 'Cache node_modules (Dual Mode: GitHub + S3 Sync)'
         id: cache-deps
         uses: xSAVIKx/cloud-cache-action@v1
         with:
@@ -182,7 +182,7 @@ If your team is migrating from `actions/cache` to Cloudflare R2 or AWS S3:
 
 1. Enable `dual-cache: true` with `restore-priority: github-first`.
 2. Existing builds will continue restoring instantly from GitHub Actions Cache.
-3. The post step of each job saves the cache bundle to your S3 bucket (`dual-cache-strategy: backfill`).
+3. In the background, `backfill` saves every cache bundle to your S3 bucket.
 4. Once your S3 bucket is warmed up, switch `restore-priority: s3-first` or turn off dual-cache.
 
 ---
