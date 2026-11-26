@@ -14,6 +14,7 @@ import { INPUT_DEFAULTS } from './defaults';
 import { expandHashTemplates } from './hashTemplate';
 import { checkTar } from './tarCheck';
 import { CLI_VERSION } from './version';
+import { redactSecrets } from '../utils/redact';
 import { withWorkflowCommandsRouted } from './workflowCommands';
 
 /** Exit code of a command line that the CLI cannot run. */
@@ -225,7 +226,9 @@ async function runCommand(args: CliRun, state: FileStateProvider): Promise<void>
 
 /** Prints an unexpected error and returns the exit code 1. */
 function reportError(error: unknown): number {
-  process.stderr.write(`error: ${error instanceof Error ? error.message : String(error)}\n`);
+  process.stderr.write(
+    `error: ${redactSecrets(error instanceof Error ? error.message : String(error))}\n`
+  );
   return 1;
 }
 
@@ -236,7 +239,7 @@ export async function main(argv: string[]): Promise<number> {
     args = parseCliArgs(argv);
   } catch (error) {
     if (error instanceof UsageError) {
-      process.stderr.write(`error: ${error.message}\n\n${shortUsage()}`);
+      process.stderr.write(`error: ${redactSecrets(error.message)}\n\n${shortUsage()}`);
       return USAGE_EXIT_CODE;
     }
     return reportError(error);
@@ -255,7 +258,7 @@ export async function main(argv: string[]): Promise<number> {
     await run(args);
   } catch (error) {
     if (error instanceof UsageError) {
-      process.stderr.write(`error: ${error.message}\n`);
+      process.stderr.write(`error: ${redactSecrets(error.message)}\n`);
       return USAGE_EXIT_CODE;
     }
     return reportError(error);

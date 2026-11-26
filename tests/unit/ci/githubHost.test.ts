@@ -22,7 +22,7 @@ jest.unstable_mockModule('@actions/core', () => coreMock);
 
 const { GitHubActionsHost } = await import('../../../src/ci/github');
 const { getHost, setHost } = await import('../../../src/ci/host');
-const { log } = await import('../../../src/ci/log');
+const { log, setWarningTitle } = await import('../../../src/ci/log');
 
 let dir: string;
 let eventPath: string;
@@ -111,6 +111,26 @@ describe('GitHubActionsHost', () => {
     expect(coreMock.setFailed).toHaveBeenCalledWith('boom');
   });
 
+  it('redacts each warning, error, failure and debug text, and keeps an info line', () => {
+    const { log: hostLog } = new GitHubActionsHost({});
+    const secret = 'GET https://key:pw@h/k?X-Amz-Signature=s1 failed';
+    const redacted = 'GET https://h/k?[query removed] failed';
+    hostLog.debug(secret);
+    hostLog.info(secret);
+    hostLog.warning(secret);
+    hostLog.warning(secret, 'Cloud cache save');
+    hostLog.error(secret);
+    new GitHubActionsHost({}).setFailed(secret);
+    new GitHubActionsHost({}).setFailed(new Error(secret));
+    expect(coreMock.debug).toHaveBeenCalledWith(redacted);
+    expect(coreMock.info).toHaveBeenCalledWith(secret);
+    expect(coreMock.warning).toHaveBeenCalledWith(redacted);
+    expect(coreMock.warning).toHaveBeenCalledWith(redacted, { title: 'Cloud cache save' });
+    expect(coreMock.error).toHaveBeenCalledWith(redacted);
+    expect(coreMock.setFailed).toHaveBeenCalledWith(redacted);
+    expect(coreMock.setFailed).toHaveBeenCalledWith(`Error: ${redacted}`);
+  });
+
   it('setOutput delegates to core.setOutput', () => {
     new GitHubActionsHost({}).setOutput('cache-hit', true);
     expect(coreMock.setOutput).toHaveBeenCalledWith('cache-hit', true);
@@ -130,6 +150,11 @@ describe('GitHubActionsHost', () => {
     expect(coreMock.error).toHaveBeenCalledWith('e');
     expect(coreMock.startGroup).toHaveBeenCalledWith('g');
     expect(coreMock.endGroup).toHaveBeenCalledTimes(1);
+  });
+
+  it('gives a warning with a title to core.warning as the annotation title', () => {
+    new GitHubActionsHost({}).log.warning('w', 'Cloud cache restore');
+    expect(coreMock.warning).toHaveBeenCalledWith('w', { title: 'Cloud cache restore' });
   });
 
   it('summary is undefined without GITHUB_STEP_SUMMARY', () => {
@@ -158,6 +183,24 @@ describe('getHost and setHost', () => {
   it('log sends each call to the active host', () => {
     log.info('hello');
     expect(coreMock.info).toHaveBeenCalledWith('hello');
+  });
+
+  it('log gives the step title to a warning without a title, until the step clears it', () => {
+    setWarningTitle('Cloud cache restore');
+    log.warning('from shared code');
+    log.warning('own title', 'Other');
+    setWarningTitle(undefined);
+    log.warning('after the step');
+    expect(coreMock.warning).toHaveBeenCalledWith('from shared code', {
+      title: 'Cloud cache restore',
+    });
+    expect(coreMock.warning).toHaveBeenCalledWith('own title', { title: 'Other' });
+    expect(coreMock.warning).toHaveBeenLastCalledWith('after the step');
+  });
+
+  it('log passes the warning title to the active host', () => {
+    log.warning('careful', 'Cloud cache save');
+    expect(coreMock.warning).toHaveBeenCalledWith('careful', { title: 'Cloud cache save' });
   });
 });
 

@@ -207,7 +207,7 @@ Use `output-variables:` on the step to give these variables to later steps.
       - echo "Cache hit was ${CLOUD_CACHE_CACHE_HIT}"
 ```
 
-The commands `restore`, `save`, and `inspect` print a plain-text summary at the end. The command `prune` prints no summary. Set `--job-summary=false` to turn it off.
+The commands `restore`, `save`, and `inspect` print a plain-text summary at the end. The summary of `restore` and `save` has the same Result column and `Error:` lines as the [job summary](./getting-started.md#job-summary) on GitHub. The command `prune` prints no summary. Set `--job-summary=false` to turn it off.
 
 ## Metrics
 

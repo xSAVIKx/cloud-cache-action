@@ -13,13 +13,17 @@ const mockSetFailed = jest.fn<(message: string) => void>(() => {
   process.exitCode = 1;
 });
 const mockWarning = jest.fn<(message: string) => void>();
+const mockWarningTitle = jest.fn<(title: string | undefined) => void>();
 
 jest.unstable_mockModule('@actions/core', () => ({
   getInput: (name: string) => inputs.get(name) ?? '',
   setOutput: (name: string, value: string) => outputs.set(name, value),
   setFailed: mockSetFailed,
   info: jest.fn(),
-  warning: mockWarning,
+  warning: (message: string, properties?: { title?: string }) => {
+    mockWarning(message);
+    mockWarningTitle(properties?.title);
+  },
   debug: jest.fn(),
   saveState: jest.fn(),
   getState: () => '',
@@ -51,6 +55,13 @@ jest.unstable_mockModule('../../../src/core/metrics', () => ({
 const { saveImpl } = await import('../../../src/core/saveImpl');
 
 describe('saveImpl when the GitHub tier chunk does not load', () => {
+  // Each warning of the step, in each test, has the annotation title of the step.
+  afterEach(() => {
+    expect(mockWarningTitle.mock.calls).toEqual(
+      mockWarning.mock.calls.map(() => ['Cloud cache save'])
+    );
+  });
+
   beforeEach(() => {
     inputs.clear();
     outputs.clear();
@@ -74,6 +85,7 @@ describe('saveImpl when the GitHub tier chunk does not load', () => {
     expect(mockWarning).toHaveBeenCalledWith(
       expect.stringContaining('Cannot find module ./80.index.js')
     );
+    expect(mockWarningTitle).toHaveBeenCalledWith('Cloud cache save');
     expect(mockSetFailed).not.toHaveBeenCalled();
     expect(outputs.get('cache-saved-sources')).toBe('s3');
   });

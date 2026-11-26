@@ -277,6 +277,18 @@ describe('main', () => {
     expect(stderr).toContain('error: unexpected');
   });
 
+  it('redacts an unexpected error and a usage error before it prints them', async () => {
+    pruneImpl.mockImplementation(async () => {
+      throw new Error('GET https://u:p@h/k?X-Amz-Signature=s1 failed');
+    });
+    expect(await main(['prune'])).toBe(1);
+    expect(stderr).toContain('error: GET https://h/k?[query removed] failed');
+    expect(stderr).not.toContain('s1');
+    expect(await main(['restore', '--nope=https://key:tok@h/k'])).toBe(2);
+    expect(stderr).not.toContain('tok');
+    expect(stderr).toContain('https://h/k');
+  });
+
   it('usage errors exit 2 with the usage text on stderr', async () => {
     expect(await main(['restore', '--nope'])).toBe(2);
     expect(stderr).toContain('error: unknown flag --nope');

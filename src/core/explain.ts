@@ -288,7 +288,7 @@ export async function writeExplainSummary(
     return;
   }
   getHost()
-    .summary?.addHeading('Cache lookup explained')
+    .summary?.addHeading('Cache lookup explained', 3)
     .addRaw(`<pre>${renderExplain(report).map(escapeHtml).join('\n')}</pre>`, true);
   await flush();
 }

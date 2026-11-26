@@ -10,6 +10,8 @@ const inputs = new Map<string, string>();
 const outputs = new Map<string, string>();
 const mockSetFailed = jest.fn<(message: string) => void>();
 const mockWarning = jest.fn<(message: string) => void>();
+// The annotation title of each warning. mockWarning gets the message alone.
+const mockWarningTitle = jest.fn<(title: string | undefined) => void>();
 const mockBuildS3Tier = jest.fn<(config: unknown) => Promise<S3Tier>>();
 const mockRestoreFromS3 =
   jest.fn<
@@ -41,7 +43,10 @@ jest.unstable_mockModule('@actions/core', () => ({
   },
   setFailed: mockSetFailed,
   info: mockCoreInfo,
-  warning: mockWarning,
+  warning: (message: string, properties?: { title?: string }) => {
+    mockWarning(message);
+    mockWarningTitle(properties?.title);
+  },
   debug: jest.fn(),
   saveState: jest.fn(),
   getState: () => '',
@@ -79,8 +84,9 @@ jest.unstable_mockModule('../../../src/core/metrics', () => ({
 const { restoreImpl, runRestore, runRestoreOnly } = await import('../../../src/core/restoreImpl');
 
 const tier = {
-  storage: { providerConfig: { provider: 'seaweedfs', region: 'eu-west-1' } },
+  storage: { bucket: 'ci-cache', providerConfig: { provider: 'seaweedfs', region: 'eu-west-1' } },
   compression: { method: 'zstd', archiveFilename: 'cache.tar.zst' },
+  restoreRefs: ['refs/heads/feature-x', 'refs/heads/main'],
 } as unknown as S3Tier;
 const s3Hit = (matchedKey: string, exact: boolean): RestoreOutcome => ({
   kind: 'hit',
@@ -98,6 +104,13 @@ const miss: RestoreOutcome = { kind: 'miss' };
 const failure = (message: string): RestoreOutcome => ({ kind: 'error', error: new Error(message) });
 
 describe('restoreImpl', () => {
+  // Each warning of the step, in each test, has the annotation title of the step.
+  afterEach(() => {
+    expect(mockWarningTitle.mock.calls).toEqual(
+      mockWarning.mock.calls.map(() => ['Cloud cache restore'])
+    );
+  });
+
   let state: MemoryState;
 
   beforeEach(() => {
@@ -266,6 +279,78 @@ describe('restoreImpl', () => {
     );
   });
 
+  it('names the bucket, the provider and the refs after the miss line', async () => {
+    await restoreImpl(state, false);
+    const lines = mockCoreInfo.mock.calls.map(([line]) => line);
+    const miss = lines.indexOf('Cache not found for input keys: Linux-npm-abc, Linux-npm-');
+    expect(lines[miss + 1]).toBe(
+      'Searched s3://ci-cache (provider seaweedfs) under refs/heads/feature-x, then refs/heads/main. Set explain: true to list each candidate.'
+    );
+  });
+
+  it('names GitHub Actions Cache in the searched line, and drops the explain hint when explain is on', async () => {
+    inputs.set(Inputs.UseFallback, 'true');
+    inputs.set(Inputs.Explain, 'true');
+    await restoreImpl(state, false);
+    expect(mockCoreInfo).toHaveBeenCalledWith(
+      'Searched s3://ci-cache (provider seaweedfs) under refs/heads/feature-x, then refs/heads/main, and GitHub Actions Cache.'
+    );
+  });
+
+  it('gives each restore warning the step title and puts the tier error in the summary', async () => {
+    mockRestoreFromS3.mockResolvedValue(failure('HTTP 403 Forbidden'));
+    await restoreImpl(state, false);
+    expect(mockWarningTitle).toHaveBeenCalledWith('Cloud cache restore');
+    expect(mockWriteRestoreSummary).toHaveBeenCalledTimes(1);
+    expect(mockWriteRestoreSummary).toHaveBeenCalledWith(
+      expect.objectContaining({
+        matchedKey: undefined,
+        errors: ['Restoring from s3 failed, so it counts as a cache miss: HTTP 403 Forbidden'],
+      })
+    );
+    expect(mockCoreInfo).not.toHaveBeenCalledWith(expect.stringContaining('Searched s3://'));
+  });
+
+  it('keeps the S3 error in the summary of a GitHub fallback hit', async () => {
+    inputs.set(Inputs.UseFallback, 'true');
+    mockRestoreFromS3.mockResolvedValue(failure('HTTP 403 Forbidden'));
+    mockRestoreFromGitHub.mockResolvedValue(githubHit('Linux-npm-abc', true));
+    await restoreImpl(state, false);
+    expect(mockWriteRestoreSummary).toHaveBeenCalledWith(
+      expect.objectContaining({
+        matchedKey: 'Linux-npm-abc',
+        cacheHit: true,
+        source: 'github',
+        errors: ['Restoring from s3 failed, so it counts as a cache miss: HTTP 403 Forbidden'],
+      })
+    );
+  });
+
+  it('writes one summary when fail-on-cache-miss fails the step after a miss', async () => {
+    inputs.set(Inputs.FailOnCacheMiss, 'true');
+    await restoreImpl(state, false);
+    expect(mockSetFailed).toHaveBeenCalled();
+    expect(mockWriteRestoreSummary).toHaveBeenCalledTimes(1);
+    // The row is the miss. The catch block writes no second row.
+    expect(mockWriteRestoreSummary).toHaveBeenCalledWith(expect.objectContaining({ errors: [] }));
+    expect(mockWriteRestoreSummary.mock.calls[0]?.[0]).not.toHaveProperty('failed');
+  });
+
+  it('writes the summary with the error when a strict tier error fails the step', async () => {
+    inputs.set(Inputs.DualCache, 'true');
+    inputs.set(Inputs.DualCacheStrict, 'true');
+    mockRestoreFromS3.mockResolvedValue(failure('AccessDenied'));
+    await restoreImpl(state, false);
+    expect(mockWriteRestoreSummary).toHaveBeenCalledWith(
+      expect.objectContaining({
+        failed: true,
+        cacheHit: false,
+        source: 'none',
+        errors: ['Restoring from s3 failed: AccessDenied'],
+      })
+    );
+  });
+
   it('passes job-summary through to the summary writer', async () => {
     inputs.set(Inputs.JobSummary, 'false');
     await restoreImpl(state, false);
@@ -326,6 +411,21 @@ describe('restoreImpl', () => {
     expect(mockSetFailed).not.toHaveBeenCalled();
   });
 
+  it('names the S3 setup failure in the last log line when the fallback then misses', async () => {
+    inputs.set(Inputs.UseFallback, 'true');
+    mockBuildS3Tier.mockRejectedValue(new Error('Bucket name is required.'));
+    await restoreImpl(state, false);
+    expect(mockCoreInfo).toHaveBeenCalledWith(
+      'No cache restored: the s3 tier failed (see the warning above). Keys searched: Linux-npm-abc, Linux-npm-'
+    );
+    expect(mockCoreInfo).not.toHaveBeenCalledWith(expect.stringContaining('Cache not found'));
+    expect(mockWriteRestoreSummary).toHaveBeenCalledWith(
+      expect.objectContaining({
+        errors: ['S3 client initialization failed: Bucket name is required.'],
+      })
+    );
+  });
+
   it('stops at an S3 hit in s3-first dual-cache mode', async () => {
     inputs.set(Inputs.DualCache, 'true');
     mockRestoreFromS3.mockResolvedValue(s3Hit('Linux-npm-abc', true));
@@ -379,7 +479,14 @@ describe('restoreImpl', () => {
     expect(mockSetFailed).toHaveBeenCalledWith(
       'Input required and not supplied: key. Set key and path, or set preset.'
     );
-    expect(mockWriteRestoreSummary).not.toHaveBeenCalled();
+    // The step threw, and the summary still shows the row and the error.
+    expect(mockWriteRestoreSummary).toHaveBeenCalledTimes(1);
+    expect(mockWriteRestoreSummary).toHaveBeenCalledWith(
+      expect.objectContaining({
+        failed: true,
+        errors: ['Input required and not supplied: key. Set key and path, or set preset.'],
+      })
+    );
   });
 
   it('fails when the path input is missing and no preset is set', async () => {

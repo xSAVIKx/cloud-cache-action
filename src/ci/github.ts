@@ -3,6 +3,7 @@ import * as core from '@actions/core';
 import { getWorkspace, runnerOs } from './env';
 import { resolveRefCandidates } from '../core/refs';
 import { type IStateProvider, StateProvider } from '../state';
+import { redactSecrets } from '../utils/redact';
 import type { CiContext, CiHost, CiLogger, InputOptions, SummaryWriter } from './host';
 
 /** The home directory of the OS user, or '' when the user has no passwd entry. */
@@ -19,10 +20,13 @@ export class GitHubActionsHost implements CiHost {
   readonly state: IStateProvider = new StateProvider();
 
   readonly log: CiLogger = {
-    debug: (message) => core.debug(message),
+    debug: (message) => core.debug(redactSecrets(message)),
     info: (message) => core.info(message),
-    warning: (message) => core.warning(message),
-    error: (message) => core.error(message),
+    warning: (message, title) =>
+      title
+        ? core.warning(redactSecrets(message), { title })
+        : core.warning(redactSecrets(message)),
+    error: (message) => core.error(redactSecrets(message)),
     startGroup: (title) => core.startGroup(title),
     endGroup: () => core.endGroup(),
   };
@@ -57,7 +61,8 @@ export class GitHubActionsHost implements CiHost {
   }
 
   setFailed(message: string | Error): void {
-    core.setFailed(message);
+    // core.setFailed prints an Error with toString(), so this keeps its text.
+    core.setFailed(redactSecrets(message instanceof Error ? message.toString() : message));
   }
 
   get summary(): SummaryWriter | undefined {

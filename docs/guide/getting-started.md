@@ -60,7 +60,7 @@ On a self-hosted Windows runner, the account can lack the `SeCreateSymbolicLinkP
    - With `streaming: true`, extracts the archive as it downloads instead, verifying the checksum at the end: a network or `tar` failure mid-stream, or a checksum mismatch, becomes a cache miss with the workspace possibly partly extracted, and there is no whole-download retry as there is in the default file mode.
    - Decompresses the archive using `zstd` (or `gzip` fallback) directly into your workspace.
    - Sets outputs (`cache-hit`, `cache-primary-key`, `cache-matched-key`, `cache-size`, `cache-storage-provider`, `cache-s3-key`, `cache-etag`, `cache-metadata`, `cache-hit-source`) plus the timings described in [Metrics and Timings](#metrics-and-timings).
-   - Writes a job summary table with the key, hit status, source, size and duration, unless `job-summary: false`.
+   - Writes a job summary table with the result, the key, source, size and duration, unless `job-summary: false`.
 
 2. **Save Phase (Post)**:
    - If `read-only: true` or if an exact key match occurred during restore, saving is automatically skipped.
@@ -69,7 +69,7 @@ On a self-hosted Windows runner, the account can lack the `SeCreateSymbolicLinkP
    - Streams the compressed archive to your S3 bucket using multipart uploads via `@aws-sdk/lib-storage`, `upload-concurrency` (default `8`) parts of `upload-chunk-size` (default 64 MiB) at a time, tagged with a sha256 checksum for later integrity verification.
    - Stores any `metadata` as `x-amz-meta-*` user metadata on the saved object and any `tags` as object tags, and the metadata comes back on the next restore as the `cache-metadata` output. Providers without object tagging log one warning and save without tags (verified: SeaweedFS and MinIO store tags; Garage accepts the upload but implements no tagging API, so its tags cannot be read back).
    - Emits diagnostics and completes cleanly without breaking the build on non-fatal network interruptions.
-   - Writes a job summary table with the key, saved-to tiers, size and duration, unless `job-summary: false`.
+   - Writes a job summary table with the result, the key, saved-to tiers, size and duration, unless `job-summary: false`.
 
 Cache archives are never deleted automatically; see [Pruning Caches](./pruning.md) for a
 scheduled cleanup sub-action.
@@ -122,10 +122,71 @@ Every step — restore, save, `prune` and `inspect` — also writes one `cloud-c
 ## Job summary
 
 After both restore and save, a step summary table is written via `core.summary` — a "Cloud cache
-restore" table with the primary/matched key, cache hit, source, size and duration, and a "Cloud cache
-save" table with the key, tiers saved to, size and duration. This is on by default; set
-`job-summary: false` to turn it off. No summary is written when the step fails with an error, or
-when `GITHUB_STEP_SUMMARY` is not set.
+restore" table with the result, the primary/matched key, source, size and duration, and a
+"Cloud cache save" table with the result, the key, tiers saved to, size and duration. This is on by
+default; set `job-summary: false` to turn it off. No summary is written when `GITHUB_STEP_SUMMARY` is
+not set. A step that fails before it reads its inputs (for example on a bad boolean input or an
+unknown preset) writes no summary, and a save that skips for `read-only: true` or for a missing key
+or path writes no summary. The step log and the annotation then tell the reason.
+
+The **Result** column tells the real result of the step. A storage error does not fail the job, so
+this column and the error lines are the places that show it:
+
+| Step | Result | When |
+| --- | --- | --- |
+| restore | `exact hit` | The primary key matched. |
+| restore | `partial hit (restore key)` | A restore key matched. |
+| restore | `found (lookup only)` | `lookup-only: true` is set and a key matched. |
+| restore | `miss` | No key matched, and no tier failed. |
+| restore | `error (no cache)` | No tier gave a cache, and a tier failed or the step failed. |
+| restore | `skipped` | `ACTIONS_CACHE_MODE` does not permit reads. |
+| save | `saved` | The step wrote the archive. |
+| save | `already saved` | The object was in the bucket already, for example from another job. |
+| save | `not necessary (exact hit)` | The restore had an exact hit. |
+| save | `no files` | The paths matched no file. |
+| save | `error (not saved)` | No tier saved, because of an error, or the step failed. |
+| save | `skipped` | `ACTIONS_CACHE_MODE` does not permit writes, or a tier did not save for the reason under the table. |
+
+Each tier error that the step logged as a warning, and the error that failed the step, goes on an
+`Error:` line under the table. A hit from the GitHub fallback after an S3 error shows `exact hit` or
+`partial hit (restore key)`, and the S3 error stays under the table. In the same way, a dual-cache
+save that writes to one tier while the other tier fails shows `saved`, with the error under the
+table. An `Error:` line shows at most 1000 characters; the step log has the full text. The
+`cache-hit` output still gives `true` for an exact hit only. Each table has a level-3 heading. A
+restore with a wrong secret key gives this table:
+
+```text
+Cloud cache restore
+| Result           | Primary key   | Matched key | Source | Size | Duration |
+| error (no cache) | Linux-npm-9f2 | —           | none   | —    | 0.41 s   |
+
+Error: Restoring from s3 failed, so it counts as a cache miss: HeadObject s3://my-ci-cache-bucket/...
+returned HTTP 403 Forbidden. Check access-key, secret-key and region, ...
+```
+
+The warnings of the restore step have the annotation title `Cloud cache restore`, and the warnings of
+the save step have the title `Cloud cache save`. After a normal miss, the restore logs one more line
+after `Cache not found for input keys: ...`. The line names the bucket, the provider and the refs
+that the step searched, for example `Searched s3://my-ci-cache-bucket (provider r2) under
+refs/heads/feature-x, then refs/heads/main. Set explain: true to list each candidate.`
+When a tier failed and no tier gave a cache (also when the S3 client setup failed), the last line
+is `No cache restored: the s3 tier failed (see the warning above). Keys searched: ...` instead, and
+the Result is `error (no cache)`.
+
+The action removes secrets from its own warning, error, failure and debug lines, from each
+`Error:` line of the summary, and from each error that the CLI prints. It removes the user info of
+an HTTP URL (`https://user:password@host` becomes `https://host`), the query string of an HTTP URL
+(`?[query removed]`, also in a JSON-escaped URL), a signature or credential parameter in a
+percent-encoded URL query (`sig`, `Signature`, `Credential`, `AWSAccessKeyId`, `X-Amz-Signature`,
+`X-Amz-Credential`, `X-Amz-Security-Token`, `X-Goog-Signature`, `X-Goog-Credential`), the value of
+an `X-Amz-Security-Token`, `X-Amz-Credential`, `X-Amz-Signature`, `X-Goog-Credential` or
+`X-Goog-Signature` header, the credential and the signature of a SigV4 `Authorization` value, and
+the text of an `Authorization:` header. Other text stays: an `s3://` path, a file path and normal
+text do not change, also when they contain `@`, `?` or `sig=`. Info lines do not change.
+
+The action does not redact lines that other code prints directly: the messages of
+`@actions/cache` (the GitHub Actions Cache tier), lines of the AWS SDK, and the raw `tar` stderr
+that the action passes through to the log.
 
 ## Restore and save actions
 

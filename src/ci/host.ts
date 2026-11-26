@@ -39,7 +39,11 @@ export interface CiContext {
 export interface CiLogger {
   debug(message: string): void;
   info(message: string): void;
-  warning(message: string): void;
+  /**
+   * `title` names the step that warned, for example `Cloud cache restore`. GitHub shows it as
+   * the annotation title. A host without annotations ignores it.
+   */
+  warning(message: string, title?: string): void;
   error(message: string): void;
   startGroup(title: string): void;
   endGroup(): void;

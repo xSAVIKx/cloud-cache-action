@@ -6,6 +6,7 @@ import { runnerOs } from './env';
 import type { CiContext, CiHost, CiLogger, InputOptions, SummaryWriter } from './host';
 import { formatOutput } from './outputsFile';
 import { FileStateProvider } from './stateFile';
+import { redactSecrets } from '../utils/redact';
 
 export interface GenericHostOptions {
   /** Parsed flags, already joined: input name to value. */
@@ -71,12 +72,12 @@ export class GenericHost implements CiHost {
     this.log = {
       debug: (message) => {
         if (this.options.debug) {
-          process.stdout.write(`debug: ${message}\n`);
+          process.stdout.write(`debug: ${redactSecrets(message)}\n`);
         }
       },
       info: (message) => process.stdout.write(`${message}\n`),
-      warning: (message) => process.stderr.write(`warning: ${message}\n`),
-      error: (message) => process.stderr.write(`error: ${message}\n`),
+      warning: (message) => process.stderr.write(`warning: ${redactSecrets(message)}\n`),
+      error: (message) => process.stderr.write(`error: ${redactSecrets(message)}\n`),
       startGroup: (title) => process.stdout.write(`▶ ${title}\n`),
       endGroup: () => {},
     };

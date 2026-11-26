@@ -1,9 +1,28 @@
 import { getHost, type SummaryWriter } from '../ci/host';
 import { log } from '../ci/log';
 import { formatSize } from '../utils/inputUtils';
+import { redactError } from '../utils/redact';
 import { toError } from './outcomes';
 
 export type CacheSource = 's3' | 'github' | 'none';
+
+/** The value of the Result column of the restore table. */
+export type RestoreSummaryResult =
+  | 'exact hit'
+  | 'partial hit (restore key)'
+  | 'found (lookup only)'
+  | 'miss'
+  | 'error (no cache)'
+  | 'skipped';
+
+/** The value of the Result column of the save table. */
+export type SaveSummaryResult =
+  | 'saved'
+  | 'already saved'
+  | 'not necessary (exact hit)'
+  | 'no files'
+  | 'error (not saved)'
+  | 'skipped';
 
 /** Data for the restore step's job summary table. `jobSummary` is the resolved job-summary input. */
 export interface RestoreSummaryData {
@@ -20,6 +39,12 @@ export interface RestoreSummaryData {
   paths?: readonly string[];
   /** Why the step did not ask any tier, for example `ACTIONS_CACHE_MODE is none`. */
   skipped?: string;
+  /** The lookup-only input. A matched key is then "found", not restored. */
+  lookupOnly?: boolean;
+  /** The step threw. The Result is then an error, and `errors` holds the message. */
+  failed?: boolean;
+  /** Tier errors that the step logged as warnings, and the error that the step threw. */
+  errors?: readonly string[];
 }
 
 /** Data for the save step's job summary table. `jobSummary` is the resolved job-summary input. */
@@ -34,6 +59,51 @@ export interface SaveSummaryData {
   paths?: readonly string[];
   /** Why the step did not save to any tier, for example `ACTIONS_CACHE_MODE is read`. */
   skipped?: string;
+  /** How the save ended, as the metrics line reports it. */
+  outcome?: 'saved' | 'exists' | 'skipped' | 'error';
+  /** The restore had an exact hit, so an `exists` outcome means that no save was necessary. */
+  exactHit?: boolean;
+  /** Why a tier did not save, for a `skipped` outcome, for example `no paths matched`. */
+  skipReason?: string;
+  /** Tier errors that the step logged as warnings, and the error that the step threw. */
+  errors?: readonly string[];
+}
+
+/** The restore Result. A tier error with no hit is an error, not a miss. */
+export function restoreResult(data: RestoreSummaryData): RestoreSummaryResult {
+  if (data.skipped !== undefined) {
+    return 'skipped';
+  }
+  if (data.failed) {
+    return 'error (no cache)';
+  }
+  if (data.matchedKey !== undefined) {
+    if (data.lookupOnly) {
+      return 'found (lookup only)';
+    }
+    return data.cacheHit ? 'exact hit' : 'partial hit (restore key)';
+  }
+  return (data.errors?.length ?? 0) > 0 ? 'error (no cache)' : 'miss';
+}
+
+/** The save Result. A tier error with no saved tier is an error. */
+export function saveResult(data: SaveSummaryData): SaveSummaryResult {
+  if (data.skipped !== undefined) {
+    return 'skipped';
+  }
+  if (data.outcome === 'error' || (data.savedTo.length === 0 && (data.errors?.length ?? 0) > 0)) {
+    return 'error (not saved)';
+  }
+  switch (data.outcome) {
+    case 'saved':
+      return 'saved';
+    case 'exists':
+      return data.exactHit ? 'not necessary (exact hit)' : 'already saved';
+    case 'skipped':
+      return data.skipReason === 'no paths matched' ? 'no files' : 'skipped';
+    default:
+      return data.savedTo.length > 0 ? 'saved' : 'skipped';
+  }
 }
 
 /** One line that names the preset and the paths it resolved, under the table. */
@@ -43,6 +113,18 @@ function addPresetLine(preset: string | undefined, paths: readonly string[] | un
   }
   const list = (paths ?? []).map((p) => `<code>${escapeHtml(p)}</code>`).join(', ');
   writer().addRaw(`<p>Preset <code>${escapeHtml(preset)}</code>, path ${list}</p>`, true);
+}
+
+/**
+ * One line for each error, under the table. A line break becomes `<br>`: a blank line in the text
+ * (for example in a tar stderr tail) would otherwise end the HTML block, and GitHub would read the
+ * rest as Markdown.
+ */
+function addErrorLines(errors: readonly string[] | undefined): void {
+  for (const error of errors ?? []) {
+    const html = escapeHtml(redactError(error)).replace(/\r\n|\r|\n/g, '<br>');
+    writer().addRaw(`<p>Error: ${html}</p>`, true);
+  }
 }
 
 /** One line that tells why the step did not ask any tier, under the table. */
@@ -113,25 +195,26 @@ export async function writeRestoreSummary(data: RestoreSummaryData): Promise<voi
     return;
   }
   writer()
-    .addHeading('Cloud cache restore')
+    .addHeading('Cloud cache restore', 3)
     .addTable([
       [
+        { data: 'Result', header: true },
         { data: 'Primary key', header: true },
         { data: 'Matched key', header: true },
-        { data: 'Cache hit', header: true },
         { data: 'Source', header: true },
         { data: 'Size', header: true },
         { data: 'Duration', header: true },
       ],
       [
+        restoreResult(data),
         escapeHtml(data.primaryKey),
         data.matchedKey === undefined ? '—' : escapeHtml(data.matchedKey),
-        data.skipped === undefined ? String(data.cacheHit) : 'skipped',
         escapeHtml(data.source),
         formatOptionalSize(data.size),
         formatDuration(data.durationMs),
       ],
     ]);
+  addErrorLines(data.errors);
   addSkippedLine(data.skipped);
   addPresetLine(data.preset, data.paths);
   if (data.metadata && Object.keys(data.metadata).length > 0) {
@@ -150,22 +233,32 @@ export async function writeSaveSummary(data: SaveSummaryData): Promise<void> {
     return;
   }
   writer()
-    .addHeading('Cloud cache save')
+    .addHeading('Cloud cache save', 3)
     .addTable([
       [
+        { data: 'Result', header: true },
         { data: 'Key', header: true },
         { data: 'Saved to', header: true },
         { data: 'Size', header: true },
         { data: 'Duration', header: true },
       ],
       [
+        saveResult(data),
         escapeHtml(data.key),
         formatSavedTo(data),
         formatOptionalSize(data.size),
         formatDuration(data.durationMs),
       ],
     ]);
-  addSkippedLine(data.skipped);
+  addErrorLines(data.errors);
+  addSkippedLine(
+    data.skipped ?? (data.outcome === 'skipped' ? notNoFiles(data.skipReason) : undefined)
+  );
   addPresetLine(data.preset, data.paths);
   await flush();
+}
+
+/** A tier skip reason for the Skipped line. "no files" is already the Result, so it gets no line. */
+function notNoFiles(reason: string | undefined): string | undefined {
+  return reason === 'no paths matched' ? undefined : reason;
 }

@@ -1,5 +1,5 @@
 import { getHost } from '../ci/host';
-import { log } from '../ci/log';
+import { log, setWarningTitle } from '../ci/log';
 import { Outputs, State } from '../constants';
 import { NullStateProvider, type IStateProvider } from '../state';
 import { isWriteAccessDeniedError } from '../storage/errors';
@@ -27,6 +27,23 @@ interface SaveResult {
   outcome: Extract<StepMetrics['outcome'], 'saved' | 'exists' | 'skipped' | 'error'>;
   /** A tier error that was warned away rather than thrown, when nothing was saved. */
   error?: string;
+  /** Why a tier did not save, for a `skipped` outcome, for example `no paths matched`. */
+  skipReason?: string;
+}
+
+/** The annotation title of each save warning, so a job with several cache steps shows which one warned. */
+const WARNING_TITLE = 'Cloud cache save';
+
+/**
+ * Tier errors that the current save warned about, for the job summary. `saveImpl` empties it at
+ * the start of each step.
+ */
+let stepErrors: string[] = [];
+
+/** Logs a tier error as a warning with the save title, and keeps its text for the job summary. */
+function warnTierError(message: string): void {
+  log.warning(message, WARNING_TITLE);
+  stepErrors.push(message);
 }
 
 const ACCESS_DENIED_HINT =
@@ -71,7 +88,7 @@ async function setUpS3(
     if (!otherTierMayServe) {
       throw err;
     }
-    log.warning(`S3 client initialization failed during save: ${toError(err).message}`);
+    warnTierError(`S3 client initialization failed during save: ${toError(err).message}`);
     return undefined;
   }
 }
@@ -89,6 +106,7 @@ async function saveSingleTier(
 
   // A tier error the step only warned about still makes the outcome an error, not a plain skip.
   let warnedError: string | undefined;
+  let skipReason: string | undefined;
   if (s3) {
     const outcome = await saveToS3(s3, config.primaryKey, config.paths);
     switch (outcome.kind) {
@@ -106,10 +124,10 @@ async function saveSingleTier(
         };
       case 'skipped':
         getHost().setOutput(Outputs.CacheSavedSources, 'none');
-        return { sources: [], outcome: 'skipped' };
+        return { sources: [], outcome: 'skipped', skipReason: outcome.reason };
       case 'error': {
         const error = s3SaveError(outcome.error);
-        log.warning(`Failed to save cache to S3: ${error.message}`);
+        warnTierError(`Failed to save cache to S3: ${error.message}`);
         warnedError = error.message;
         break;
       }
@@ -135,11 +153,13 @@ async function saveSingleTier(
         getHost().setOutput(Outputs.CacheSavedSources, 'github');
         return { sources: ['github'], outcome: 'saved' };
       case 'error':
-        log.warning(`Failed to save cache to GitHub Actions Cache: ${outcome.error.message}`);
+        warnTierError(`Failed to save cache to GitHub Actions Cache: ${outcome.error.message}`);
         warnedError = outcome.error.message;
         break;
       case 'exists':
+        break;
       case 'skipped':
+        skipReason = outcome.reason;
         break;
       default: {
         const unreachable: never = outcome;
@@ -150,7 +170,7 @@ async function saveSingleTier(
   getHost().setOutput(Outputs.CacheSavedSources, 'none');
   return warnedError
     ? { sources: [], outcome: 'error', error: warnedError }
-    : { sources: [], outcome: 'skipped' };
+    : { sources: [], outcome: 'skipped', skipReason };
 }
 
 async function saveBothTiers(
@@ -169,11 +189,12 @@ async function saveBothTiers(
   let uploaded = false;
   // A tier error the step only warned about still makes the outcome an error, not a plain skip.
   let warnedError: string | undefined;
+  let skipReason: string | undefined;
   const tierFailed = (tier: string, error: Error): void => {
     if (config.dualCacheStrict) {
       throw new Error(`Saving to ${tier} failed: ${error.message}`, { cause: error });
     }
-    log.warning(`Dual-cache ${tier} save error: ${error.message}`);
+    warnTierError(`Dual-cache ${tier} save error: ${error.message}`);
     warnedError = error.message;
   };
 
@@ -201,6 +222,7 @@ async function saveBothTiers(
         uploaded ||= outcome.kind === 'saved';
         break;
       case 'skipped':
+        skipReason = outcome.reason;
         break;
       case 'error':
         tierFailed('S3', s3SaveError(outcome.error));
@@ -252,7 +274,9 @@ async function saveBothTiers(
           tierFailed('GitHub Actions Cache', outcome.error);
           break;
         case 'exists':
+          break;
         case 'skipped':
+          skipReason ??= outcome.reason;
           break;
         default: {
           const unreachable: never = outcome;
@@ -268,7 +292,7 @@ async function saveBothTiers(
   if (sources.length === 0) {
     return warnedError
       ? { sources: [], objectKey, transferMs, outcome: 'error', error: warnedError }
-      : { sources: [], objectKey, transferMs, outcome: 'skipped' };
+      : { sources: [], objectKey, transferMs, outcome: 'skipped', skipReason };
   }
   return {
     size,
@@ -306,10 +330,16 @@ export async function saveImpl(stateProvider: IStateProvider): Promise<number | 
     }
     emitMetrics(full, config?.metricsFile ?? '', getHost().context().workspace);
   };
+  stepErrors = [];
+  // One summary per step: a throw after the summary must not write a second one.
+  let summarized = false;
+  // Warnings from shared code (the config, the S3 tier) also get the title of this step.
+  setWarningTitle(WARNING_TITLE);
   try {
     if (!isValidEvent()) {
       log.warning(
-        `Event Validation Warning: The event type ${getHost().context().eventName} may not be tied to a branch or tag ref.`
+        `Event Validation Warning: The event type ${getHost().context().eventName} may not be tied to a branch or tag ref.`,
+        WARNING_TITLE
       );
     }
 
@@ -338,12 +368,18 @@ export async function saveImpl(stateProvider: IStateProvider): Promise<number | 
       return;
     }
     if (!config.primaryKey) {
-      log.warning('Key is not specified. Set key and path, or set preset. Skipping cache save.');
+      log.warning(
+        'Key is not specified. Set key and path, or set preset. Skipping cache save.',
+        WARNING_TITLE
+      );
       skip('no key');
       return;
     }
     if (config.paths.length === 0) {
-      log.warning('No paths specified to cache. Set path, or set preset. Skipping save.');
+      log.warning(
+        'No paths specified to cache. Set path, or set preset. Skipping save.',
+        WARNING_TITLE
+      );
       skip('no paths');
       return;
     }
@@ -357,6 +393,7 @@ export async function saveImpl(stateProvider: IStateProvider): Promise<number | 
       getHost().setOutput(Outputs.CacheSavedSources, 'none');
       getHost().setOutput(Outputs.CacheSaveDurationMs, String(Date.now() - start));
       skip(`ACTIONS_CACHE_MODE=${cacheMode}`);
+      summarized = true;
       await writeSaveSummary({
         jobSummary: config.jobSummary,
         key: config.primaryKey,
@@ -395,6 +432,7 @@ export async function saveImpl(stateProvider: IStateProvider): Promise<number | 
       outcome: result.outcome,
       extra: result.error ? { error: result.error } : undefined,
     });
+    summarized = true;
     await writeSaveSummary({
       jobSummary: config.jobSummary,
       key: config.primaryKey,
@@ -403,6 +441,11 @@ export async function saveImpl(stateProvider: IStateProvider): Promise<number | 
       durationMs: Date.now() - start,
       preset: config.preset,
       paths: config.paths,
+      outcome: result.outcome,
+      // An "exists" outcome after an exact restore hit means that no save was necessary.
+      exactHit: s3ExactHit || (config.dualCache && githubExactHit),
+      skipReason: result.skipReason,
+      errors: stepErrors,
     });
     return config.dualCache ? undefined : result.size;
   } catch (err) {
@@ -419,8 +462,23 @@ export async function saveImpl(stateProvider: IStateProvider): Promise<number | 
     if (strict) {
       getHost().setFailed(message);
     } else {
-      log.warning(`Save cache encountered error: ${message}`);
+      log.warning(`Save cache encountered error: ${message}`, WARNING_TITLE);
     }
+    // A save that throws (a strict tier error, no bucket) still writes its row and the error.
+    if (config !== undefined && !summarized) {
+      await writeSaveSummary({
+        jobSummary: config.jobSummary,
+        key: config.primaryKey,
+        savedTo: [],
+        durationMs: Date.now() - start,
+        preset: config.preset,
+        paths: config.paths,
+        outcome: 'error',
+        errors: [...stepErrors, message],
+      });
+    }
+  } finally {
+    setWarningTitle(undefined);
   }
 }
 

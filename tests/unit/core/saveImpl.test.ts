@@ -14,6 +14,8 @@ const mockSetFailed = jest.fn<(message: string) => void>(() => {
   process.exitCode = 1;
 });
 const mockWarning = jest.fn<(message: string) => void>();
+// The annotation title of each warning. mockWarning gets the message alone.
+const mockWarningTitle = jest.fn<(title: string | undefined) => void>();
 const mockInfo = jest.fn<(message: string) => void>();
 const mockSetOutput = jest.fn<(name: string, value: string) => void>((name, value) => {
   outputs.set(name, value);
@@ -52,7 +54,10 @@ jest.unstable_mockModule('@actions/core', () => ({
   setOutput: mockSetOutput,
   setFailed: mockSetFailed,
   info: mockInfo,
-  warning: mockWarning,
+  warning: (message: string, properties?: { title?: string }) => {
+    mockWarning(message);
+    mockWarningTitle(properties?.title);
+  },
   debug: jest.fn(),
   saveState: jest.fn(),
   getState: () => '',
@@ -94,6 +99,13 @@ const githubSkipped: SaveOutcome = {
 const failure = (message: string): SaveOutcome => ({ kind: 'error', error: new Error(message) });
 
 describe('saveImpl', () => {
+  // Each warning of the step, in each test, has the annotation title of the step.
+  afterEach(() => {
+    expect(mockWarningTitle.mock.calls).toEqual(
+      mockWarning.mock.calls.map(() => ['Cloud cache save'])
+    );
+  });
+
   let state: MemoryState;
 
   beforeEach(() => {
@@ -344,6 +356,57 @@ describe('saveImpl', () => {
       expect(outputs.get('cache-saved-sources')).toBe('s3');
     });
 
+    it('passes the outcome and the exact hit to the summary', async () => {
+      state.setState(State.CacheS3ExactHit, 'true');
+      await saveImpl(state);
+      expect(mockWriteSaveSummary).toHaveBeenCalledWith(
+        expect.objectContaining({ outcome: 'exists', exactHit: true, errors: [] })
+      );
+    });
+
+    it('passes an existing object to the summary as exists without an exact hit', async () => {
+      mockSaveToS3.mockResolvedValue({ kind: 'exists', s3: s3Info });
+      await saveImpl(state);
+      expect(mockWriteSaveSummary).toHaveBeenCalledWith(
+        expect.objectContaining({ outcome: 'exists', exactHit: false })
+      );
+    });
+
+    it('passes the skip reason to the summary when no paths matched', async () => {
+      mockSaveToS3.mockResolvedValue({ kind: 'skipped', reason: 'no paths matched' });
+      await saveImpl(state);
+      expect(mockWriteSaveSummary).toHaveBeenCalledWith(
+        expect.objectContaining({ outcome: 'skipped', skipReason: 'no paths matched' })
+      );
+    });
+
+    it('gives the save warning the step title and puts the tier error in the summary', async () => {
+      mockSaveToS3.mockResolvedValue(failure('SlowDown'));
+      await saveImpl(state);
+      expect(mockWarningTitle).toHaveBeenCalledWith('Cloud cache save');
+      expect(mockWriteSaveSummary).toHaveBeenCalledTimes(1);
+      expect(mockWriteSaveSummary).toHaveBeenCalledWith(
+        expect.objectContaining({
+          savedTo: [],
+          outcome: 'error',
+          errors: ['Failed to save cache to S3: SlowDown'],
+        })
+      );
+    });
+
+    it('writes the summary with the error when the save throws', async () => {
+      mockBuildS3Tier.mockRejectedValue(new Error('Bucket name is required.'));
+      await saveImpl(state);
+      expect(mockWriteSaveSummary).toHaveBeenCalledTimes(1);
+      expect(mockWriteSaveSummary).toHaveBeenCalledWith(
+        expect.objectContaining({
+          savedTo: [],
+          outcome: 'error',
+          errors: ['Bucket name is required.'],
+        })
+      );
+    });
+
     it('counts an existing object as saved', async () => {
       mockSaveToS3.mockResolvedValue({ kind: 'exists', s3: s3Info });
       await saveImpl(state);
@@ -524,6 +587,24 @@ describe('saveImpl', () => {
       await saveImpl(state);
       expect(mockSetFailed).toHaveBeenCalledWith('Saving to S3 failed: boom');
       expect(mockSaveToGitHub).not.toHaveBeenCalled();
+    });
+
+    it('writes the summary with the error when a strict save fails the step', async () => {
+      inputs.set(Inputs.DualCacheStrict, 'true');
+      mockSaveToS3.mockResolvedValue(failure('boom'));
+      await saveImpl(state);
+      expect(mockWriteSaveSummary).toHaveBeenCalledWith(
+        expect.objectContaining({ outcome: 'error', errors: ['Saving to S3 failed: boom'] })
+      );
+    });
+
+    it('passes an exact GitHub hit with skip-on-hit to the summary as an exact hit', async () => {
+      inputs.set(Inputs.DualCacheStrategy, 'skip-on-hit');
+      state.setState(State.CacheGithubExactHit, 'true');
+      await saveImpl(state);
+      expect(mockWriteSaveSummary).toHaveBeenCalledWith(
+        expect.objectContaining({ outcome: 'exists', exactHit: true })
+      );
     });
 
     it('does not fail or warn in strict mode when GitHub skips the save', async () => {

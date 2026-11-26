@@ -170,13 +170,34 @@ describe('GenericHost', () => {
     expect(err).toHaveBeenCalledWith('error: boom\n');
   });
 
+  it('redacts each warning, error, failure and debug line on the CLI', () => {
+    const out = jest.spyOn(process.stdout, 'write').mockReturnValue(true);
+    const err = jest.spyOn(process.stderr, 'write').mockReturnValue(true);
+    const loud = host({ debug: true });
+    const secret = 'PUT http://AKIA:pw@h:9000/k?sig=abc';
+    loud.log.debug(secret);
+    loud.log.warning(secret);
+    loud.log.error(secret);
+    loud.setFailed(secret);
+    expect(out).toHaveBeenCalledWith('debug: PUT http://h:9000/k?[query removed]\n');
+    expect(err.mock.calls.map((c) => c[0])).toEqual([
+      'warning: PUT http://h:9000/k?[query removed]\n',
+      'error: PUT http://h:9000/k?[query removed]\n',
+      'error: PUT http://h:9000/k?[query removed]\n',
+    ]);
+    out.mockRestore();
+    err.mockRestore();
+    process.exitCode = undefined;
+  });
+
   it('logs with prefixes and streams', () => {
     const out = jest.spyOn(process.stdout, 'write').mockReturnValue(true);
     const err = jest.spyOn(process.stderr, 'write').mockReturnValue(true);
     const quiet = host();
     quiet.log.debug('hidden');
     quiet.log.info('i');
-    quiet.log.warning('w');
+    // The CLI has no annotations, so it prints a warning title nowhere.
+    quiet.log.warning('w', 'Cloud cache restore');
     quiet.log.error('e');
     quiet.log.startGroup('G');
     quiet.log.endGroup();
