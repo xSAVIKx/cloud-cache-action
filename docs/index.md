@@ -49,7 +49,7 @@ features:
 
 ## What is Cloud Cache Action?
 
-Cloud Cache Action (`xSAVIKx/cloud-cache-action`) is a GitHub Action that restores and saves CI caches in your own S3-compatible bucket, with the same inputs and outputs as `actions/cache` v4 to v6. Its command line interface, `cloud-cache`, runs the same cache engine in Bitbucket Pipelines and other CI systems.
+Cloud Cache Action (`xSAVIKx/cloud-cache-action`) is a GitHub Action that restores and saves CI caches in your own S3-compatible bucket, with the same inputs and outputs as `actions/cache` v4 to v6, except `save-always`. Its command line interface, `cloud-cache`, runs the same cache engine in Bitbucket Pipelines and other CI systems.
 
 ```yaml
 - uses: xSAVIKx/cloud-cache-action@v1

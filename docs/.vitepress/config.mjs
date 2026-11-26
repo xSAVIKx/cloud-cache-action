@@ -180,7 +180,7 @@ export default defineConfig({
     return head;
   },
   /**
-   * llms.txt, llms-full.txt and robots.txt carry absolute URLs, so they are
+   * llms.txt and llms-full.txt carry absolute URLs, so they are
    * generated from templates rather than copied. They used to live in public/,
    * which VitePress copies verbatim — meaning they would have survived a change
    * to SITE_ORIGIN untouched and kept advertising the old host while every
@@ -209,7 +209,6 @@ export default defineConfig({
     const files = {
       'llms.txt': buildLlmsIndex(source, fill(read('llms.txt')), release),
       'llms-full.txt': buildLlmsFull(source, fill(read('llms-full.txt'))),
-      'robots.txt': fill(read('robots.txt')),
     };
     for (const [file, body] of Object.entries(files)) {
       writeFileSync(path.join(siteConfig.outDir, file), body);
@@ -332,7 +331,7 @@ export default defineConfig({
     socialLinks: [{ icon: 'github', link: REPO_URL }],
     footer: {
       message: `Released under the <a href="${REPO_URL}/blob/main/LICENSE" target="_blank" rel="noopener">MIT License</a>.`,
-      copyright: `Created by <a href="${AUTHOR.url}" target="_blank" rel="author noopener">${AUTHOR.name}</a>`,
+      copyright: `Created by <a href="${AUTHOR.url}" target="_blank" rel="author noopener">${AUTHOR.name}</a>. <a href="${SITE_ORIGIN}/" target="_self">More projects</a>`,
     },
   },
 });

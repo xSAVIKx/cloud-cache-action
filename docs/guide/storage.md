@@ -10,7 +10,7 @@ sha256 checksum, the conditional create that protects concurrent saves, user met
 tags, and the experimental streaming mode. You do not have to set an input for the checksum or
 for the conditional create. The action does both on every save.
 
-## Archive Integrity
+## Archive integrity
 
 Every save computes the sha256 checksum of the archive. A file-mode save stores the checksum as
 object metadata (`cloud-cache-sha256`), as before. A streamed save stores the checksum as an
@@ -39,7 +39,7 @@ same way, instead of failing.
 
 **Garage** does preserve this metadata, so integrity checks apply there like everywhere else.
 
-## Safe Concurrent Saves
+## Safe concurrent saves
 
 Uploads use a conditional create (`If-None-Match: *`). On providers that enforce it (verified on
 AWS S3, MinIO, SeaweedFS and RustFS), when two jobs race to save the same key, only the first upload
@@ -56,7 +56,7 @@ too, so a race between two saves for the same key is last-writer-wins there, the
 behavior. The existing HEAD check before archiving still avoids pointless work when the key already
 exists.
 
-## Object Metadata and Tags
+## Object metadata and tags
 
 `metadata` stores user metadata (`x-amz-meta-*`) on every cache object the step saves, and `tags`
 sets object tags, one `key=value` per line; surrounding whitespace is trimmed from each key and
@@ -134,7 +134,17 @@ but a false checksum would reject a good cache. MinIO, SeaweedFS, RustFS and
 Garage return the `cloud-cache-writer` field on `HeadObject` for single-part and multipart
 uploads.
 
-## Streaming Archives (Experimental)
+## Temporary files
+
+The action writes temporary archives to a new directory. On GitHub, the directory is in
+`RUNNER_TEMP` when the variable is set. The runner empties `RUNNER_TEMP` after the job, even when
+the job is cancelled. Without `RUNNER_TEMP`, and in the CLI, the directory is in the temporary
+directory of the OS.
+
+If the action cannot create the directory, for example when the disk is full, the S3 restore
+reports an error and the job does not fail. The fallback tier still runs.
+
+## Streaming archives (experimental)
 
 Set `streaming: true` to stream archives directly between `tar` and S3 instead of writing a
 temporary archive file first. This applies to the S3 tier only (the GitHub Actions Cache tier is

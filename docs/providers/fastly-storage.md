@@ -8,7 +8,7 @@ To use Fastly Object Storage as a GitHub Actions cache, create a private bucket 
 pair with **Read/Write** access to that bucket. Then set the regional `endpoint`, `bucket`,
 `access-key` and `secret-key` on `xSAVIKx/cloud-cache-action@v1`.
 
-[Fastly Object Storage](https://www.fastly.com/products/object-storage) is S3-compatible cloud
+[Fastly Object Storage](https://www.fastly.com/products/storage) is S3-compatible cloud
 storage from Fastly.
 
 ## Requirements
@@ -56,7 +56,7 @@ Store the credentials in **Settings** > **Secrets and variables** > **Actions** 
   uses: xSAVIKx/cloud-cache-action@v1
   with:
     bucket: my-fastly-cache-bucket
-    endpoint: https://object.us-east-1.fastlystorage.com # Your region
+    endpoint: https://us-east-1.object.fastlystorage.app # Your region
     access-key: ${{ secrets.FASTLY_ACCESS_KEY }}
     secret-key: ${{ secrets.FASTLY_SECRET_KEY }}
     key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}

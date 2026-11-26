@@ -79,6 +79,8 @@ describe('llms-full.txt', () => {
     expect(prose).not.toMatch(/^title:\s/m);
     expect(prose).not.toMatch(/^<<<\s/m);
     expect(prose).not.toContain('@include');
+    // A line with only a Vue component, such as a diagram, has no text for a reader.
+    expect(prose).not.toMatch(/^<[A-Z][A-Za-z]*\s*\/>$/m);
     expect(prose).not.toMatch(/\]\((?!https?:|mailto:|#)[^)]*\)/);
     expect(prose).toContain(`](${SITE_URL}guide/getting-started.html`);
     expect(prose).toContain('Source file: [action.yml](https://github.com/');

@@ -1,10 +1,15 @@
+<script setup>
+import { SITE_ORIGIN } from '../site.mjs';
+</script>
+
 <template>
   <footer class="vp-doc-footer-attribution">
     <div class="footer-content">
       <p class="license-text">Released under the <a href="https://github.com/xSAVIKx/cloud-cache-action/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">MIT License</a>.</p>
       <p class="author-text">
         Created by
-        <a href="https://serhiichuk.dev" target="_blank" rel="author noopener">Yurii Serhiichuk</a>
+        <a href="https://serhiichuk.dev" target="_blank" rel="author noopener">Yurii Serhiichuk</a>.
+        <a :href="`${SITE_ORIGIN}/`" target="_self">More projects</a>
       </p>
     </div>
   </footer>

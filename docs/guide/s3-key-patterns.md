@@ -8,7 +8,7 @@ The `s3-key-pattern` input sets the S3 object key of each cache archive. This pa
 default pattern, the template placeholders and common patterns, for example one cache that all
 repositories share.
 
-## Default Key Pattern
+## Default key pattern
 
 ```text
 ${GITHUB_REPOSITORY}/${prefix}${ref}/${key}/${version}/${archive_filename}
@@ -20,9 +20,9 @@ For repository `my-org/my-project`, branch `main` and key `linux-node-18-a1b2c3`
 my-org/my-project/refs%2Fheads%2Fmain/linux-node-18-a1b2c3/27747e0d22df7792/cache.tar.zst
 ```
 
-## Available Template Placeholders
+## Available template placeholders
 
-### Special Placeholders
+### Special placeholders
 
 | Variable               | Description                                                                                 | Example                           |
 | ---------------------- | -------------------------------------------------------------------------------------------- | ---------------------------------- |
@@ -34,6 +34,12 @@ my-org/my-project/refs%2Fheads%2Fmain/linux-node-18-a1b2c3/27747e0d22df7792/cach
 | `${version}`           | 16-character hash of `path`, the compression method and (on Windows) `enableCrossOsArchive` | `27747e0d22df7792`                |
 | `${archive_filename}`  | Archive name                                                                                 | `cache.tar.zst` or `cache.tar.gz` |
 
+Keep `${ref}` in a path segment of its own, apart from `${key}`. When `${ref}` shares a segment with
+`${key}`, for example `${ref}-${key}`, the branch `main-linux` with key `abc` writes the same object
+key as the branch `main` with key `linux-abc`. A restore for one ref can then hit the cache of the
+other ref. When `scoped-to-ref` is on and a ref is known, the action warns about this pattern. It
+does so whatever else the pattern contains.
+
 Write special placeholders in braces. A pattern without `${ref}` or `${version}` works, but the action warns:
 
 - Without `${ref}`, every branch shares caches.
@@ -42,7 +48,7 @@ Write special placeholders in braces. A pattern without `${ref}` or `${version}`
   is left in the object key literally, and the action warns `s3-key-pattern uses $ref; write
   ${ref} to use the ref placeholder.` (one warning per placeholder used this way).
 
-### Environment Variables
+### Environment variables
 
 Reference any environment variable with `${VAR_NAME}`, `$VAR_NAME` or `${env.VAR_NAME}`:
 
@@ -58,7 +64,7 @@ Reference any environment variable with `${VAR_NAME}`, `$VAR_NAME` or `${env.VAR
 | `${GITHUB_RUN_ID}`   | Unique ID of the workflow run         | `1234567890`                |
 | `${CUSTOM_WORKLOAD}` | Any user-defined environment variable | `api-service`               |
 
-## How Restore Finds a Cache
+## How a restore finds a cache
 
 For each ref in order (the current ref, the pull request base branch, then the default branch), restore tries:
 
@@ -68,9 +74,11 @@ For each ref in order (the current ref, the pull request base branch, then the d
 
 Only objects with the same `${version}` and archive format count, and the first match wins.
 
-## Common Configuration Patterns
+<RestoreLookup />
 
-### 1. Custom Prefix Within Repository
+## Common configuration patterns
+
+### 1. Custom prefix within the repository
 
 ```yaml
 - uses: xSAVIKx/cloud-cache-action@v1
@@ -83,7 +91,7 @@ Only objects with the same `${version}` and archive format count, and the first 
 
 Object key: `my-org/my-repo/web-app/refs%2Fheads%2Fmain/Linux-node-12345/<version>/cache.tar.zst`
 
-### 2. Global Shared Cache (No Repository or Ref Scoping)
+### 2. Global shared cache (no repository or ref scoping)
 
 ```yaml
 - uses: xSAVIKx/cloud-cache-action@v1
@@ -97,21 +105,21 @@ Object key: `my-org/my-repo/web-app/refs%2Fheads%2Fmain/Linux-node-12345/<versio
 
 Object key: `global-rust-toolchain-v1/<version>/cache.tar.zst`
 
-### 3. Fully Custom S3 Key Pattern
+### 3. Fully custom S3 key pattern
 
 ```yaml
 - uses: xSAVIKx/cloud-cache-action@v1
   with:
     bucket: my-bucket
-    s3-key-pattern: 'builds/${GITHUB_REPOSITORY}/${ref}/${prefix}${key}/${version}.tar.zst'
+    s3-key-pattern: 'builds/${GITHUB_REPOSITORY}/${ref}/${prefix}${key}/${version}/${archive_filename}'
     prefix: release-v1/
     key: app-bundle
     path: dist/
 ```
 
-Object key: `builds/my-org/my-repo/refs%2Fheads%2Fmain/release-v1/app-bundle/<version>.tar.zst`
+Object key: `builds/my-org/my-repo/refs%2Fheads%2Fmain/release-v1/app-bundle/<version>/cache.tar.zst`
 
-### 4. Per-Workload Isolated Cache
+### 4. Per-workload isolated cache
 
 ```yaml
 - uses: xSAVIKx/cloud-cache-action@v1
@@ -129,12 +137,14 @@ Object key: `my-org/my-repo/Linux/backend-api/refs%2Fheads%2Fmain/Linux-deps-abc
 > [!NOTE]
 > Object keys always use forward slashes (`/`), whether the runner is Linux, macOS or Windows.
 
-## Custom Patterns and Pruning
+## Custom patterns and pruning
 
 If you use [`xSAVIKx/cloud-cache-action/prune@v1`](./pruning.md) with a custom `s3-key-pattern`, prune only
 deletes objects whose whole key matches the pattern. Keep `${GITHUB_REPOSITORY}` and `${ref}` in
 path segments of their own, separated from `${key}` and `${version}` by `/`: when they share a
 segment, keys from other repositories or refs could match, and the prune action refuses to run
 whenever it cannot tell them apart.
+The pattern must also contain `${archive_filename}`. Without it, the prune action refuses to run.
+
 Starting the pattern with `${ref}` also leaves no fixed listing prefix for pruning every ref, so
 set its `ref` input in that case.
