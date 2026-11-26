@@ -6,7 +6,7 @@ import {
   ListObjectsV2Command,
   type S3Client,
 } from '@aws-sdk/client-s3';
-import { formatSize } from '../utils/inputUtils';
+import { escapeKey, formatSize } from '../utils/inputUtils';
 import { mapWithConcurrency } from '../utils/concurrency';
 import type { KeyTemplate, ScopeProblem } from './keyTemplate';
 import {
@@ -210,7 +210,7 @@ async function abortStaleUploads(
     }
     count += 1;
     if (count <= LOG_CAP) {
-      log.info(`${verb} ${upload.key} (upload ${upload.uploadId}, ${age})`);
+      log.info(`${verb} ${escapeKey(upload.key)} (upload ${escapeKey(upload.uploadId)}, ${age})`);
     }
   };
   await mapWithConcurrency(stale, options.concurrency, abortOne);
@@ -228,7 +228,9 @@ function logPruned(
     const ageDays = object.lastModified
       ? Math.floor((now.getTime() - object.lastModified.getTime()) / DAY_MS)
       : 0;
-    log.info(`${verb} ${object.key} (${formatSize(object.size)}, ${ageDays}d old, ${reason})`);
+    log.info(
+      `${verb} ${escapeKey(object.key)} (${formatSize(object.size)}, ${ageDays}d old, ${reason})`
+    );
   }
   const totalBytes = selections.reduce((total, { object }) => total + object.size, 0);
   const counts = new Map<string, number>();

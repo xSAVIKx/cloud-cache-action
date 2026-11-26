@@ -110,6 +110,7 @@ export class GenericHost implements CiHost {
       eventName: env.CLOUD_CACHE_EVENT_NAME ?? 'cli',
       workspace: env.CLOUD_CACHE_WORKSPACE || process.cwd(),
       homeDir: env.HOME || env.USERPROFILE || osHomeDir(),
+      tempDir: os.tmpdir(),
       runnerOs: runnerOs(env),
       env,
     };

@@ -27,6 +27,8 @@ export interface CiContext {
   eventName?: string;
   workspace: string;
   homeDir: string;
+  /** The directory for temporary archives. GitHub uses RUNNER_TEMP, which the runner empties. */
+  tempDir: string;
   runnerOs: RunnerOs;
   /** Extra labels for metrics, set by the CI adapter. */
   labels?: Record<string, string | number>;

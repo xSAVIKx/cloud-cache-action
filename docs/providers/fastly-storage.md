@@ -56,7 +56,7 @@ Store the credentials in **Settings** > **Secrets and variables** > **Actions** 
   uses: xSAVIKx/cloud-cache-action@v1
   with:
     bucket: my-fastly-cache-bucket
-    endpoint: https://object.us-east-1.fastlystorage.com # Your region
+    endpoint: https://us-east-1.object.fastlystorage.app # Your region
     access-key: ${{ secrets.FASTLY_ACCESS_KEY }}
     secret-key: ${{ secrets.FASTLY_SECRET_KEY }}
     key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}

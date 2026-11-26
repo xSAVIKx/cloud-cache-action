@@ -46,6 +46,7 @@ export class GitHubActionsHost implements CiHost {
       eventName: env.GITHUB_EVENT_NAME,
       workspace: getWorkspace(env),
       homeDir: env.HOME || env.USERPROFILE || osHomeDir(),
+      tempDir: env.RUNNER_TEMP || os.tmpdir(),
       runnerOs: runnerOs(env),
       env,
     };
