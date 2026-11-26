@@ -11,7 +11,10 @@ job needs. It holds the one full set of policies. The provider pages link here.
 
 Anyone who can write to the cache bucket can change what a later restore extracts. A restore
 unpacks the archive on the runner, and the next steps then run code from it. Treat write access to
-the bucket as write access to every job that restores from it.
+the bucket as write access to every job that restores from it. The restore extracts archive
+members with absolute paths allowed, so a member can write to any path that the runner user can
+write to, not only to `path`. With `streaming: true`, the action hashes the archive while it
+extracts it, so the action finds a checksum mismatch only after the extraction.
 
 The action reduces the risk in three ways:
 

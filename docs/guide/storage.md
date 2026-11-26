@@ -216,6 +216,16 @@ but a false checksum would reject a good cache. MinIO, SeaweedFS, RustFS and
 Garage return the `cloud-cache-writer` field on `HeadObject` for single-part and multipart
 uploads.
 
+## Temporary files
+
+The action writes temporary archives to a new directory. On GitHub, the directory is in
+`RUNNER_TEMP` when the variable is set. The runner empties `RUNNER_TEMP` after the job, even when
+the job is cancelled. Without `RUNNER_TEMP`, and in the CLI, the directory is in the temporary
+directory of the OS.
+
+If the action cannot create the directory, for example when the disk is full, the S3 restore
+reports an error and the job does not fail. The fallback tier still runs.
+
 ## Streaming archives (experimental)
 
 Set `streaming: true` to stream archives directly between `tar` and S3 instead of writing a

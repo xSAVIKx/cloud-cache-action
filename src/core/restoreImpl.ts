@@ -2,7 +2,7 @@ import { getHost } from '../ci/host';
 import { log } from '../ci/log';
 import { Outputs, State } from '../constants';
 import { NullStateProvider, type IStateProvider } from '../state';
-import { isValidEvent } from '../utils/inputUtils';
+import { escapeKey, isValidEvent } from '../utils/inputUtils';
 import { getCacheMode, isCacheReadable, isCacheWritable } from './cacheMode';
 import { persistCacheConfig, readCacheConfig, type CacheConfig } from './config';
 import { buildExplainReport, renderExplain, writeExplainSummary } from './explain';
@@ -86,8 +86,8 @@ function reportHit(state: IStateProvider, config: CacheConfig, source: Source, h
   getHost().setOutput(Outputs.CacheHitSource, source);
   log.info(
     config.lookupOnly
-      ? `Cache found in ${source} and can be restored from key: ${hit.matchedKey}`
-      : `Cache restored from ${source} with key: ${hit.matchedKey}`
+      ? `Cache found in ${source} and can be restored from key: ${escapeKey(hit.matchedKey)}`
+      : `Cache restored from ${source} with key: ${escapeKey(hit.matchedKey)}`
   );
   return hit.matchedKey;
 }
@@ -212,7 +212,10 @@ export async function restoreImpl(
 
     const failedTiers: string[] = [];
     for (const source of restoreOrder(config)) {
-      const outcome = await attempt(source, config, s3);
+      // A rejection counts as a failed tier, so that the other tier still runs.
+      const outcome = await attempt(source, config, s3).catch(
+        (err: unknown): RestoreOutcome => ({ kind: 'error', error: toError(err) })
+      );
       switch (outcome.kind) {
         case 'hit': {
           const matchedKey = reportHit(stateProvider, config, source, outcome);

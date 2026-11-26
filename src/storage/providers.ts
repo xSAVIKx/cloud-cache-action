@@ -84,7 +84,7 @@ export function detectProvider(endpointInput?: string, explicitProvider?: string
   if (ep.includes('backblazeb2.com')) {
     return 'b2';
   }
-  if (ep.includes('fastlystorage.com')) {
+  if (ep.includes('fastlystorage.app')) {
     return 'fastly';
   }
   if (ep.includes('amazonaws.com')) {
@@ -151,6 +151,13 @@ export function resolveProviderDefaults(
       break;
 
     case 'fastly':
+      if (!region && endpoint) {
+        // e.g. https://eu-central-1.object.fastlystorage.app
+        const match = endpoint.match(/^https?:\/\/([a-z0-9-]+)\.object\.fastlystorage\.app/i);
+        if (match && match[1]) {
+          region = match[1].toLowerCase();
+        }
+      }
       region = region || 'us-east-1';
       if (forcePathStyle === undefined) forcePathStyle = true;
       break;

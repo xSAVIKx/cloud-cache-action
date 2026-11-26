@@ -577,13 +577,16 @@ describe('Storage Operations', () => {
         uploadFile(client, 'test-bucket', 'large-key', largeFile(), MULTIPART, { ifNoneMatch: '*' })
       ).rejects.toBe(failure);
 
+      // lib-storage (since 3.1169.0) and completeOrAbort can both send the abort.
       const aborts = s3Mock.commandCalls(AbortMultipartUploadCommand);
-      expect(aborts).toHaveLength(1);
-      expect(aborts[0].args[0].input).toEqual({
-        Bucket: 'test-bucket',
-        Key: 'large-key',
-        UploadId: 'upload-1',
-      });
+      expect(aborts.length).toBeGreaterThanOrEqual(1);
+      for (const abort of aborts) {
+        expect(abort.args[0].input).toEqual({
+          Bucket: 'test-bucket',
+          Key: 'large-key',
+          UploadId: 'upload-1',
+        });
+      }
     });
 
     it('uploadFile still rethrows the original error when the abort itself fails', async () => {
@@ -595,7 +598,7 @@ describe('Storage Operations', () => {
       await expect(
         uploadFile(client, 'test-bucket', 'large-key', largeFile(), MULTIPART, { ifNoneMatch: '*' })
       ).rejects.toBe(failure);
-      expect(s3Mock.commandCalls(AbortMultipartUploadCommand)).toHaveLength(1);
+      expect(s3Mock.commandCalls(AbortMultipartUploadCommand).length).toBeGreaterThanOrEqual(1);
     });
 
     it('uploadFile sends no AbortMultipartUpload when a single-part PutObject fails', async () => {
@@ -623,13 +626,16 @@ describe('Storage Operations', () => {
       });
       await expect(upload.done()).rejects.toBe(failure);
 
+      // lib-storage (since 3.1169.0) and completeOrAbort can both send the abort.
       const aborts = s3Mock.commandCalls(AbortMultipartUploadCommand);
-      expect(aborts).toHaveLength(1);
-      expect(aborts[0].args[0].input).toEqual({
-        Bucket: 'test-bucket',
-        Key: 'stream-key',
-        UploadId: 'upload-1',
-      });
+      expect(aborts.length).toBeGreaterThanOrEqual(1);
+      for (const abort of aborts) {
+        expect(abort.args[0].input).toEqual({
+          Bucket: 'test-bucket',
+          Key: 'stream-key',
+          UploadId: 'upload-1',
+        });
+      }
     });
   });
 
