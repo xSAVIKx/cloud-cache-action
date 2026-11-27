@@ -13,7 +13,7 @@ inputs:
     description: 'AWS or S3 provider region (e.g., us-east-1, auto, etc.)'
     required: false
   provider:
-    description: 'Storage provider preset: aws, r2, gcs, b2, fastly, garage, seaweedfs, minio, rustfs'
+    description: 'Storage provider preset: aws, r2, gcs, b2, fastly, garage, seaweedfs, minio, rustfs, aws-emulator'
     required: false
   access-key:
     description: 'S3 Access Key ID (falls back to AWS_ACCESS_KEY_ID or IAM/OIDC)'
