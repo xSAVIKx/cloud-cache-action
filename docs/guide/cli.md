@@ -71,6 +71,8 @@ The CLI reads each input in this order:
 2. The environment variable.
 3. The default value.
 
+Three inputs also read standard AWS variables when the flag and the `CLOUD_CACHE_*` variable are not set. `bucket` reads `AWS_S3_BUCKET` or `S3_BUCKET`. `endpoint` reads `AWS_ENDPOINT_URL_S3`, then `AWS_ENDPOINT_URL`. `region` reads `AWS_REGION` or `AWS_DEFAULT_REGION`.
+
 The default values are the same as the `default:` values in the action manifest of the command. For the meaning of each input, read [Inputs and Outputs](./reference.md).
 
 Follow these rules for flag values:

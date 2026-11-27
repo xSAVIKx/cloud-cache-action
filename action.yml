@@ -11,7 +11,7 @@ inputs:
     description: 'An explicit key for restoring and saving the cache. Required unless preset is set.'
     required: false
   preset:
-    description: 'Package manager preset that gives the default path, key and restore-keys: npm, yarn, pnpm, bun, pip, poetry, uv, gradle, maven, cargo, go. The key is <runner.os>-<preset>-<hash of the lockfiles>. An explicit path, key or restore-keys input replaces that one value.'
+    description: 'Package manager preset that gives the default path, key and restore-keys: npm, yarn, pnpm, bun, pip, poetry, uv, gradle, maven, cargo, go. The key is <runner.os>-<preset>-<hash of the lockfiles>. An explicit path, key or restore-keys input replaces that one value. Setting key also turns off the preset restore-keys.'
     required: false
   restore-keys:
     description: 'An ordered multiline string listing the prefix-matched keys, used for restoring stale cache if no cache hit occurred for key'
@@ -105,7 +105,7 @@ inputs:
     required: false
     default: 'false'
   streaming:
-    description: 'Stream archives directly between tar and S3 without a temporary archive file (experimental; default false). Uses less disk and can be faster for large caches, but uploads cannot be retried as a whole and objects carry no integrity checksum.'
+    description: 'Stream archives directly between tar and S3 without a temporary archive file (experimental; default false). Uses less disk and can be faster for large caches, but uploads cannot be retried as a whole and the checksum is attached after the upload, as a tag.'
     required: false
     default: 'false'
   metadata:
@@ -181,7 +181,7 @@ outputs:
   cache-hit-source:
     description: 'The cache tier that serviced the restore hit: s3, github, or none'
   cache-saved-sources:
-    description: 'Comma-separated list of cache tiers successfully saved to: s3, github, or s3,github'
+    description: 'Comma-separated list of cache tiers successfully saved to: s3, github, s3,github, or none when nothing was saved'
   cache-restore-duration-ms:
     description: 'Wall-clock milliseconds the restore step took; 0 when it did not complete'
   cache-save-duration-ms:
