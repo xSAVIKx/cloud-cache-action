@@ -17,6 +17,7 @@ const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const DEFINITION = path.join('docs', '.vitepress', 'site.mjs');
 const HOSTNAME = 'xsavikx.github.io';
 const DIST = path.join(REPO, 'docs', '.vitepress', 'dist');
+const VENDORED_IDENTITY = /^docs\/\.vitepress\/theme\/ys-[a-z-]+\.css$/;
 
 const SKIP_DIRS = new Set([
   'node_modules',
@@ -47,6 +48,9 @@ describe('site origin', () => {
       // README is repo content, not emitted output, and is updated by hand
       // during a hostname change — see the note in site.mjs.
       if (rel === DEFINITION || rel === 'README.md' || rel.startsWith('tests' + path.sep)) continue;
+      // The vendored identity bundle names its source on the hub in its header. The file is a
+      // byte-for-byte copy and must not be edited, so its hub URL is not a link of this site.
+      if (VENDORED_IDENTITY.test(rel.split(path.sep).join('/'))) continue;
       const text = readFileSync(file, 'utf8');
       if (!text.includes(HOSTNAME)) continue;
       text.split('\n').forEach((line, i) => {
