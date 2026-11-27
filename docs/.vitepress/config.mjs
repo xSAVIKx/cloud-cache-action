@@ -324,6 +324,7 @@ export default defineConfig({
           { text: 'SeaweedFS', link: '/providers/seaweedfs' },
           { text: 'MinIO', link: '/providers/minio' },
           { text: 'RustFS', link: '/providers/rustfs' },
+          { text: 'AWS Emulator', link: '/providers/aws-emulator' },
         ],
       },
     ],

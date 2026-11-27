@@ -1,6 +1,6 @@
 # Cloud Cache Action
 
-> High-performance GitHub Action for saving and restoring CI cache bundles directly to any S3-compatible cloud or self-hosted object storage with 1:1 actions/cache parity and native Node 24 runtime.
+> High-performance GitHub Action for saving and restoring CI cache bundles directly to any S3-compatible cloud or self-hosted object storage with actions/cache parity (except `save-always`) and native Node 24 runtime.
 
 {{LATEST_RELEASE}}
 
@@ -9,7 +9,7 @@ Cloud Cache Action is the product name. `xSAVIKx/cloud-cache-action` is the acti
 Cloud Cache Action stores GitHub Actions caches in your own S3-compatible bucket (AWS S3, Cloudflare R2, Google Cloud Storage, Backblaze B2, Fastly, Garage, SeaweedFS, MinIO and RustFS). The GitHub Actions cache gives each repository 10 GB at no cost and evicts the least recently used entries above that limit; Pro, Team and Enterprise accounts can raise the limit and pay for the storage above 10 GB (https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching#usage-limits-and-eviction-policy). A bucket has the limits and the prices of your storage provider.
 
 Key capabilities:
-- 1:1 input and output compatibility with `actions/cache` (v4, v5, and v6).
+- Input and output compatibility with `actions/cache` (v4, v5, and v6), except `save-always`.
 - Native Node 24 execution (`runs: using: 'node24'`) with zero runner deprecation warnings.
 - Multi-threaded Zstandard (`zstd`) compression with automatic `gzip` fallback.
 - Dual-caching mode: syncs simultaneously to both remote S3 and GitHub Actions Cache tier for maximum resilience.

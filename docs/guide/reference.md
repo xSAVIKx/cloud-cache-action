@@ -40,7 +40,7 @@ the full definition (see [Action Metadata Definitions](./getting-started.md#acti
 | `restore-keys` | Multiline string of prefix keys for fallback matching | No | — |
 | `endpoint` | Custom S3 endpoint URL | No | `AWS_ENDPOINT_URL`, then `AWS_ENDPOINT_URL_S3`, else Auto/AWS |
 | `region` | AWS or S3 provider region | No | `AWS_REGION` or `AWS_DEFAULT_REGION`, else Auto/`us-east-1` |
-| `provider` | Preset: `aws`, `r2`, `gcs`, `b2`, `fastly`, `garage`, `seaweedfs`, `minio`, `rustfs` | No | Auto |
+| `provider` | Preset: `aws`, `r2`, `gcs`, `b2`, `fastly`, `garage`, `seaweedfs`, `minio`, `rustfs`, `aws-emulator` | No | Auto |
 | `access-key` / `accessKey` | S3 Access Key ID | No | `AWS_ACCESS_KEY_ID` |
 | `secret-key` / `secretKey` | S3 Secret Access Key | No | `AWS_SECRET_ACCESS_KEY` |
 | `session-token` / `sessionToken` | S3 Session Token | No | `AWS_SESSION_TOKEN` |
