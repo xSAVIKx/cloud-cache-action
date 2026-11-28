@@ -17,7 +17,7 @@ services:
     restart: unless-stopped
 
   seaweedfs:
-    image: chrislusf/seaweedfs:4.46@sha256:08d516132314207d10c8e37cbffc1f32b147d870169688734cc61c6231625b62
+    image: chrislusf/seaweedfs:4.54@sha256:4b42c212543a0acd4c0e675215ecdcaf62a186ef98def76c7e12701871222d15
     container_name: cloud-cache-seaweedfs
     ports:
       - '8333:8333' # S3 API
