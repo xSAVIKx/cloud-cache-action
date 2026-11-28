@@ -15,14 +15,20 @@ import { pruneCaches } from '../../src/core/prune';
 import { saveImpl } from '../../src/core/saveImpl';
 import type { StorageContext } from '../../src/storage/client';
 import { MemoryState } from '../support/memoryState';
-import { createTestS3Client, getTestS3Config, prepareTestBucket } from '../support/s3Server';
+import {
+  createTestS3Client,
+  deleteTestPrefix,
+  getTestS3Config,
+  prepareTestBucket,
+} from '../support/s3Server';
 import { makeTempDir, removeDir, setEnv, writeFiles } from '../support/tempTree';
 
 /**
  * What each server does with ListMultipartUploads, measured on 2026-10-21 (local runs of RustFS
- * 1.0.0, SeaweedFS 4.46 and MinIO 0.20260330, and the Garage job of CI run 39524953997):
+ * 1.0.0, SeaweedFS 4.46 and MinIO 0.20260330, and the Garage job of CI run 39524953997; the AWS
+ * Emulator 1.0.322 measured on 2026-11-12):
  * - `aborts`: the listing under a prefix returns the uploads with an Initiated time, so prune
- *   aborts the stale ones. RustFS and Garage.
+ *   aborts the stale ones. RustFS, Garage and the AWS Emulator.
  * - `noInitiated`: the listing returns the uploads but without an Initiated time, so prune skips
  *   them and warns. SeaweedFS.
  * - `noPrefixListing`: the listing returns nothing for a prefix that is not a full object key, so
@@ -31,6 +37,7 @@ import { makeTempDir, removeDir, setEnv, writeFiles } from '../support/tempTree'
  */
 type UploadListing = 'aborts' | 'noInitiated' | 'noPrefixListing';
 const UPLOAD_LISTING: Record<string, UploadListing> = {
+  'aws-emulator': 'aborts',
   rustfs: 'aborts',
   garage: 'aborts',
   seaweedfs: 'noInitiated',
@@ -155,6 +162,21 @@ beforeEach(() => {
     GITHUB_BASE_REF: undefined,
   });
   process.exitCode = undefined;
+});
+
+afterAll(async () => {
+  if (available) {
+    for (const name of [
+      'prune',
+      'prune-other',
+      'prune-count',
+      'prune-count-other',
+      'prune-uploads',
+      'prune-uploads-other',
+    ]) {
+      await deleteTestPrefix(s3, `cloud-cache-it/${name}-${runId}/`);
+    }
+  }
 });
 
 afterEach(() => {

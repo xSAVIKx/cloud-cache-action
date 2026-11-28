@@ -369,8 +369,8 @@ export function createStorageContext(options: StorageClientOptions): StorageCont
   }
 
   const endpointInput = getInputWithEnv(Inputs.Endpoint, [
-    'AWS_ENDPOINT_URL',
     'AWS_ENDPOINT_URL_S3',
+    'AWS_ENDPOINT_URL',
   ]);
   const regionInput = getInputWithEnv(Inputs.Region, ['AWS_REGION', 'AWS_DEFAULT_REGION']);
   const providerInput = getHost().input(Inputs.Provider);
@@ -413,6 +413,9 @@ export function createStorageContext(options: StorageClientOptions): StorageCont
 
   if (providerConfig.endpoint) {
     clientConfig.endpoint = providerConfig.endpoint;
+  } else if (providerConfig.provider === 'aws') {
+    // A bucket in another region answers 301. The SDK then repeats the request in the right region.
+    clientConfig.followRegionRedirects = true;
   }
 
   // Several S3-compatible services reject the CRC checksums the SDK sends by default. On AWS the

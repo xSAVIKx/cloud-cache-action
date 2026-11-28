@@ -1,0 +1,118 @@
+/*! ys-tokens 1.2.0 ys-vitepress.css sha256:af9025e17ee36206
+ * Shared identity of Yurii Serhiichuk's web properties: neutrals, fonts, spacing.
+ * Generated from https://github.com/xSAVIKx/xSAVIKx.github.io/tree/main/identity. Do not edit.
+ * Source: https://xsavikx.github.io/identity/ys-vitepress.css
+ */
+:root {
+  --ys-bg: #f8fafc;
+  --ys-surface: #ffffff;
+  --ys-surface-2: #f1f5f9;
+  --ys-text: #0f172a;
+  --ys-muted: #475569;
+  --ys-border: #e2e8f0;
+  --ys-border-strong: #64748b;
+  --ys-accent: #1d4ed8;
+  --ys-accent-solid: #2563eb;
+  --ys-on-accent: #ffffff;
+}
+:root {
+  --ys-font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "Liberation Sans", Arial, sans-serif;
+  --ys-font-mono: ui-monospace, SFMono-Regular, "SF Mono", "Cascadia Mono", Menlo, Consolas, "DejaVu Sans Mono", "Liberation Mono", monospace;
+  --ys-space-1: 0.25rem;
+  --ys-space-2: 0.5rem;
+  --ys-space-3: 0.75rem;
+  --ys-space-4: 1rem;
+  --ys-space-5: 1.25rem;
+  --ys-space-6: 1.5rem;
+  --ys-space-8: 2rem;
+  --ys-space-10: 2.5rem;
+  --ys-space-12: 3rem;
+  --ys-radius-sm: 6px;
+  --ys-radius-md: 10px;
+  --ys-radius-lg: 14px;
+  --ys-radius-pill: 999px;
+  --ys-tap: 44px;
+  --ys-focus-width: 3px;
+  --ys-focus-offset: 2px;
+  --ys-underline-offset: 0.2em;
+  --ys-underline-thickness: max(1px, 0.0625em);
+}
+/* Dark: the page pinned dark. */
+.dark {
+  color-scheme: dark;
+  --ys-bg: #14161a;
+  --ys-surface: #1b1e24;
+  --ys-surface-2: #21252c;
+  --ys-text: #e8e8e8;
+  --ys-muted: #a7adb8;
+  --ys-border: #2a2d33;
+  --ys-border-strong: #737a86;
+  --ys-accent: #6ea8ff;
+  --ys-accent-solid: #2563eb;
+  --ys-on-accent: #ffffff;
+}
+/* Print: white paper, black text. A dark page prints with the light colours. */
+@media print {
+  :root, .dark {
+    color-scheme: light;
+    --ys-bg: #ffffff;
+    --ys-surface: #ffffff;
+    --ys-surface-2: #f1f5f9;
+    --ys-text: #000000;
+    --ys-muted: #475569;
+    --ys-border: #e2e8f0;
+    --ys-border-strong: #64748b;
+    --ys-accent: #1d4ed8;
+    --ys-accent-solid: #2563eb;
+    --ys-on-accent: #ffffff;
+  }
+}
+
+/* Shared rules (since 1.1.0). Each adapter bundle has them. They are safe on every stack. */
+/* Footer line (1.1.0): the old form of the link to the hub. It stays for the sites that use it. New pages use .ys-back-link. */
+.ys-footer-line { display: block; margin: var(--ys-space-4) 0 0; color: var(--ys-muted); font: 0.8125rem/1.5 var(--ys-font-sans); }
+.ys-footer-line a { color: inherit; text-decoration: underline; text-underline-offset: var(--ys-underline-offset); text-decoration-thickness: var(--ys-underline-thickness); }
+/* Back link (since 1.2.0): the "More projects" link to the hub. Opt-in: put the class on the <a>.
+ * The link is a touch target of at least 44 px by 44 px. The ring uses --ys-focus-color, or the colour of the link. */
+.ys-back-link { display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; min-width: var(--ys-tap); min-height: var(--ys-tap); padding: 0 var(--ys-space-2); color: var(--ys-muted); font: 0.8125rem/1.5 var(--ys-font-sans); text-decoration: underline; text-underline-offset: var(--ys-underline-offset); text-decoration-thickness: var(--ys-underline-thickness); }
+.ys-back-link:focus-visible { outline: var(--ys-focus-width) solid var(--ys-focus-color, currentColor); outline-offset: var(--ys-focus-offset); border-radius: var(--ys-radius-sm); }
+/* Reduced motion: no smooth scroll. The identity adds no animation and no transition of its own. */
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto !important; }
+}
+@media print {
+  .ys-footer-line a[href^="http"]::after { content: " (" attr(href) ")"; }
+  .ys-back-link[href^="http"]::after { content: " (" attr(href) ")"; }
+  .ys-print-hide { display: none !important; }
+}
+
+/* Adapter: VitePress 1 default theme. Import after the theme's own style.css.
+ * Only neutrals and fonts. The --vp-c-brand-* colours, buttons, hero and logo stay the project's own. */
+:root, .dark {
+  --vp-c-bg: var(--ys-bg);
+  --vp-c-bg-alt: var(--ys-surface-2);
+  --vp-c-bg-elv: var(--ys-surface);
+  --vp-c-bg-soft: var(--ys-surface);
+  --vp-c-text-1: var(--ys-text);
+  --vp-c-text-2: var(--ys-muted);
+  --vp-c-text-3: var(--ys-muted);
+  --vp-c-divider: var(--ys-border);
+  --vp-c-gutter: var(--ys-border);
+  --vp-c-border: var(--ys-border-strong);
+  --vp-nav-bg-color: var(--ys-bg);
+  --vp-sidebar-bg-color: var(--ys-bg);
+  --vp-code-block-bg: var(--ys-surface-2);
+  --vp-font-family-base: var(--ys-font-sans);
+  --vp-font-family-mono: var(--ys-font-mono);
+}
+.VPFeature { border: 1px solid var(--ys-border); border-radius: var(--ys-radius-lg); }
+/* Focus (since 1.1.0): no rule. VitePress shows the focus ring of the browser on links and on buttons.
+ * Reduced motion: VitePress has its own rule. Links: VitePress has its own underline rules. */
+@media print {
+  /* The fixed navigation prints on each sheet. Hide the navigation chrome. The page text stays. */
+  .VPNav, .VPLocalNav, .VPSidebar, .VPDocAside { display: none !important; }
+  /* The dark brand colour is too light on white paper. A body-text link and inline code print in the text colour. The link keeps its underline. */
+  .vp-doc a, .vp-doc :not(pre) > code { color: inherit; }
+  /* VitePress pins the dark canvas with html.dark. Paper is light. */
+  html.dark { color-scheme: light; }
+}

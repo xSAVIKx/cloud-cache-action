@@ -154,7 +154,7 @@ When you see this message, run `npm config get cache` or `pnpm store path` in th
 
 ## Explicit inputs win
 
-An explicit `path`, `key` or `restore-keys` input replaces the preset value for that one input:
+An explicit `path`, `key` or `restore-keys` input replaces the preset value for that one input. Setting `key` also turns off the preset `restore-keys`:
 
 | You set           | `path`              | `key`                    | `restore-keys`                                                |
 | ----------------- | ------------------- | ------------------------ | ------------------------------------------------------------- |

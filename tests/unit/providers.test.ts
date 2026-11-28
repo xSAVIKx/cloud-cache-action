@@ -27,7 +27,7 @@ describe('Storage Providers', () => {
     });
 
     it('detects Fastly Object Storage from endpoint URL', () => {
-      expect(detectProvider('https://object.us-east-1.fastlystorage.com')).toBe('fastly');
+      expect(detectProvider('https://us-east-1.object.fastlystorage.app')).toBe('fastly');
     });
 
     it('detects Garage from standard port :3900', () => {
@@ -100,9 +100,39 @@ describe('Storage Providers', () => {
       expect(detectProvider(undefined, 'fastly')).toBe('fastly');
       expect(detectProvider(undefined, 'minio')).toBe('minio');
       expect(detectProvider(undefined, 'rustfs')).toBe('rustfs');
+      expect(detectProvider(undefined, 'AWS-Emulator')).toBe('aws-emulator');
       expect(detectProvider(undefined, 'unknown-provider')).toBe('generic-s3');
       expect(detectProvider('https://unrecognized-s3.example.com')).toBe('generic-s3');
     });
+
+    it('reads the Fastly region from the endpoint host', () => {
+      const eu = resolveProviderDefaults('https://eu-central-1.object.fastlystorage.app');
+      expect(eu.provider).toBe('fastly');
+      expect(eu.region).toBe('eu-central-1');
+
+      const explicit = resolveProviderDefaults(
+        'https://eu-central-1.object.fastlystorage.app',
+        'us-east-1'
+      );
+      expect(explicit.region).toBe('us-east-1');
+    });
+
+    it('names the aws provider explicitly', () => {
+      expect(detectProvider('http://x:1', 'aws')).toBe('aws');
+      expect(detectProvider('http://x:1', 'AWS ')).toBe('aws');
+    });
+
+    it.each(['r2', 'gcs', 'b2', 'fastly', 'garage', 'seaweedfs'])(
+      'keeps an explicit forcePathStyle for %s',
+      (provider) => {
+        expect(resolveProviderDefaults('http://x:1', 'r', true, provider).forcePathStyle).toBe(
+          true
+        );
+        expect(resolveProviderDefaults('http://x:1', 'r', false, provider).forcePathStyle).toBe(
+          false
+        );
+      }
+    );
 
     it('prepends https:// when protocol is omitted from endpoint', () => {
       const config = resolveProviderDefaults('custom-endpoint.domain.com');
@@ -110,7 +140,7 @@ describe('Storage Providers', () => {
     });
 
     it('resolves defaults for fastly and minio providers', () => {
-      const fastly = resolveProviderDefaults('https://object.us-east-1.fastlystorage.com');
+      const fastly = resolveProviderDefaults('https://us-east-1.object.fastlystorage.app');
       expect(fastly.provider).toBe('fastly');
       expect(fastly.forcePathStyle).toBe(true);
       expect(fastly.region).toBe('us-east-1');
@@ -131,6 +161,33 @@ describe('Storage Providers', () => {
       expect(rustfs.forcePathStyle).toBe(true);
       expect(rustfs.region).toBe('us-east-1');
     });
+
+    it('detects the AWS Emulator from its default port and forces path-style addressing', () => {
+      const emulator = resolveProviderDefaults('https://127.0.0.1:9297');
+      expect(emulator).toEqual({
+        provider: 'aws-emulator',
+        endpoint: 'https://127.0.0.1:9297',
+        region: 'us-east-1',
+        forcePathStyle: true,
+        maxPartSize: 16 * 1024 * 1024,
+      });
+    });
+
+    it('sets no part size limit for other providers', () => {
+      expect(resolveProviderDefaults('http://127.0.0.1:9000').maxPartSize).toBeUndefined();
+    });
+
+    it('keeps an explicit region and path-style choice for the AWS Emulator', () => {
+      const emulator = resolveProviderDefaults(
+        'https://127.0.0.1:9300',
+        'eu-west-1',
+        false,
+        'aws-emulator'
+      );
+      expect(emulator.provider).toBe('aws-emulator');
+      expect(emulator.region).toBe('eu-west-1');
+      expect(emulator.forcePathStyle).toBe(false);
+    });
   });
 
   describe('isKnownProvider', () => {
@@ -149,6 +206,7 @@ describe('Storage Providers', () => {
       'seaweed',
       'minio',
       'rustfs',
+      'aws-emulator',
     ])('knows %s', (name) => {
       expect(isKnownProvider(name)).toBe(true);
     });
