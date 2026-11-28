@@ -24,7 +24,8 @@ export const FLAG_DESCRIPTIONS: Record<CliCommand, Record<string, string>> = {
     endpoint:
       'Custom S3-compatible endpoint URL (e.g., https://<account_id>.r2.cloudflarestorage.com or https://storage.googleapis.com)',
     region: 'AWS or S3 provider region (e.g., us-east-1, auto, etc.)',
-    provider: 'Storage provider preset: aws, r2, gcs, b2, fastly, garage, seaweedfs, minio, rustfs',
+    provider:
+      'Storage provider preset: aws, r2, gcs, b2, fastly, garage, seaweedfs, minio, rustfs, aws-emulator',
     'access-key': 'S3 Access Key ID (falls back to AWS_ACCESS_KEY_ID or IAM/OIDC)',
     accessKey: 'Alias for access-key',
     'secret-key': 'S3 Secret Access Key (falls back to AWS_SECRET_ACCESS_KEY)',
@@ -86,7 +87,8 @@ export const FLAG_DESCRIPTIONS: Record<CliCommand, Record<string, string>> = {
     endpoint:
       'Custom S3-compatible endpoint URL (e.g., https://<account_id>.r2.cloudflarestorage.com or https://storage.googleapis.com)',
     region: 'AWS or S3 provider region (e.g., us-east-1, auto, etc.)',
-    provider: 'Storage provider preset: aws, r2, gcs, b2, fastly, garage, seaweedfs, minio, rustfs',
+    provider:
+      'Storage provider preset: aws, r2, gcs, b2, fastly, garage, seaweedfs, minio, rustfs, aws-emulator',
     'access-key': 'S3 Access Key ID (falls back to AWS_ACCESS_KEY_ID or IAM/OIDC)',
     accessKey: 'Alias for access-key',
     'secret-key': 'S3 Secret Access Key (falls back to AWS_SECRET_ACCESS_KEY)',
@@ -138,7 +140,8 @@ export const FLAG_DESCRIPTIONS: Record<CliCommand, Record<string, string>> = {
     bucket: 'The S3 bucket name where cache archives are stored',
     endpoint: 'Custom S3-compatible endpoint URL',
     region: 'AWS or S3 provider region',
-    provider: 'Storage provider preset: aws, r2, gcs, b2, fastly, garage, seaweedfs, minio, rustfs',
+    provider:
+      'Storage provider preset: aws, r2, gcs, b2, fastly, garage, seaweedfs, minio, rustfs, aws-emulator',
     'access-key': 'S3 Access Key ID',
     accessKey: 'Alias for access-key',
     'secret-key': 'S3 Secret Access Key',
@@ -170,7 +173,8 @@ export const FLAG_DESCRIPTIONS: Record<CliCommand, Record<string, string>> = {
     endpoint:
       'Custom S3-compatible endpoint URL (e.g., https://<account_id>.r2.cloudflarestorage.com or https://storage.googleapis.com)',
     region: 'AWS or S3 provider region (e.g., us-east-1, auto, etc.)',
-    provider: 'Storage provider preset: aws, r2, gcs, b2, fastly, garage, seaweedfs, minio, rustfs',
+    provider:
+      'Storage provider preset: aws, r2, gcs, b2, fastly, garage, seaweedfs, minio, rustfs, aws-emulator',
     'access-key': 'S3 Access Key ID (falls back to AWS_ACCESS_KEY_ID or IAM/OIDC)',
     accessKey: 'Alias for access-key',
     'secret-key': 'S3 Secret Access Key (falls back to AWS_SECRET_ACCESS_KEY)',
