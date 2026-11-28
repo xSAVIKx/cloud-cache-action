@@ -63,6 +63,7 @@ async function setUpS3(
   try {
     const tier = await buildS3Tier(config, process.env, {
       compression: stateProvider.getState(State.CacheCompression),
+      uploads: true,
     });
     getHost().setOutput(Outputs.CacheStorageProvider, tier.storage.providerConfig.provider);
     return tier;

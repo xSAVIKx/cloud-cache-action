@@ -71,6 +71,8 @@ The CLI reads each input in this order:
 2. The environment variable.
 3. The default value.
 
+Three inputs also read standard AWS variables when the flag and the `CLOUD_CACHE_*` variable are not set. `bucket` reads `AWS_S3_BUCKET` or `S3_BUCKET`. `endpoint` reads `AWS_ENDPOINT_URL_S3`, then `AWS_ENDPOINT_URL`. `region` reads `AWS_REGION` or `AWS_DEFAULT_REGION`.
+
 The default values are the same as the `default:` values in the action manifest of the command. For the meaning of each input, read [Inputs and Outputs](./reference.md).
 
 Follow these rules for flag values:
@@ -84,7 +86,7 @@ export CLOUD_CACHE_BUCKET=my-cache-bucket
 export CLOUD_CACHE_ACCESS_KEY=...
 export CLOUD_CACHE_SECRET_KEY=...
 
-cloud-cache restore \
+node cloud-cache.mjs restore \
   --key "deps-$(sha256sum package-lock.json | cut -d' ' -f1)" \
   --restore-keys deps- \
   --path node_modules \
@@ -119,7 +121,7 @@ These flags are for Bitbucket. Each flag has an environment variable.
 The values of `--key` and `--restore-keys` can contain `{hash:<glob>[,<glob>...]}`. The CLI replaces each template with the `hashFiles` hash of the matching files. The globs are relative to the workspace.
 
 ```sh
-cloud-cache restore --key "deps-{hash:package-lock.json}" --path node_modules
+node cloud-cache.mjs restore --key "deps-{hash:package-lock.json}" --path node_modules
 ```
 
 The template ends at the first `}`. A glob with braces, such as `**/*.{lock,json}`, does not work. Use two globs that a comma separates, for example `{hash:**/*.lock,**/*.json}`. For all rules, see [Key hashing with `{hash:}`](./bitbucket.md#key-hashing-with-hash).
@@ -158,7 +160,11 @@ Set `CLOUD_CACHE_REF` in every job that uses a scoped cache.
 
 - The default path is `cloud-cache-state.json` in the temporary directory of the OS.
 - Use the same `--state-file` for `restore` and `save` if the two commands run with different `TMPDIR` values.
-- Each `restore` starts with an empty state file. It removes the state of the previous restore.
+- Each `restore` starts with an empty state file. It removes the state of the previous restore. This happens before the CLI expands `{hash:}` templates.
+- `restore` records the repository in the state file. If `save` finds a state from another repository, it prints a warning, removes the file, and ignores that state. The check does not use the workspace. `restore` and `save` can run in different directories of one repository.
+- `save` removes the state file after it succeeds. A second `save` does not use the state of the first job.
+- If `save` fails, it keeps the state file. A retry of only the `save` step then still uses the state of the `restore`.
+- If `save` is skipped, it keeps the state file. This happens on Bitbucket after a failed step. The next `restore` removes the file.
 - After a `restore`, `save` takes the key and the paths from the state file, not from its flags. If `--key` or `--path` differ from the state, `save` prints a warning that names both values. The state from restore wins.
 - Use one state file for each cache, and for each job that runs at the same time on one machine.
 - If the file does not exist, `save` works as if no restore ran.
@@ -217,12 +223,12 @@ export CLOUD_CACHE_ENDPOINT="https://s3.example.com"
 
 KEY="deps-$(sha256sum package-lock.json | cut -d' ' -f1)"
 
-cloud-cache restore --key "$KEY" --restore-keys deps- --path node_modules --outputs-file outputs.env
+node cloud-cache.mjs restore --key "$KEY" --restore-keys deps- --path node_modules --outputs-file outputs.env
 
 npm ci
 npm test
 
-cloud-cache save --key "$KEY" --path node_modules
+node cloud-cache.mjs save --key "$KEY" --path node_modules
 ```
 
 `save` takes the key and the paths from the state file of the `restore` before it. `save` skips the upload when `restore` found an exact hit. Use one state file for each cache, and for each job that runs at the same time on one machine.

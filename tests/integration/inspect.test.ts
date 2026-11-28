@@ -5,7 +5,12 @@ import type { ExplainReport } from '../../src/core/explain';
 import { inspectImpl } from '../../src/core/inspectImpl';
 import { saveImpl } from '../../src/core/saveImpl';
 import { MemoryState } from '../support/memoryState';
-import { createTestS3Client, getTestS3Config, prepareTestBucket } from '../support/s3Server';
+import {
+  createTestS3Client,
+  deleteTestPrefix,
+  getTestS3Config,
+  prepareTestBucket,
+} from '../support/s3Server';
 import { makeTempDir, removeDir, setEnv, writeFiles } from '../support/tempTree';
 
 const s3 = getTestS3Config();
@@ -94,6 +99,12 @@ beforeEach(() => {
     GITHUB_STEP_SUMMARY: undefined,
   });
   process.exitCode = undefined;
+});
+
+afterAll(async () => {
+  if (available) {
+    await deleteTestPrefix(s3, `cloud-cache-it/inspect-${runId}/`);
+  }
 });
 
 afterEach(() => {

@@ -86,6 +86,16 @@
   --vp-button-brand-active-bg: #0c4a6e;
 }
 
+/*
+ * In a custom block, inline code sits on two soft layers over the shared page colour. There,
+ * #0369a1 gives 4.03:1 to 4.48:1. The next darker brand shade, #075985, gives 5.14:1 to 5.71:1.
+ * Inline code in a link uses its own variable, so it gets the same shade.
+ */
+html:not(.dark) .vp-doc .custom-block {
+  --vp-code-color: var(--vp-c-brand-2);
+  --vp-code-link-color: var(--vp-c-brand-2);
+}
+
 /* The nav logo has width and height attributes. These keep its size. */
 .VPNavBarTitle .logo {
   width: 24px;
