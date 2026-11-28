@@ -324,13 +324,14 @@ export default defineConfig({
           { text: 'SeaweedFS', link: '/providers/seaweedfs' },
           { text: 'MinIO', link: '/providers/minio' },
           { text: 'RustFS', link: '/providers/rustfs' },
+          { text: 'AWS Emulator', link: '/providers/aws-emulator' },
         ],
       },
     ],
     socialLinks: [{ icon: 'github', link: REPO_URL }],
     footer: {
       message: `Released under the <a href="${REPO_URL}/blob/main/LICENSE" target="_blank" rel="noopener">MIT License</a>.`,
-      copyright: `Created by <a href="${AUTHOR.url}" target="_blank" rel="author noopener">${AUTHOR.name}</a>. <a href="${SITE_ORIGIN}/" target="_self">More projects</a>`,
+      copyright: `Created by <a href="${AUTHOR.url}" target="_blank" rel="author noopener">${AUTHOR.name}</a>. <a class="ys-back-link" href="${SITE_ORIGIN}/" target="_self">More projects</a>`,
     },
   },
 });

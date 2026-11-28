@@ -56,7 +56,7 @@ Store the credentials in **Settings** > **Secrets and variables** > **Actions** 
   uses: xSAVIKx/cloud-cache-action@v1
   with:
     bucket: my-fastly-cache-bucket
-    endpoint: https://object.us-east-1.fastlystorage.com # Your region
+    endpoint: https://us-east-1.object.fastlystorage.app # Your region
     access-key: ${{ secrets.FASTLY_ACCESS_KEY }}
     secret-key: ${{ secrets.FASTLY_SECRET_KEY }}
     key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
@@ -73,3 +73,11 @@ Store the credentials in **Settings** > **Secrets and variables** > **Actions** 
 
 - **Checksums**: for this provider, the action sends request checksums only when S3 requires them, because many S3-compatible services reject the CRC checksums recent AWS SDKs send by default. Nothing to configure.
 - **Expiry**: the action never deletes caches. Use the lifecycle rule above, or the [`prune` sub-action](../guide/pruning.md).
+
+### Live CI workflow
+
+The repository has a live test workflow for Fastly Object Storage. The workflow file is [`.github/workflows/provider-fastly.yml`](https://github.com/xSAVIKx/cloud-cache-action/blob/main/.github/workflows/provider-fastly.yml). It runs on `main`, every night and on manual dispatch. It saves a cache, restores it, and compares the checksum. When the repository has no Fastly secrets, the job skips the test and does not fail.
+
+::: details `.github/workflows/provider-fastly.yml` (Click to view full workflow)
+<<< ../../.github/workflows/provider-fastly.yml{yaml}
+:::

@@ -8,6 +8,25 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 Conventional Commit messages on `main`. Entries up to v1.9.0 follow
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.11.1](https://github.com/xSAVIKx/cloud-cache-action/compare/v1.11.0...v1.11.1) (2026-11-20)
+
+
+### Fixed
+
+* create restore temp dirs inside the try and under RUNNER_TEMP ([#61](https://github.com/xSAVIKx/cloud-cache-action/issues/61)) ([12ca9ed](https://github.com/xSAVIKx/cloud-cache-action/commit/12ca9ed1ecf11392892d31750bfad3a29f2795ed))
+* detect Fastly by fastlystorage.app and read the region from the endpoint ([#57](https://github.com/xSAVIKx/cloud-cache-action/issues/57)) ([3c10ce0](https://github.com/xSAVIKx/cloud-cache-action/commit/3c10ce0007f0a2d47340efd92d6e77801b0ef59b))
+* do not let a CLI save reuse the state file of another job ([#62](https://github.com/xSAVIKx/cloud-cache-action/issues/62)) ([b28ec5e](https://github.com/xSAVIKx/cloud-cache-action/commit/b28ec5eaf9e61d6cc5d151e251ef2cb7be969ac7))
+* escape control characters in listed keys before logging ([#58](https://github.com/xSAVIKx/cloud-cache-action/issues/58)) ([f953830](https://github.com/xSAVIKx/cloud-cache-action/commit/f953830109a52d9cc3251efe5cea7c2b3b6fbf95))
+* pin ranged download parts to one object version ([#60](https://github.com/xSAVIKx/cloud-cache-action/issues/60)) ([abb89c8](https://github.com/xSAVIKx/cloud-cache-action/commit/abb89c8d7800a42e21055cf4b98c7a290f368e86))
+* prefer AWS_ENDPOINT_URL_S3 and explain region redirects ([#56](https://github.com/xSAVIKx/cloud-cache-action/issues/56)) ([8432cd1](https://github.com/xSAVIKx/cloud-cache-action/commit/8432cd1778b07d60c6484045c9611352189f13e1))
+* send [@actions](https://github.com/actions) workflow commands to the CLI log, not to stdout ([#46](https://github.com/xSAVIKx/cloud-cache-action/issues/46)) ([a22bdfb](https://github.com/xSAVIKx/cloud-cache-action/commit/a22bdfb551dcd3f19b7e81376700ded8c232f0ca))
+* warn when ${ref} shares a path segment with other text in s3-key-pattern ([#59](https://github.com/xSAVIKx/cloud-cache-action/issues/59)) ([a12c9a3](https://github.com/xSAVIKx/cloud-cache-action/commit/a12c9a3928a030094465e6b0fe786311412712fe))
+
+
+### Dependencies
+
+* bump the npm-minor-patch group across 1 directory with 7 updates ([#49](https://github.com/xSAVIKx/cloud-cache-action/issues/49)) ([256d4ad](https://github.com/xSAVIKx/cloud-cache-action/commit/256d4ad1420e897ecaa8c72206ace6c1e961b1f7))
+
 ## [1.11.0](https://github.com/xSAVIKx/cloud-cache-action/compare/v1.10.1...v1.11.0) (2026-10-29)
 
 

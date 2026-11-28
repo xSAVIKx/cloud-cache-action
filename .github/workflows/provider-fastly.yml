@@ -1,0 +1,140 @@
+name: Provider - Fastly Object Storage
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, labeled]
+  workflow_dispatch:
+  schedule:
+    - cron: '0 4 * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  test-fastly:
+    name: Fastly Object Storage Live Integration
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
+      # The job skips the live test when one of the four secrets is not set.
+      # The repository variable FASTLY_REGION is optional. Without it, the action uses its
+      # default region for the fastly provider.
+      - name: Check Fastly credentials
+        id: check-secrets
+        env:
+          FASTLY_ACCESS_KEY_ID: ${{ secrets.FASTLY_ACCESS_KEY_ID }}
+          FASTLY_SECRET_ACCESS_KEY: ${{ secrets.FASTLY_SECRET_ACCESS_KEY }}
+          FASTLY_BUCKET: ${{ secrets.FASTLY_BUCKET }}
+          FASTLY_ENDPOINT: ${{ secrets.FASTLY_ENDPOINT }}
+        run: |
+          if [ -z "$FASTLY_ACCESS_KEY_ID" ] || [ -z "$FASTLY_SECRET_ACCESS_KEY" ] || [ -z "$FASTLY_BUCKET" ] || [ -z "$FASTLY_ENDPOINT" ]; then
+            echo "has_secrets=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Fastly secrets (FASTLY_ACCESS_KEY_ID, FASTLY_SECRET_ACCESS_KEY, FASTLY_BUCKET, FASTLY_ENDPOINT) are not configured. Skipping live Fastly Object Storage integration test."
+          else
+            echo "has_secrets=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Generate synthetic test payload
+        if: steps.check-secrets.outputs.has_secrets == 'true'
+        env:
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          mkdir -p ~/fastly-cache-test
+          echo "Fastly test artifact $(date +%s%N) for run $RUN_ID" > ~/fastly-cache-test/sample.txt
+          sha256sum ~/fastly-cache-test/sample.txt > /tmp/fastly-expected-sha.txt
+          cat /tmp/fastly-expected-sha.txt
+
+      - name: Save cache to Fastly Object Storage (save-only)
+        if: steps.check-secrets.outputs.has_secrets == 'true'
+        uses: ./save
+        with:
+          path: ~/fastly-cache-test
+          key: fastly-live-test-${{ github.run_id }}-${{ github.run_attempt }}
+          provider: fastly
+          bucket: ${{ secrets.FASTLY_BUCKET }}
+          endpoint: ${{ secrets.FASTLY_ENDPOINT }}
+          region: ${{ vars.FASTLY_REGION }}
+          access-key: ${{ secrets.FASTLY_ACCESS_KEY_ID }}
+          secret-key: ${{ secrets.FASTLY_SECRET_ACCESS_KEY }}
+
+      - name: Purge local test payload
+        if: steps.check-secrets.outputs.has_secrets == 'true'
+        run: rm -rf ~/fastly-cache-test
+
+      - name: Restore cache from Fastly Object Storage (restore-only)
+        if: steps.check-secrets.outputs.has_secrets == 'true'
+        id: restore-fastly
+        uses: ./restore
+        with:
+          path: ~/fastly-cache-test
+          key: fastly-live-test-${{ github.run_id }}-${{ github.run_attempt }}
+          provider: fastly
+          bucket: ${{ secrets.FASTLY_BUCKET }}
+          endpoint: ${{ secrets.FASTLY_ENDPOINT }}
+          region: ${{ vars.FASTLY_REGION }}
+          access-key: ${{ secrets.FASTLY_ACCESS_KEY_ID }}
+          secret-key: ${{ secrets.FASTLY_SECRET_ACCESS_KEY }}
+          fail-on-cache-miss: true
+
+      - name: Verify restored content and checksum
+        if: steps.check-secrets.outputs.has_secrets == 'true'
+        env:
+          CACHE_HIT: ${{ steps.restore-fastly.outputs.cache-hit }}
+        run: |
+          echo "Asserting cache hit..."
+          if [ "$CACHE_HIT" != "true" ]; then
+            echo "::error::Expected cache-hit to be 'true', got '$CACHE_HIT'"
+            exit 1
+          fi
+
+          if [ ! -f ~/fastly-cache-test/sample.txt ]; then
+            echo "::error::Restored file ~/fastly-cache-test/sample.txt not found!"
+            exit 1
+          fi
+
+          ACTUAL_SHA=$(sha256sum ~/fastly-cache-test/sample.txt | awk '{print $1}')
+          EXPECTED_SHA=$(awk '{print $1}' /tmp/fastly-expected-sha.txt)
+          if [ "$ACTUAL_SHA" != "$EXPECTED_SHA" ]; then
+            echo "::error::Checksum mismatch! Expected $EXPECTED_SHA, got $ACTUAL_SHA"
+            exit 1
+          fi
+
+          echo "Live Fastly Object Storage cache save & restore test succeeded! Checksum: $ACTUAL_SHA"
+
+      - name: Look up by restore-keys
+        if: steps.check-secrets.outputs.has_secrets == 'true'
+        id: restore-keys-fastly
+        uses: ./restore
+        with:
+          path: ~/fastly-cache-test
+          key: fastly-live-test-${{ github.run_id }}-${{ github.run_attempt }}-missing
+          restore-keys: fastly-live-test-${{ github.run_id }}-
+          lookup-only: true
+          provider: fastly
+          bucket: ${{ secrets.FASTLY_BUCKET }}
+          endpoint: ${{ secrets.FASTLY_ENDPOINT }}
+          region: ${{ vars.FASTLY_REGION }}
+          access-key: ${{ secrets.FASTLY_ACCESS_KEY_ID }}
+          secret-key: ${{ secrets.FASTLY_SECRET_ACCESS_KEY }}
+
+      - name: Verify the restore-keys match
+        if: steps.check-secrets.outputs.has_secrets == 'true'
+        env:
+          CACHE_HIT: ${{ steps.restore-keys-fastly.outputs.cache-hit }}
+          MATCHED_KEY: ${{ steps.restore-keys-fastly.outputs.cache-matched-key }}
+          EXPECTED_KEY: fastly-live-test-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          test "$CACHE_HIT" = "false"
+          test "$MATCHED_KEY" = "$EXPECTED_KEY"

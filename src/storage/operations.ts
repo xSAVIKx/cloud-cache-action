@@ -211,12 +211,12 @@ export interface StreamUpload {
  * Awaits `upload.done()`. When it rejects after a multipart upload was created, sends
  * AbortMultipartUpload for it before rethrowing the original error, unchanged.
  *
- * lib-storage aborts the multipart upload itself only when a part fails, the upload is aborted,
- * or the part count is wrong; not when CompleteMultipartUpload itself fails (a 412 from a lost
- * conditional-write race, or a 501 from a server that rejects `If-None-Match`). Without this,
- * every such failure leaves its uploaded parts behind, stored and billed until a lifecycle rule
- * removes them. When lib-storage has already aborted the upload, this second abort fails with
- * NoSuchUpload, which is expected and only logged at debug level.
+ * lib-storage aborts the multipart upload itself when a part fails, when the part count is wrong,
+ * and (since 3.1169.0) when CompleteMultipartUpload fails. It does not always do so when the
+ * caller stops the upload with `abort()`: `done()` rejects at once, and its own abort can come
+ * late or not at all. Without this abort, such an upload leaves its parts behind, stored and
+ * billed until a lifecycle rule removes them. When lib-storage has already aborted the upload,
+ * this second abort fails with NoSuchUpload, which is expected and only logged at debug level.
  */
 async function completeOrAbort(
   client: S3Client,
