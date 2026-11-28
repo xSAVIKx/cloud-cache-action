@@ -284,18 +284,36 @@ describe('main', () => {
     expect(restoreImpl).not.toHaveBeenCalled();
   });
 
-  it('help lists commands, flags with defaults, and the env rule', async () => {
+  it('help lists commands, the CLI flags, and the env rule', async () => {
     expect(await main(['--help'])).toBe(0);
     expect(stdout).toContain('Usage: cloud-cache <command> [flags]');
     for (const command of ['restore', 'save', 'inspect', 'prune']) {
       expect(stdout).toContain(command);
     }
-    expect(stdout).toContain('--retry-count <value>  (default: 3)');
-    expect(stdout).toContain('--max-candidates');
+    expect(stdout).toContain('Run cloud-cache <command> --help to see the flags of a command');
     expect(stdout).toContain('--state-file');
     expect(stdout).toContain('name<<delimiter');
     expect(stdout).toContain('CLOUD_CACHE_');
     expect(stderr).toBe('');
+  });
+
+  it('help after a command prints the help of that command only', async () => {
+    expect(await main(['inspect', '--help'])).toBe(0);
+    expect(stdout).toContain('Usage: cloud-cache inspect [flags]');
+    expect(stdout).toContain('--max-candidates <value>');
+    expect(stdout.replace(/\s+/g, ' ')).toContain('Env: CLOUD_CACHE_MAX_CANDIDATES.');
+    expect(stdout).not.toContain('--older-than-days');
+    expect(stdout).not.toContain('Usage: cloud-cache <command>');
+    expect(stderr).toBe('');
+    expect(inspectImpl).not.toHaveBeenCalled();
+  });
+
+  it('a usage error names the nearest flag and the command help', async () => {
+    expect(await main(['restore', '--buket', 'b'])).toBe(2);
+    expect(stderr).toContain(
+      'error: unknown flag --buket. The nearest flag of restore is --bucket\n'
+    );
+    expect(stderr).toContain('Run cloud-cache <command> --help to see the flags of a command.');
   });
 
   it('prints the version', async () => {
