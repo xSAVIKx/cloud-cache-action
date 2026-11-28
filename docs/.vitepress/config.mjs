@@ -255,7 +255,15 @@ export default defineConfig({
   themeConfig: {
     // The site name is next to the logo, so the logo is decorative.
     logo: { src: '/logo.svg', alt: '', width: 24, height: 24 },
-    search: { provider: 'local' },
+    search: {
+      provider: 'local',
+      options: {
+        // The changelog repeats words from every page. Rank it below the guides.
+        miniSearch: {
+          searchOptions: { boostDocument: (id) => (id.includes('changelog') ? 0.3 : 1) },
+        },
+      },
+    },
     lastUpdated: { formatOptions: { dateStyle: 'medium' } },
     editLink: {
       pattern: `${REPO_URL}/edit/main/docs/:path`,

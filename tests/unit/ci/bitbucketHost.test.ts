@@ -86,11 +86,48 @@ describe('BitbucketHost context', () => {
     expect(host(env).context().refs).toEqual({ current: undefined, restore: [] });
   });
 
-  it('workspace falls back to CLOUD_CACHE_WORKSPACE, then cwd', () => {
+  it('uses CLOUD_CACHE_WORKSPACE when it is set, with no warning', () => {
     spyOut();
+    const err = spyErr();
+    const h = host({ ...BRANCH_ENV, CLOUD_CACHE_WORKSPACE: '/b/service-a' });
+    expect(h.context().workspace).toBe('/b/service-a');
+    expect(err).not.toHaveBeenCalled();
+  });
+
+  it('uses BITBUCKET_CLONE_DIR when CLOUD_CACHE_WORKSPACE is not set, then cwd', () => {
+    spyOut();
+    expect(host(BRANCH_ENV).context().workspace).toBe('/b');
+    expect(host({ ...BRANCH_ENV, CLOUD_CACHE_WORKSPACE: '' }).context().workspace).toBe('/b');
     const { BITBUCKET_CLONE_DIR: _c, ...env } = BRANCH_ENV;
-    expect(host({ ...env, CLOUD_CACHE_WORKSPACE: '/w' }).context().workspace).toBe('/w');
     expect(host(env).context().workspace).toBe(process.cwd());
+  });
+
+  it('keeps a relative CLOUD_CACHE_WORKSPACE as it is, as the generic host does', () => {
+    spyOut();
+    expect(host({ ...BRANCH_ENV, CLOUD_CACHE_WORKSPACE: 'service-a' }).context().workspace).toBe(
+      'service-a'
+    );
+  });
+
+  it('keeps a Windows CLOUD_CACHE_WORKSPACE as it is, case included', () => {
+    spyOut();
+    const err = spyErr();
+    const env = {
+      ...BRANCH_ENV,
+      BITBUCKET_CLONE_DIR: 'C:\\Build',
+      CLOUD_CACHE_WORKSPACE: 'c:\\build\\svc',
+    };
+    expect(host(env).context().workspace).toBe('c:\\build\\svc');
+    expect(err).not.toHaveBeenCalled();
+  });
+
+  it('names the chosen workspace in a debug line', () => {
+    const out = spyOut();
+    host({ ...BRANCH_ENV, CLOUD_CACHE_WORKSPACE: '/b/service-a' }, { debug: true }).context();
+    host(BRANCH_ENV, { debug: true }).context();
+    const text = out.mock.calls.map(([m]) => String(m)).join('');
+    expect(text).toContain('debug: Workspace: /b/service-a (from CLOUD_CACHE_WORKSPACE)');
+    expect(text).toContain('debug: Workspace: /b (from BITBUCKET_CLONE_DIR)');
   });
 
   it('ignores CLOUD_CACHE_EVENT_NAME', () => {

@@ -44,6 +44,16 @@ node cloud-cache.mjs --version
 
 Replace `<version>` with the version that you want. Use the version of a release that has the `cloud-cache.mjs` asset. The command `sha256sum -c` prints `cloud-cache.mjs: OK` when the file is correct. On macOS, use `shasum -a 256 -c SHA256SUMS`.
 
+### Verify the build provenance
+
+A new release also has a build provenance attestation for `cloud-cache.mjs`. The attestation shows that the release workflow of this repository built the file. To verify it, install the [GitHub CLI](https://cli.github.com/) and run this command in the directory that has the file:
+
+```sh
+gh attestation verify cloud-cache.mjs --repo xSAVIKx/cloud-cache-action
+```
+
+The command exits with code 0 when the attestation is correct. An older release has no attestation, and the command fails for it. For an older release, use the checksum only.
+
 ## Commands
 
 ```text
@@ -57,7 +67,29 @@ cloud-cache <command> [flags]
 | `inspect` | Shows which cache a restore would pick. It downloads nothing. | `xSAVIKx/cloud-cache-action/inspect`   |
 | `prune`   | Deletes old caches.                                         | `xSAVIKx/cloud-cache-action/prune`       |
 
-Run `cloud-cache --help` to see all flags of all commands, with their defaults.
+Run `cloud-cache --help` to see the commands and the flags of the CLI itself.
+
+Run `cloud-cache <command> --help` to see the flags of one command. The help shows the flags in groups: required, storage, cache, transfer, advanced, and the CLI flags. Each flag has a short description, its default and its environment variable. The descriptions come from the action manifests. A note marks the flags that work only in GitHub Actions, and tells what some other flags do on the CLI.
+
+```text
+$ cloud-cache prune --help
+Usage: cloud-cache prune [flags]
+
+Delete old caches.
+...
+Required:
+  --bucket <value>            The S3 bucket name where cache archives are stored. Env:
+                              CLOUD_CACHE_BUCKET, then AWS_S3_BUCKET or S3_BUCKET.
+...
+```
+
+An unknown flag gives a usage error. When a flag of the command has a near name, the error names it:
+
+```text
+error: unknown flag --buket. The nearest flag of restore is --bucket
+```
+
+The errors and warnings of a command use the names of the action inputs, for example `Input "upload-chunk-size"`. On the CLI, that input is the flag `--upload-chunk-size`.
 
 ## Inputs: flags and environment variables
 
@@ -73,7 +105,7 @@ The CLI reads each input in this order:
 
 Three inputs also read standard AWS variables when the flag and the `CLOUD_CACHE_*` variable are not set. `bucket` reads `AWS_S3_BUCKET` or `S3_BUCKET`. `endpoint` reads `AWS_ENDPOINT_URL_S3`, then `AWS_ENDPOINT_URL`. `region` reads `AWS_REGION` or `AWS_DEFAULT_REGION`.
 
-The default values are the same as the `default:` values in the action manifest of the command. For the meaning of each input, read [Inputs and Outputs](./reference.md).
+The default values are the same as the `default:` values in the action manifest of the command. For the meaning of each input, run `cloud-cache <command> --help` or read [Inputs and Outputs](./reference.md).
 
 Follow these rules for flag values:
 
@@ -138,6 +170,8 @@ A CI system sets the repository and the refs. The CLI cannot find them, so you s
 | `CLOUD_CACHE_DEFAULT_BRANCH`   | The default branch of the repository.                                     | None                          |
 | `CLOUD_CACHE_WORKSPACE`        | The directory that relative paths use.                                    | The current directory         |
 | `CLOUD_CACHE_EVENT_NAME`       | The name of the event that started the run.                               | `cli`                         |
+
+On Bitbucket, `CLOUD_CACHE_WORKSPACE` also sets the workspace when you set it. When you do not set it, the workspace is `BITBUCKET_CLONE_DIR`, not the current directory.
 
 These variables are not input values. An input with the same environment name reads only its flag. For example, the `prune` input `ref` reads only `--ref`, not `CLOUD_CACHE_REF`.
 

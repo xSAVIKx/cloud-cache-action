@@ -12,6 +12,7 @@ import { getInputAsArray } from '../utils/inputUtils';
 import { type CliArgs, type CliRun, parseCliArgs, shortUsage, UsageError, usage } from './args';
 import { INPUT_DEFAULTS } from './defaults';
 import { expandHashTemplates } from './hashTemplate';
+import { commandUsage } from './help';
 import { checkTar } from './tarCheck';
 import { CLI_VERSION } from './version';
 import { withWorkflowCommandsRouted } from './workflowCommands';
@@ -242,7 +243,7 @@ export async function main(argv: string[]): Promise<number> {
     return reportError(error);
   }
   if ('help' in args) {
-    process.stdout.write(usage());
+    process.stdout.write(args.topic ? commandUsage(args.topic) : usage());
     return 0;
   }
   if ('version' in args) {

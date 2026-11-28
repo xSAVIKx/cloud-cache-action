@@ -64,7 +64,7 @@ the full definition (see [Action Metadata Definitions](./getting-started.md#acti
 | `download-concurrency` | Ranged GET requests a restore runs at once for archives larger than `download-chunk-size` (1–32); `1` downloads in one request (see [Parallel Transfers](./performance.md#parallel-transfers)) | No | `8` |
 | `download-chunk-size` | Bytes per ranged GET request (1 MiB–128 MiB); archives no larger than this use one request | No | `8388608` |
 | `upload-concurrency` | Multipart upload parts sent at once (1–32) | No | `8` |
-| `upload-chunk-size` | Bytes per multipart upload part (5 MiB–128 MiB); the same input `actions/cache` takes | No | `67108864` |
+| `upload-chunk-size` | Bytes per multipart upload part (5 MiB–128 MiB); the same input `actions/cache` takes. A file-mode save raises it, also above 128 MiB, when the archive would need more than 10,000 parts (see [Parallel Transfers](./performance.md#parallel-transfers)) | No | `67108864` |
 | `transfer-tuning` | `auto` selects the part size and the concurrency per archive from its size (and, for a save, the provider); a transfer input you set still wins (see [Parallel Transfers](./performance.md#parallel-transfers)) | No | `fixed` |
 | `compression-level` | zstd 1–19 or gzip 1–9 for saving; lower is faster and larger (see [Performance](./performance.md)) | No | Tool default |
 | `job-summary` | Write a job summary table with the cache keys, hit, source, size and duration | No | `true` |

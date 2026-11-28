@@ -13,7 +13,7 @@ inputs:
     description: 'Package manager preset that gives the default path, key and restore-keys: npm, yarn, pnpm, bun, pip, poetry, uv, gradle, maven, cargo, go. The key is <runner.os>-<preset>-<hash of the lockfiles>. An explicit path, key or restore-keys input replaces that one value. Setting key also turns off the preset restore-keys.'
     required: false
   upload-chunk-size:
-    description: 'The chunk size used to split up large files during upload, in bytes (5 MiB to 128 MiB; default 64 MiB, as in actions/cache)'
+    description: 'The chunk size used to split up large files during upload, in bytes (5 MiB to 128 MiB; default 64 MiB, as in actions/cache). A file-mode save raises it, also above 128 MiB, when the archive would need more than 10,000 parts.'
     required: false
   upload-concurrency:
     description: 'How many multipart upload parts are sent at once (1-32; default 8)'

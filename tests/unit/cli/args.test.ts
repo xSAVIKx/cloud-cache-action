@@ -69,7 +69,16 @@ describe('parseCliArgs', () => {
 
   it('unknown flag is a usage error', () => {
     expect(() => parse(['restore', '--nope', 'x'])).toThrow(UsageError);
-    expect(() => parse(['restore', '--nope', 'x'])).toThrow('unknown flag --nope');
+    expect(() => parse(['restore', '--nope', 'x'])).toThrow(/^unknown flag --nope$/);
+    expect(() => parse(['restore', '--buket', 'x'])).toThrow(
+      'unknown flag --buket. The nearest flag of restore is --bucket'
+    );
+    expect(() => parse(['save', '--save-on-failur'])).toThrow(
+      'The nearest flag of save is --save-on-failure'
+    );
+    expect(() => parse(['restore', '--state-fil', 'x'])).toThrow(
+      'The nearest flag of restore is --state-file'
+    );
     // max-candidates belongs to inspect only.
     expect(() => parse(['restore', '--max-candidates', '5'])).toThrow(
       '--max-candidates is not a flag of the restore command'
@@ -85,7 +94,9 @@ describe('parseCliArgs', () => {
   it('help and version', () => {
     expect(parseCliArgs(['--help'], {})).toEqual({ help: true });
     expect(parseCliArgs(['-h'], {})).toEqual({ help: true });
-    expect(parseCliArgs(['restore', '--help'], {})).toEqual({ help: true });
+    expect(parseCliArgs(['restore', '--help'], {})).toEqual({ help: true, topic: 'restore' });
+    expect(parseCliArgs(['prune', '--dry-run', '-h'], {})).toEqual({ help: true, topic: 'prune' });
+    expect(parseCliArgs(['fetch', '--help'], {})).toEqual({ help: true });
     expect(parseCliArgs(['--version'], {})).toEqual({ version: true });
   });
 
