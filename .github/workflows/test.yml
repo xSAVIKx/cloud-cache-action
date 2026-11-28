@@ -128,7 +128,7 @@ jobs:
       - name: Start the AWS Emulator
         id: emulator
         if: matrix.server == 'aws-emulator'
-        uses: xSAVIKx/run-aws-emulator@3a10c6c7da7da236e5d0014a38f85d25f5060a73 # v1.0.1
+        uses: xSAVIKx/run-aws-emulator@f26496537177fd799f424012f533862a6569d1bd # v1.1.1
         with:
           # AWS Emulator 1.0.322, image build 1.0.322.1-20261112.14
           image: ghcr.io/xsavikx/aws-emulator@sha256:150623030d361bed9938b2d71281f3de35f8be9d8ac981f7cfcd85b2fdf8d0fc
