@@ -97,7 +97,7 @@ const CONTEXT_ENV_NAMES: ReadonlySet<string> = new Set([
  */
 export const FALLBACK_ENV: Readonly<Record<string, readonly string[]>> = {
   bucket: ['AWS_S3_BUCKET', 'S3_BUCKET'],
-  endpoint: ['AWS_ENDPOINT_URL', 'AWS_ENDPOINT_URL_S3'],
+  endpoint: ['AWS_ENDPOINT_URL_S3', 'AWS_ENDPOINT_URL'],
   region: ['AWS_REGION', 'AWS_DEFAULT_REGION'],
   'access-key': ['AWS_ACCESS_KEY_ID'],
   'secret-key': ['AWS_SECRET_ACCESS_KEY'],
