@@ -11,7 +11,7 @@ export const FLAG_DESCRIPTIONS: Record<CliCommand, Record<string, string>> = {
     'restore-keys':
       'An ordered multiline string listing the prefix-matched keys, used for restoring stale cache if no cache hit occurred for key',
     'upload-chunk-size':
-      'The chunk size used to split up large files during upload, in bytes (5 MiB to 128 MiB; default 64 MiB, as in actions/cache)',
+      'The chunk size used to split up large files during upload, in bytes (5 MiB to 128 MiB; default 64 MiB, as in actions/cache).',
     'upload-concurrency': 'How many multipart upload parts are sent at once (1-32; default 8)',
     'compression-level': 'Compression level for saving: 1-19 for zstd, 1-9 for gzip.',
     enableCrossOsArchive:
@@ -74,7 +74,7 @@ export const FLAG_DESCRIPTIONS: Record<CliCommand, Record<string, string>> = {
     'restore-keys':
       'An ordered multiline string listing the prefix-matched keys, used for restoring stale cache if no cache hit occurred for key',
     'upload-chunk-size':
-      'The chunk size used to split up large files during upload, in bytes (5 MiB to 128 MiB; default 64 MiB, as in actions/cache)',
+      'The chunk size used to split up large files during upload, in bytes (5 MiB to 128 MiB; default 64 MiB, as in actions/cache).',
     'upload-concurrency': 'How many multipart upload parts are sent at once (1-32; default 8)',
     'compression-level': 'Compression level for saving: 1-19 for zstd, 1-9 for gzip.',
     enableCrossOsArchive:
