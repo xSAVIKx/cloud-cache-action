@@ -13,13 +13,28 @@ updates:
       - dependency-name: 'typescript'
         update-types:
           - 'version-update:semver-major'
+    # Runtime dependencies are bundled into dist/, so their PRs also need a dist rebuild
+    # (npm ci && npm run build, then commit dist/). Dev dependencies do not change dist/. Two
+    # groups keep a red runtime PR from blocking the dev-only updates.
     groups:
-      npm-minor-patch:
+      npm-runtime:
+        dependency-type: 'production'
         patterns:
           - '*'
         update-types:
           - 'minor'
           - 'patch'
+      npm-dev:
+        dependency-type: 'development'
+        patterns:
+          - '*'
+        update-types:
+          - 'minor'
+          - 'patch'
+    # Wait before a new version gets a PR. The registry often removes a bad release in this time.
+    # Security updates do not wait.
+    cooldown:
+      default-days: 7
     commit-message:
       prefix: 'deps'
 
@@ -34,5 +49,17 @@ updates:
         update-types:
           - 'minor'
           - 'patch'
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: 'ci'
+
+  # Keeps the image tags and digests in docker-compose.test.yml current.
+  - package-ecosystem: 'docker-compose'
+    directory: '/'
+    schedule:
+      interval: 'weekly'
+    cooldown:
+      default-days: 7
     commit-message:
       prefix: 'ci'

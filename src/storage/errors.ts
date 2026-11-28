@@ -78,6 +78,7 @@ const EMPTY_MESSAGES = new Set(['', 'UnknownError', 'Unknown']);
 const GENERIC_NAMES = new Set(['Unknown', 'Error', 'S3ServiceException']);
 
 const STATUS_TEXT: Record<number, string> = {
+  301: 'Moved Permanently',
   400: 'Bad Request',
   401: 'Unauthorized',
   403: 'Forbidden',
@@ -92,6 +93,9 @@ const STATUS_TEXT: Record<number, string> = {
   503: 'Service Unavailable',
   504: 'Gateway Timeout',
 };
+
+const REDIRECT_HINT =
+  'The bucket is probably in another region. Set the region input to the bucket region. S3 gives this region in the x-amz-bucket-region response header.';
 
 interface SdkError {
   name?: string;
@@ -159,6 +163,9 @@ export function s3ErrorMessage(err: unknown, request: S3Request): string {
       return `${s3RequestLabel(request)} failed${afterAttempts}: ${message}`;
     }
     return error.message ?? String(err);
+  }
+  if (status === 301 && message === undefined) {
+    return `${s3RequestLabel(request)} returned ${httpStatusText(status)}${afterAttempts}. ${REDIRECT_HINT}`;
   }
   if (status !== 403) {
     return (

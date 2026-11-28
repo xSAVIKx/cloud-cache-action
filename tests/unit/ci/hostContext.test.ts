@@ -29,6 +29,7 @@ function testHost(): CiHost {
       refs: { current: 'refs/heads/x', restore: ['refs/heads/x'] },
       workspace: '/ws',
       homeDir: '/home/ci',
+      tempDir: '/tmp',
       runnerOs: 'Linux',
       env: {},
     }),

@@ -10,7 +10,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { CompressionConfig } from '../../src/archive/compression';
 import { MemoryState } from '../support/memoryState';
-import { getTestS3Config, prepareTestBucket } from '../support/s3Server';
+import { deleteTestPrefix, getTestS3Config, prepareTestBucket } from '../support/s3Server';
 import { makeTempDir, removeDir, setEnv } from '../support/tempTree';
 
 const compression: CompressionConfig = { method: 'gzip', archiveFilename: 'cache.tar.gz' };
@@ -171,6 +171,12 @@ beforeEach(() => {
     RUNNER_DEBUG: '1',
   });
   process.exitCode = undefined;
+});
+
+afterAll(async () => {
+  if (available) {
+    await deleteTestPrefix(s3, `cloud-cache-it/${runId}/`);
+  }
 });
 
 afterEach(() => {

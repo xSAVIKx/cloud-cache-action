@@ -13,7 +13,7 @@ import { computeCacheVersion } from '../../../src/core/version';
 import type { StorageContext } from '../../../src/storage/client';
 import type { CacheObjectMetadata, ObjectStreamResult } from '../../../src/storage/operations';
 import type { PartDownloadOptions } from '../../../src/storage/parallelDownload';
-import { makeTempDir, removeDir } from '../../support/tempTree';
+import { makeTempDir, removeDir, setEnv } from '../../support/tempTree';
 
 const mockWarning = jest.fn<(message: string) => void>();
 const mockCreateStorageContext = jest.fn<(options: { maxAttempts: number }) => StorageContext>();
@@ -244,8 +244,15 @@ jest.unstable_mockModule('../../../src/archive/checksum', () => ({
   createSha256Tap: () => mockCreateSha256Tap(),
 }));
 
-const { buildS3Tier, findS3Match, listCandidates, restoreFromS3, saveToS3, usableMemory } =
-  await import('../../../src/core/s3Tier');
+const {
+  buildS3Tier,
+  capUploadPartSize,
+  findS3Match,
+  listCandidates,
+  restoreFromS3,
+  saveToS3,
+  usableMemory,
+} = await import('../../../src/core/s3Tier');
 const { buildExplainReport } = await import('../../../src/core/explain');
 type S3Tier = Awaited<ReturnType<typeof buildS3Tier>>;
 
@@ -587,6 +594,34 @@ describe('restoreFromS3', () => {
     expect([bucket, key, path.basename(target)]).toEqual(['bucket', objectKey, 'cache.tar.zst']);
     expect(mockExtractArchive).toHaveBeenCalledWith(target, zstd, '/ws');
     expect(fs.existsSync(path.dirname(target))).toBe(false);
+  });
+
+  it('returns an error when the temporary directory cannot be created', async () => {
+    put(FEATURE, 'k', 1);
+    const root = makeTempDir('restore-missing-tmp');
+    const restoreEnv = setEnv({ RUNNER_TEMP: path.join(root, 'missing') });
+    try {
+      const outcome = await restoreFromS3(tier(), 'k', [], false);
+      expect(outcome.kind === 'error' && outcome.error.message).toContain('ENOENT');
+      expect(mockDownloadFile).not.toHaveBeenCalled();
+    } finally {
+      restoreEnv();
+      removeDir(root);
+    }
+  });
+
+  it('downloads under RUNNER_TEMP on GitHub when it is set', async () => {
+    put(FEATURE, 'k', 1);
+    const root = makeTempDir('restore-runner-temp');
+    const restoreEnv = setEnv({ RUNNER_TEMP: root });
+    try {
+      await restoreFromS3(tier(), 'k', [], false);
+      const target = mockDownloadFile.mock.calls[0][3];
+      expect(path.dirname(path.dirname(target))).toBe(root);
+    } finally {
+      restoreEnv();
+      removeDir(root);
+    }
   });
 
   it('returns a download failure as an error without extracting', async () => {
@@ -1201,6 +1236,43 @@ describe('buildS3Tier', () => {
     );
   });
 
+  it('caps the upload part size at the provider limit', async () => {
+    mockCreateStorageContext.mockReturnValue({
+      ...storage,
+      providerConfig: {
+        ...storage.providerConfig,
+        provider: 'aws-emulator',
+        maxPartSize: 16 * 1024 * 1024,
+      },
+    } as StorageContext);
+    expect((await buildS3Tier(config, env)).upload.partSize).toBe(16 * 1024 * 1024);
+  });
+
+  it('warns about a capped upload-chunk-size only in a step that uploads', async () => {
+    mockCreateStorageContext.mockReturnValue({
+      ...storage,
+      providerConfig: {
+        ...storage.providerConfig,
+        provider: 'aws-emulator',
+        maxPartSize: 16 * 1024 * 1024,
+      },
+    } as StorageContext);
+    const explicit = {
+      ...config,
+      uploadChunkSize: 32 * 1024 * 1024,
+      explicitTransfer: { ...config.explicitTransfer, uploadChunkSize: true },
+    };
+    const capWarning = expect.stringContaining('accepts in one request');
+
+    expect((await buildS3Tier(explicit, env)).upload.partSize).toBe(16 * 1024 * 1024);
+    expect(mockWarning).not.toHaveBeenCalledWith(capWarning);
+
+    expect((await buildS3Tier(explicit, env, { uploads: true })).upload.partSize).toBe(
+      16 * 1024 * 1024
+    );
+    expect(mockWarning).toHaveBeenCalledWith(capWarning);
+  });
+
   it('sets the tuning only for transfer-tuning: auto', async () => {
     expect((await buildS3Tier(config, env)).tuning).toBeUndefined();
     const explicitTransfer = { ...config.explicitTransfer, uploadConcurrency: true };
@@ -1266,6 +1338,34 @@ describe('buildS3Tier', () => {
   it('surfaces pattern warnings', async () => {
     await buildS3Tier({ ...config, s3KeyPattern: '${key}/${archive_filename}' }, env);
     expect(mockWarning).toHaveBeenCalledTimes(2);
+  });
+
+  it('warns when ${ref} shares a path segment with ${key}', async () => {
+    await buildS3Tier(
+      {
+        ...config,
+        s3KeyPattern: '${GITHUB_REPOSITORY}/${ref}-${key}/${version}/${archive_filename}',
+      },
+      env
+    );
+    expect(mockWarning).toHaveBeenCalledTimes(1);
+    expect(mockWarning).toHaveBeenCalledWith(expect.stringContaining('${ref}'));
+  });
+
+  it.each([
+    ['without ${archive_filename}', '${GITHUB_REPOSITORY}/${ref}-${key}/${version}'],
+    [
+      'with ${GITHUB_REPOSITORY} in a shared segment',
+      '${GITHUB_REPOSITORY}-x/${ref}-${key}/${version}/${archive_filename}',
+    ],
+  ])('warns about a shared ${ref} segment %s', async (_name, pattern) => {
+    await buildS3Tier({ ...config, s3KeyPattern: pattern }, env);
+    expect(mockWarning).toHaveBeenCalledWith(expect.stringContaining('${ref}'));
+  });
+
+  it('does not warn about a shared segment when the pattern keeps ${ref} apart', async () => {
+    await buildS3Tier(config, env);
+    expect(mockWarning).not.toHaveBeenCalled();
   });
 
   it('rejects a pattern without ${key}', async () => {
@@ -2331,6 +2431,32 @@ describe('saveToS3 streaming failure timing', () => {
   }, 20_000);
 });
 
+describe('capUploadPartSize', () => {
+  const MiB = 1024 * 1024;
+  const emulator = { provider: 'aws-emulator', maxPartSize: 16 * MiB } as const;
+
+  it('keeps the part size for a provider with no limit', () => {
+    expect(capUploadPartSize(64 * MiB, { provider: 'aws' })).toBe(64 * MiB);
+  });
+
+  it('keeps a part size at or below the limit', () => {
+    expect(capUploadPartSize(16 * MiB, emulator, true)).toBe(16 * MiB);
+    expect(mockWarning).not.toHaveBeenCalled();
+  });
+
+  it('caps the default part size with no warning', () => {
+    expect(capUploadPartSize(64 * MiB, emulator)).toBe(16 * MiB);
+    expect(mockWarning).not.toHaveBeenCalled();
+  });
+
+  it('caps an upload-chunk-size that the workflow set, with a warning', () => {
+    expect(capUploadPartSize(32 * MiB, emulator, true)).toBe(16 * MiB);
+    expect(mockWarning).toHaveBeenCalledWith(
+      expect.stringContaining('provider "aws-emulator" accepts in one request')
+    );
+  });
+});
+
 describe('usableMemory', () => {
   const GiB = 1024 * 1024 * 1024;
   it('uses the free memory without a container limit', () => {
@@ -2526,6 +2652,21 @@ describe('restoreFromS3 parallel download', () => {
     await saveToS3(tier({ storage: r2, tuning: noExplicit }), 'k', ['node_modules']);
     const [, , , , settings] = mockUploadFile.mock.calls[0];
     expect(settings).toEqual({ concurrency: 32, partSize: 16 * MiB });
+  });
+
+  it('caps a tuned upload part at the largest request the provider accepts', async () => {
+    mockGetArchiveSize.mockReturnValue(512 * MiB);
+    const emulator = {
+      ...storage,
+      providerConfig: {
+        ...storage.providerConfig,
+        provider: 'aws-emulator',
+        maxPartSize: 16 * MiB,
+      },
+    } as StorageContext;
+    await saveToS3(tier({ storage: emulator, tuning: noExplicit }), 'k', ['node_modules']);
+    const [, , , , settings] = mockUploadFile.mock.calls[0];
+    expect(settings).toMatchObject({ partSize: 16 * MiB });
   });
 
   it('uses one request for an object no larger than a tuned part', async () => {

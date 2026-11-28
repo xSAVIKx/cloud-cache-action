@@ -1,6 +1,7 @@
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BOOLEAN_INPUTS, type CliCommand, INPUT_DEFAULTS, MULTILINE_INPUTS } from './defaults';
+import { nearestFlag } from './flagHint';
 
 export interface CliRun {
   command: CliCommand;
@@ -23,7 +24,8 @@ export type Platform = 'auto' | 'generic' | 'bitbucket';
 
 const PLATFORMS: readonly Platform[] = ['auto', 'generic', 'bitbucket'];
 
-export type CliArgs = CliRun | { help: true } | { version: true };
+/** `topic` is set when the first argument is a command: print the help of that command. */
+export type CliArgs = CliRun | { help: true; topic?: CliCommand } | { version: true };
 
 /** A command line that the CLI cannot run. The message is the text to print. */
 export class UsageError extends Error {
@@ -84,7 +86,8 @@ function envBool(value: string | undefined): boolean {
  */
 export function parseCliArgs(argv: string[], env: NodeJS.ProcessEnv = process.env): CliArgs {
   if (argv.some((arg) => arg === '--help' || arg === '-h')) {
-    return { help: true };
+    const first = argv[0];
+    return first !== undefined && isCommand(first) ? { help: true, topic: first } : { help: true };
   }
   if (argv.includes('--version')) {
     return { version: true };
@@ -204,7 +207,15 @@ function unknownFlag(name: string, command: CliCommand): UsageError {
   if (COMMANDS.some((other) => name in INPUT_DEFAULTS[other])) {
     return new UsageError(`--${name} is not a flag of the ${command} command`);
   }
-  return new UsageError(`unknown flag --${name}`);
+  const known = [
+    ...Object.keys(INPUT_DEFAULTS[command]),
+    ...Object.values(CLI_FLAGS).filter(
+      (flag) => flag !== CLI_FLAGS.saveOnFailure || command === 'save'
+    ),
+  ];
+  const nearest = nearestFlag(name, known);
+  const hint = nearest === undefined ? '' : `. The nearest flag of ${command} is --${nearest}`;
+  return new UsageError(`unknown flag --${name}${hint}`);
 }
 
 const SYNOPSIS = [
@@ -219,9 +230,12 @@ const SYNOPSIS = [
 
 /** The short usage text that follows a usage error. */
 export function shortUsage(): string {
-  return [...SYNOPSIS, '', 'Run cloud-cache --help to see the flags of each command.', ''].join(
-    '\n'
-  );
+  return [
+    ...SYNOPSIS,
+    '',
+    'Run cloud-cache <command> --help to see the flags of a command.',
+    '',
+  ].join('\n');
 }
 
 /** The help text. */
@@ -248,20 +262,14 @@ export function usage(): string {
     `  --${CLI_FLAGS.saveOnFailure}[=true|false]`,
     '                         (save only) On bitbucket, save also when the step failed.',
     '                         Env: CLOUD_CACHE_SAVE_ON_FAILURE',
-    '  --help                 Print this text.',
+    '  --help                 Print this text. After a command, print the help of that command.',
     '  --version              Print the version.',
   ];
-  for (const command of COMMANDS) {
-    lines.push('', `Flags of ${command}:`);
-    for (const [name, value] of Object.entries(INPUT_DEFAULTS[command])) {
-      const flag = BOOLEAN_INPUTS.has(name) ? `--${name}[=true|false]` : `--${name} <value>`;
-      const notes = [
-        ...(MULTILINE_INPUTS.has(name) ? ['repeatable'] : []),
-        ...(value === '' ? [] : [`default: ${value}`]),
-      ];
-      lines.push(`  ${flag}${notes.length ? `  (${notes.join(', ')})` : ''}`);
-    }
-  }
+  lines.push(
+    '',
+    'Run cloud-cache <command> --help to see the flags of a command, with a description, the',
+    'default and the env var of each flag.'
+  );
   lines.push(
     '',
     'Environment:',

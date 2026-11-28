@@ -8,6 +8,7 @@ export type StorageProvider =
   | 'seaweedfs'
   | 'minio'
   | 'rustfs'
+  | 'aws-emulator'
   | 'generic-s3';
 
 export interface ProviderConfig {
@@ -18,6 +19,9 @@ export interface ProviderConfig {
   /** The largest request body the server accepts, so the largest upload part. Unset: no limit. */
   maxPartSize?: number;
 }
+
+/** The AWS Emulator answers HTTP 413 to a PutObject or UploadPart body above 16 MiB (1.0.322). */
+const AWS_EMULATOR_MAX_PART_SIZE = 16 * 1024 * 1024;
 
 export const KNOWN_PROVIDERS = [
   'aws',
@@ -34,6 +38,7 @@ export const KNOWN_PROVIDERS = [
   'seaweed',
   'minio',
   'rustfs',
+  'aws-emulator',
 ] as const;
 
 export function isKnownProvider(name: string): boolean {
@@ -67,6 +72,8 @@ export function detectProvider(endpointInput?: string, explicitProvider?: string
         return 'minio';
       case 'rustfs':
         return 'rustfs';
+      case 'aws-emulator':
+        return 'aws-emulator';
       default:
         return 'generic-s3';
     }
@@ -86,7 +93,7 @@ export function detectProvider(endpointInput?: string, explicitProvider?: string
   if (ep.includes('backblazeb2.com')) {
     return 'b2';
   }
-  if (ep.includes('fastlystorage.com')) {
+  if (ep.includes('fastlystorage.app')) {
     return 'fastly';
   }
   if (ep.includes('amazonaws.com')) {
@@ -97,6 +104,10 @@ export function detectProvider(endpointInput?: string, explicitProvider?: string
   }
   if (ep.includes(':8333')) {
     return 'seaweedfs';
+  }
+  // The AWS Emulator serves every AWS API, S3 included, on https://127.0.0.1:9297 by default.
+  if (ep.includes(':9297')) {
+    return 'aws-emulator';
   }
   // RustFS serves S3 on the same default port as MinIO, so the port alone cannot tell them
   // apart; both take the same defaults here. Set `provider: rustfs` to name it in the log.
@@ -153,6 +164,13 @@ export function resolveProviderDefaults(
       break;
 
     case 'fastly':
+      if (!region && endpoint) {
+        // e.g. https://eu-central-1.object.fastlystorage.app
+        const match = endpoint.match(/^https?:\/\/([a-z0-9-]+)\.object\.fastlystorage\.app/i);
+        if (match && match[1]) {
+          region = match[1].toLowerCase();
+        }
+      }
       region = region || 'us-east-1';
       if (forcePathStyle === undefined) forcePathStyle = true;
       break;
@@ -164,6 +182,13 @@ export function resolveProviderDefaults(
 
     case 'seaweedfs':
       region = region || 'auto';
+      if (forcePathStyle === undefined) forcePathStyle = true;
+      break;
+
+    case 'aws-emulator':
+      // The emulator accepts any region but keeps no separate state per region, and it rejects a
+      // bucket name in the host name, so path-style addressing is required.
+      region = region || 'us-east-1';
       if (forcePathStyle === undefined) forcePathStyle = true;
       break;
 
@@ -181,5 +206,6 @@ export function resolveProviderDefaults(
     endpoint,
     region,
     forcePathStyle: Boolean(forcePathStyle),
+    ...(provider === 'aws-emulator' ? { maxPartSize: AWS_EMULATOR_MAX_PART_SIZE } : {}),
   };
 }
