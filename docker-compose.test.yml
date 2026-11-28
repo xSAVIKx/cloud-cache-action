@@ -43,7 +43,7 @@ services:
   rustfs:
     # RustFS serves S3 on 9000, the same port MinIO uses, so it is published on 9010 here to let
     # both run at once. The container runs as uid/gid 10001 and needs /data and /logs writable.
-    image: rustfs/rustfs:1.0.0@sha256:8cc9801755448b71a786705ce76692c77e14936cccd87cf2fc31842e58f4d1ff
+    image: rustfs/rustfs:1.0.6@sha256:ee717072290bec9b11abfc0365f8310b00df1cd9b3639943edae47bdef05044a
     container_name: cloud-cache-rustfs
     ports:
       - '9010:9000' # S3 API
