@@ -8,6 +8,25 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 Conventional Commit messages on `main`. Entries up to v1.9.0 follow
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.12.0](https://github.com/xSAVIKx/cloud-cache-action/compare/v1.11.1...v1.12.0) (2026-11-28)
+
+
+### Added
+
+* add an aws-emulator provider preset for the local AWS Emulator ([#51](https://github.com/xSAVIKx/cloud-cache-action/issues/51)) ([39728ed](https://github.com/xSAVIKx/cloud-cache-action/commit/39728ed073426118477c5b13207ca7d025e4cee0))
+
+
+### Fixed
+
+* **cli:** a help text for each command, with a description for each flag ([#69](https://github.com/xSAVIKx/cloud-cache-action/issues/69)) ([e60bfe7](https://github.com/xSAVIKx/cloud-cache-action/commit/e60bfe7cbe40fe1897add618442c5510bf9a4157))
+* stay within the 10,000-part limit and the memory budget for large archives, and let CLOUD_CACHE_WORKSPACE set the Bitbucket workspace ([#71](https://github.com/xSAVIKx/cloud-cache-action/issues/71)) ([2312df2](https://github.com/xSAVIKx/cloud-cache-action/commit/2312df270efc489a3e18572494cefc2b1a688b0d))
+
+
+### Dependencies
+
+* bump the npm-dev group with 3 updates ([#83](https://github.com/xSAVIKx/cloud-cache-action/issues/83)) ([7e84872](https://github.com/xSAVIKx/cloud-cache-action/commit/7e848722fa40551f3238f88d009a8b51b607c378))
+* bump the npm-runtime group with 2 updates ([#81](https://github.com/xSAVIKx/cloud-cache-action/issues/81)) ([55060ff](https://github.com/xSAVIKx/cloud-cache-action/commit/55060ff2744a8ac938df389ea17d91f0cecda165))
+
 ## [1.11.1](https://github.com/xSAVIKx/cloud-cache-action/compare/v1.11.0...v1.11.1) (2026-11-20)
 
 
