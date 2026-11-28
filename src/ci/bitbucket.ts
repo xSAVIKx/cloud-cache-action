@@ -71,6 +71,8 @@ export class BitbucketHost extends GenericHost {
       baseRef = toBranchName(env.CLOUD_CACHE_BASE_REF) ?? baseRef;
     }
     const configuredDefault = toBranchName(env.CLOUD_CACHE_DEFAULT_BRANCH);
+    // CLOUD_CACHE_WORKSPACE wins, so that a monorepo step can use a subfolder of the clone.
+    const workspace = env.CLOUD_CACHE_WORKSPACE || env.BITBUCKET_CLONE_DIR || process.cwd();
     const defaultBranch = configuredDefault || DEFAULT_BRANCH;
 
     if (!this.contextLogged) {
@@ -79,6 +81,11 @@ export class BitbucketHost extends GenericHost {
         configuredDefault
           ? `Default branch: ${configuredDefault}`
           : `Default branch: ${DEFAULT_BRANCH} (set CLOUD_CACHE_DEFAULT_BRANCH to change it)`
+      );
+      this.log.debug(
+        env.CLOUD_CACHE_WORKSPACE
+          ? `Workspace: ${env.CLOUD_CACHE_WORKSPACE} (from CLOUD_CACHE_WORKSPACE)`
+          : `Workspace: ${workspace} (from ${env.BITBUCKET_CLONE_DIR ? 'BITBUCKET_CLONE_DIR' : 'the current directory'})`
       );
       if (overrides.length > 0) {
         if (useOverride) {
@@ -99,7 +106,7 @@ export class BitbucketHost extends GenericHost {
       repository,
       refs: refCandidates({ current, baseRef, defaultBranch }),
       eventName: pullRequestId ? 'pull_request' : 'push',
-      workspace: env.BITBUCKET_CLONE_DIR || env.CLOUD_CACHE_WORKSPACE || process.cwd(),
+      workspace,
       homeDir: env.HOME || env.USERPROFILE || osHomeDir(),
       tempDir: tmpdir(),
       runnerOs: runnerOs(env),

@@ -101,6 +101,8 @@ To use these variables, set `--allow-ref-override` or `CLOUD_CACHE_ALLOW_REF_OVE
 
 `CLOUD_CACHE_DEFAULT_BRANCH` is always read. It changes only the restore search.
 
+Relative paths and `{hash:}` globs use the workspace. The workspace is `CLOUD_CACHE_WORKSPACE` when you set it, also without `--allow-ref-override`. Else it is the clone directory, `BITBUCKET_CLONE_DIR`. For a monorepo step that works in a subfolder, set `CLOUD_CACHE_WORKSPACE` to that subfolder, for example `$BITBUCKET_CLONE_DIR/service-a`. A relative value is relative to the current directory of the step. With `--debug`, the CLI logs the workspace that it uses.
+
 ::: warning
 The CLI cannot enforce who writes to which ref. Only the IAM policy of the role can do this. See [OIDC with AWS](#oidc-with-aws).
 :::
@@ -166,7 +168,7 @@ In setup (b), run `restore` with the read-only role in every step. Run `save` on
 The action uses `hashFiles()` in the workflow. The CLI has its own form: `{hash:<glob>[,<glob>...]}`. Use it in `--key` and `--restore-keys`.
 
 - The hash is the same as the result of `hashFiles` in GitHub Actions.
-- Globs are relative to the clone directory (`BITBUCKET_CLONE_DIR`).
+- Globs are relative to the workspace: `CLOUD_CACHE_WORKSPACE` when you set it, else the clone directory (`BITBUCKET_CLONE_DIR`).
 - A glob that starts with `!` excludes files.
 - A glob that matches no file gives an empty string. The CLI prints a warning.
 - The text `${hash:` is not a template. It stays as it is.

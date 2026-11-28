@@ -171,6 +171,8 @@ A CI system sets the repository and the refs. The CLI cannot find them, so you s
 | `CLOUD_CACHE_WORKSPACE`        | The directory that relative paths use.                                    | The current directory         |
 | `CLOUD_CACHE_EVENT_NAME`       | The name of the event that started the run.                               | `cli`                         |
 
+On Bitbucket, `CLOUD_CACHE_WORKSPACE` also sets the workspace when you set it. When you do not set it, the workspace is `BITBUCKET_CLONE_DIR`, not the current directory.
+
 These variables are not input values. An input with the same environment name reads only its flag. For example, the `prune` input `ref` reads only `--ref`, not `CLOUD_CACHE_REF`.
 
 If `CLOUD_CACHE_REPOSITORY` is empty, the cache keys have no repository part. All repositories that use the same bucket and prefix then share their caches. The CLI prints a warning when the variable is empty. Set the variable in every job, or set `--scoped-to-repository=false` if you want to share the caches.

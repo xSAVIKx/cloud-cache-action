@@ -11,9 +11,9 @@ const MiB = 1024 * 1024;
 const GiB = 1024 * MiB;
 
 /** S3 accepts at most this many parts in one multipart upload. */
-const MAX_UPLOAD_PARTS = 10_000;
-/** The input limits for `upload-chunk-size` and `download-chunk-size`. */
-const MAX_PART_SIZE = 128 * MiB;
+export const MAX_UPLOAD_PARTS = 10_000;
+/** S3 accepts at most this many bytes in one upload part. */
+export const MAX_S3_PART_SIZE = 5 * GiB;
 /** At most this many bytes in flight, whatever the free memory. */
 const MAX_BUFFERED_BYTES = 1 * GiB;
 
@@ -29,18 +29,42 @@ export interface TuningInput {
   provider: StorageProvider;
   /** The memory the process can use when the transfer starts. A quarter of it is the budget. */
   freeMemoryBytes: number;
-  /** The values the workflow set. They replace the rule's values and are never reduced. */
+  /**
+   * The values the workflow set. They replace the rule's values. A set upload part size goes up
+   * when the upload would need more than 10,000 parts. A set concurrency goes down only after
+   * such a raise, to the memory budget.
+   */
   fixed?: Partial<TransferSettings>;
 }
 
 /**
  * Downloads: 16 MiB parts, 16 at a time. Every provider reached its top group with 128 MiB or
- * more in flight; the 8 x 8 MiB default was the slowest or close to it at every size.
+ * more in flight; the 8 x 8 MiB default was the slowest or close to it at every size. The
+ * concurrency is at most the part count, from `partSize` when the workflow set it.
  */
-function downloadRule(sizeBytes: number): TransferSettings {
-  const partSize = 16 * MiB;
+function downloadRule(sizeBytes: number, partSize = 16 * MiB): TransferSettings {
   const parts = Math.max(1, Math.ceil(sizeBytes / partSize));
   return { concurrency: Math.min(16, parts), partSize };
+}
+
+/**
+ * The smallest part size, in whole MiB, that uploads `sizeBytes` in at most 10,000 parts. The
+ * result can be above the 5 GiB part limit of S3; the caller checks that.
+ */
+export function minUploadPartSize(sizeBytes: number): number {
+  return Math.ceil(sizeBytes / MAX_UPLOAD_PARTS / MiB) * MiB;
+}
+
+/** The upload rule before the 10,000-part raise. */
+function baseUploadRule(sizeBytes: number, provider: StorageProvider): TransferSettings {
+  return provider === 'r2' && sizeBytes >= GiB
+    ? { concurrency: 32, partSize: 16 * MiB }
+    : { concurrency: 16, partSize: sizeBytes <= 256 * MiB ? 16 * MiB : 32 * MiB };
+}
+
+/** The part size of the `auto` upload rule before the 10,000-part raise. */
+export function baseUploadPartSize(sizeBytes: number, provider: StorageProvider): number {
+  return baseUploadRule(sizeBytes, provider).partSize;
 }
 
 /**
@@ -50,13 +74,10 @@ function downloadRule(sizeBytes: number): TransferSettings {
  * need more than 10,000 parts.
  */
 function uploadRule(sizeBytes: number, provider: StorageProvider): TransferSettings {
-  let settings: TransferSettings =
-    provider === 'r2' && sizeBytes >= GiB
-      ? { concurrency: 32, partSize: 16 * MiB }
-      : { concurrency: 16, partSize: sizeBytes <= 256 * MiB ? 16 * MiB : 32 * MiB };
-  const minPartSize = Math.ceil(sizeBytes / MAX_UPLOAD_PARTS / MiB) * MiB;
+  let settings = baseUploadRule(sizeBytes, provider);
+  const minPartSize = minUploadPartSize(sizeBytes);
   if (minPartSize > settings.partSize) {
-    settings = { ...settings, partSize: Math.min(minPartSize, MAX_PART_SIZE) };
+    settings = { ...settings, partSize: minPartSize };
   }
   return settings;
 }
@@ -72,20 +93,45 @@ function uploadRule(sizeBytes: number, provider: StorageProvider): TransferSetti
 export function tuneTransfer(input: TuningInput): TransferSettings {
   const rule =
     input.direction === 'download'
-      ? downloadRule(input.sizeBytes)
+      ? downloadRule(input.sizeBytes, input.fixed?.partSize)
       : uploadRule(input.sizeBytes, input.provider);
-  const partSize = input.fixed?.partSize ?? rule.partSize;
+  const partSize =
+    input.direction === 'upload'
+      ? Math.max(input.fixed?.partSize ?? rule.partSize, minUploadPartSize(input.sizeBytes))
+      : (input.fixed?.partSize ?? rule.partSize);
   if (input.fixed?.concurrency !== undefined) {
-    return { concurrency: input.fixed.concurrency, partSize };
+    // A set concurrency stays, except when the 10,000-part limit raised the part size: then the
+    // memory budget lowers it, so that the memory does not grow with the archive.
+    const base = input.fixed.partSize ?? baseUploadPartSize(input.sizeBytes, input.provider);
+    const raised = input.direction === 'upload' && minUploadPartSize(input.sizeBytes) > base;
+    return {
+      concurrency: raised
+        ? Math.min(input.fixed.concurrency, budgetConcurrency(partSize, input.freeMemoryBytes))
+        : input.fixed.concurrency,
+      partSize,
+    };
   }
-  const budget = Math.min(MAX_BUFFERED_BYTES, Math.floor(input.freeMemoryBytes / 4));
-  const fits = Math.max(1, Math.floor(budget / partSize) - 1);
+  const fits = budgetConcurrency(partSize, input.freeMemoryBytes);
   return { concurrency: Math.min(rule.concurrency, fits), partSize };
+}
+
+/** The memory budget for the parts in flight: a quarter of the free memory, at most 1 GiB. */
+export function memoryBudget(freeMemoryBytes: number): number {
+  return Math.min(MAX_BUFFERED_BYTES, Math.floor(freeMemoryBytes / 4));
+}
+
+/**
+ * The highest concurrency for parts of `partSize` within the memory budget. The code that reads
+ * the parts holds one part more than the concurrency. The result is at least 1.
+ */
+export function budgetConcurrency(partSize: number, freeMemoryBytes: number): number {
+  return Math.max(1, Math.floor(memoryBudget(freeMemoryBytes) / partSize) - 1);
 }
 
 /**
  * `Transfer tuning: auto selected 16 x 16 MiB for the download of 2.0 GiB`. A value that the
- * workflow set is marked `(set)`.
+ * workflow set is marked `(set)`. A set part size that the 10,000-part limit raised is marked
+ * `(raised from the set 5 MiB)`.
  */
 export function formatTuning(
   direction: 'upload' | 'download',
@@ -97,7 +143,19 @@ export function formatTuning(
     sizeBytes >= GiB
       ? `${(sizeBytes / GiB).toFixed(1)} GiB`
       : `${(sizeBytes / MiB).toFixed(0)} MiB`;
-  const concurrency = `${settings.concurrency}${fixed.concurrency === undefined ? '' : ' (set)'}`;
-  const partSize = `${settings.partSize / MiB} MiB${fixed.partSize === undefined ? '' : ' (set)'}`;
+  const concurrencyMark =
+    fixed.concurrency === undefined
+      ? ''
+      : settings.concurrency === fixed.concurrency
+        ? ' (set)'
+        : ` (lowered from the set ${fixed.concurrency})`;
+  const concurrency = `${settings.concurrency}${concurrencyMark}`;
+  const mark =
+    fixed.partSize === undefined
+      ? ''
+      : settings.partSize === fixed.partSize
+        ? ' (set)'
+        : ` (raised from the set ${fixed.partSize / MiB} MiB)`;
+  const partSize = `${settings.partSize / MiB} MiB${mark}`;
   return `Transfer tuning: auto selected ${concurrency} x ${partSize} for the ${direction} of ${size}`;
 }
