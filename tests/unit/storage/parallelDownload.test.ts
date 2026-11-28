@@ -15,7 +15,17 @@ jest.unstable_mockModule('@actions/core', () => ({
   warning: jest.fn(),
 }));
 
+type HasherFactory = typeof import('../../../src/archive/prefixHasher').createPrefixHasher;
+const realHasher = await import('../../../src/archive/prefixHasher');
+let hasherOverride: HasherFactory | undefined;
+jest.unstable_mockModule('../../../src/archive/prefixHasher', () => ({
+  ...realHasher,
+  createPrefixHasher: (filePath: string) =>
+    (hasherOverride ?? realHasher.createPrefixHasher)(filePath),
+}));
+
 const {
+  ObjectChangedError,
   RangeNotSupportedError,
   downloadFileInParts,
   openObjectPartsStream,
@@ -50,6 +60,7 @@ function partResponse(range: RangeRequest, data: Buffer = DATA) {
     Body: Readable.from([slice]),
     ContentLength: slice.length,
     ContentRange: `bytes ${range.start}-${range.end}/${data.length}`,
+    ETag: '"etag-a"',
     Metadata: METADATA,
     $metadata: { httpStatusCode: 206 },
   };
@@ -80,6 +91,7 @@ let destination: string;
 
 beforeEach(() => {
   s3Mock.reset();
+  hasherOverride = undefined;
   mockInfo.mockReset();
   tempDir = makeTempDir('parallel-download-');
   destination = path.join(tempDir, 'nested', 'cache.tar.zst');
@@ -291,6 +303,106 @@ describe('downloadFileInParts', () => {
       'socket hang up'
     );
     expect(rangesRequested().filter((range) => range === 'bytes=10-19')).toHaveLength(2);
+  });
+
+  it('sends the ETag of the first part as IfMatch on every later part', async () => {
+    serveRanges();
+    await downloadFileInParts(client(), BUCKET, KEY, destination, options);
+    const inputs = s3Mock
+      .commandCalls(GetObjectCommand)
+      .map((call) => call.args[0].input as { Range?: string; IfMatch?: string });
+    expect(inputs.find((input) => input.Range === 'bytes=0-9')?.IfMatch).toBeUndefined();
+    expect(
+      inputs.filter((input) => input.Range !== 'bytes=0-9').map((input) => input.IfMatch)
+    ).toEqual(['"etag-a"', '"etag-a"']);
+  });
+
+  it('fails without a retry when a later part has a different ETag', async () => {
+    serveRanges((range) =>
+      range.start === 10 ? { ...partResponse(range), ETag: '"etag-b"' } : undefined
+    );
+    await expect(downloadFileInParts(client(), BUCKET, KEY, destination, options)).rejects.toThrow(
+      ObjectChangedError
+    );
+    expect(rangesRequested().filter((range) => range === 'bytes=10-19')).toHaveLength(1);
+  });
+
+  it('fails without a retry when the server answers 412 to IfMatch', async () => {
+    serveRanges((range) => {
+      if (range.start === 10) {
+        throw Object.assign(new Error('PreconditionFailed'), {
+          name: 'PreconditionFailed',
+          $metadata: { httpStatusCode: 412 },
+        });
+      }
+      return undefined;
+    });
+    await expect(downloadFileInParts(client(), BUCKET, KEY, destination, options)).rejects.toThrow(
+      /object changed during the download/
+    );
+    expect(rangesRequested().filter((range) => range === 'bytes=10-19')).toHaveLength(1);
+  });
+
+  it('fails when the Content-Range total differs from the expected size', async () => {
+    serveRanges((range) =>
+      range.start === 10 ? { ...partResponse(range), ContentRange: 'bytes 10-19/99' } : undefined
+    );
+    await expect(downloadFileInParts(client(), BUCKET, KEY, destination, options)).rejects.toThrow(
+      /object changed during the download/
+    );
+  });
+
+  it('rejects a part that delivers more bytes than its range, without a retry', async () => {
+    serveRanges((range) =>
+      range.start === 10
+        ? {
+            ...partResponse(range),
+            Body: Readable.from([Buffer.concat([DATA.subarray(10, 20), Buffer.from('xyz')])]),
+            ContentLength: undefined,
+          }
+        : undefined
+    );
+    await expect(downloadFileInParts(client(), BUCKET, KEY, destination, options)).rejects.toThrow(
+      /Part 2 \(bytes 10-19\) delivered more than 10 bytes/
+    );
+    expect(rangesRequested().filter((range) => range === 'bytes=10-19')).toHaveLength(1);
+  });
+
+  it('rejects a part response with no body', async () => {
+    serveRanges((range) =>
+      range.start === 10 ? { ...partResponse(range), Body: undefined } : undefined
+    );
+    await expect(downloadFileInParts(client(), BUCKET, KEY, destination, options)).rejects.toThrow(
+      /Empty response body/
+    );
+  });
+
+  it('returns no sha256 when the hash worker cannot start', async () => {
+    hasherOverride = () => {
+      throw new Error('no worker');
+    };
+    serveRanges();
+    const result = await downloadFileInParts(client(), BUCKET, KEY, destination, options, {
+      hash: true,
+    });
+    expect(result.sha256).toBeUndefined();
+    expect(fs.readFileSync(destination)).toEqual(DATA);
+  });
+
+  it('returns no sha256, and closes the hasher, when the hash finish rejects', async () => {
+    const close = jest.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    hasherOverride = () => ({
+      advance: () => undefined,
+      finish: () => Promise.reject(new Error('worker died')),
+      close,
+    });
+    serveRanges();
+    const result = await downloadFileInParts(client(), BUCKET, KEY, destination, options, {
+      hash: true,
+    });
+    expect(result.sha256).toBeUndefined();
+    expect(fs.readFileSync(destination)).toEqual(DATA);
+    expect(close).toHaveBeenCalled();
   });
 
   it('does not retry a failure the SDK already retried', async () => {

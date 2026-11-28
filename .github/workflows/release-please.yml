@@ -43,9 +43,12 @@ jobs:
     name: Verify the release and move the major tag
     needs: release-please
     if: needs.release-please.outputs.release_created == 'true'
-    # id-token: write is for the npm job of release.yml. A called workflow cannot get more
-    # permissions than its caller grants.
+    # actions: read is for the CI gate of release.yml. id-token: write is for its npm job and its
+    # CLI attestation, and attestations: write is for the CLI attestation. A called workflow
+    # cannot get more permissions than its caller grants.
     permissions:
+      actions: read
+      attestations: write
       contents: write
       id-token: write
     uses: ./.github/workflows/release.yml

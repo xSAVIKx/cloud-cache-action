@@ -61769,6 +61769,7 @@ class GitHubActionsHost {
             eventName: env.GITHUB_EVENT_NAME,
             workspace: (0,ci_env/* getWorkspace */.K)(env),
             homeDir: env.HOME || env.USERPROFILE || osHomeDir(),
+            tempDir: env.RUNNER_TEMP || external_node_os_.tmpdir(),
             runnerOs: (0,ci_env/* runnerOs */.t)(env),
             env,
         };
@@ -61950,6 +61951,8 @@ var State;
     State["CacheStreaming"] = "CACHE_STREAMING";
     State["CacheMetadata"] = "CACHE_METADATA";
     State["CacheTags"] = "CACHE_TAGS";
+    // The CLI state file records the job that wrote it.
+    State["CliRepository"] = "CLI_REPOSITORY";
     // Dual-cache state
     State["CacheDualCache"] = "CACHE_DUAL_CACHE";
     State["CacheRestorePriority"] = "CACHE_RESTORE_PRIORITY";
@@ -62059,6 +62062,7 @@ class NullStateProvider {
 /* harmony export */   Gd: () => (/* binding */ getInputAsInt),
 /* harmony export */   Js: () => (/* binding */ parseOptionalNonNegativeInt),
 /* harmony export */   Xq: () => (/* binding */ formatSize),
+/* harmony export */   jv: () => (/* binding */ escapeKey),
 /* harmony export */   of: () => (/* binding */ isExactKeyMatch),
 /* harmony export */   oh: () => (/* binding */ getInputWithEnv),
 /* harmony export */   or: () => (/* binding */ parseOptionalPositiveInt),
@@ -62147,6 +62151,17 @@ function isValidEvent() {
     // GitHub Actions events that are not tied to a ref (e.g. issues, discussion) might not be appropriate for caching
     // actions/cache warns if event is not ref-based, but allows execution
     return Boolean(event);
+}
+const NAMED_ESCAPES = { '\n': '\\n', '\r': '\\r', '\t': '\\t' };
+/**
+ * Escapes control characters in an object key before it goes into a log line. A listed key is
+ * data from the bucket: a raw line break would let it start a new line, and a line that starts
+ * with `::` is a workflow command. An ordinary key comes back unchanged.
+ */
+function escapeKey(key) {
+    return key.replace(
+    // eslint-disable-next-line no-control-regex
+    /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, (char) => NAMED_ESCAPES[char] ?? `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`);
 }
 function formatSize(bytes) {
     if (bytes === undefined || bytes === null || isNaN(bytes)) {
@@ -70177,7 +70192,7 @@ async function writeArchiveFromStdout(command, archivePath) {
 }
 /** Creates the archive and returns the sha256 of its bytes. */
 async function createArchive(archivePath, entries, compression, workspace, level) {
-    const tempDir = external_node_fs_.mkdtempSync(external_node_path_.join(external_node_os_.tmpdir(), 'cloud-cache-tar-'));
+    const tempDir = external_node_fs_.mkdtempSync(external_node_path_.join((0,host/* getHost */.L)().context().tempDir, 'cloud-cache-tar-'));
     try {
         const manifestPath = external_node_path_.join(tempDir, 'manifest.txt');
         external_node_fs_.writeFileSync(manifestPath, formatManifest(entries));
@@ -70208,7 +70223,7 @@ async function createArchive(archivePath, entries, compression, workspace, level
     }
 }
 async function extractArchive(archivePath, compression, workspace) {
-    const tempDir = external_node_fs_.mkdtempSync(external_node_path_.join(external_node_os_.tmpdir(), 'cloud-cache-tar-'));
+    const tempDir = external_node_fs_.mkdtempSync(external_node_path_.join((0,host/* getHost */.L)().context().tempDir, 'cloud-cache-tar-'));
     try {
         external_node_fs_.mkdirSync(workspace, { recursive: true });
         const tar = await findTar();
@@ -70237,6 +70252,8 @@ function getArchiveSize(archivePath) {
 // EXTERNAL MODULE: ./node_modules/@aws-sdk/client-s3/dist-cjs/index.js
 var dist_cjs = __nccwpck_require__(3711);
 ;// CONCATENATED MODULE: ./src/storage/providers.ts
+/** The AWS Emulator answers HTTP 413 to a PutObject or UploadPart body above 16 MiB (1.0.322). */
+const AWS_EMULATOR_MAX_PART_SIZE = 16 * 1024 * 1024;
 const KNOWN_PROVIDERS = [
     'aws',
     's3',
@@ -70252,6 +70269,7 @@ const KNOWN_PROVIDERS = [
     'seaweed',
     'minio',
     'rustfs',
+    'aws-emulator',
 ];
 function isKnownProvider(name) {
     return KNOWN_PROVIDERS.includes(name.toLowerCase().trim());
@@ -70283,6 +70301,8 @@ function detectProvider(endpointInput, explicitProvider) {
                 return 'minio';
             case 'rustfs':
                 return 'rustfs';
+            case 'aws-emulator':
+                return 'aws-emulator';
             default:
                 return 'generic-s3';
         }
@@ -70300,7 +70320,7 @@ function detectProvider(endpointInput, explicitProvider) {
     if (ep.includes('backblazeb2.com')) {
         return 'b2';
     }
-    if (ep.includes('fastlystorage.com')) {
+    if (ep.includes('fastlystorage.app')) {
         return 'fastly';
     }
     if (ep.includes('amazonaws.com')) {
@@ -70311,6 +70331,10 @@ function detectProvider(endpointInput, explicitProvider) {
     }
     if (ep.includes(':8333')) {
         return 'seaweedfs';
+    }
+    // The AWS Emulator serves every AWS API, S3 included, on https://127.0.0.1:9297 by default.
+    if (ep.includes(':9297')) {
+        return 'aws-emulator';
     }
     // RustFS serves S3 on the same default port as MinIO, so the port alone cannot tell them
     // apart; both take the same defaults here. Set `provider: rustfs` to name it in the log.
@@ -70357,6 +70381,13 @@ function resolveProviderDefaults(endpointInput, regionInput, forcePathStyleInput
                 forcePathStyle = false;
             break;
         case 'fastly':
+            if (!region && endpoint) {
+                // e.g. https://eu-central-1.object.fastlystorage.app
+                const match = endpoint.match(/^https?:\/\/([a-z0-9-]+)\.object\.fastlystorage\.app/i);
+                if (match && match[1]) {
+                    region = match[1].toLowerCase();
+                }
+            }
             region = region || 'us-east-1';
             if (forcePathStyle === undefined)
                 forcePathStyle = true;
@@ -70368,6 +70399,13 @@ function resolveProviderDefaults(endpointInput, regionInput, forcePathStyleInput
             break;
         case 'seaweedfs':
             region = region || 'auto';
+            if (forcePathStyle === undefined)
+                forcePathStyle = true;
+            break;
+        case 'aws-emulator':
+            // The emulator accepts any region but keeps no separate state per region, and it rejects a
+            // bucket name in the host name, so path-style addressing is required.
+            region = region || 'us-east-1';
             if (forcePathStyle === undefined)
                 forcePathStyle = true;
             break;
@@ -70385,6 +70423,7 @@ function resolveProviderDefaults(endpointInput, regionInput, forcePathStyleInput
         endpoint,
         region,
         forcePathStyle: Boolean(forcePathStyle),
+        ...(provider === 'aws-emulator' ? { maxPartSize: AWS_EMULATOR_MAX_PART_SIZE } : {}),
     };
 }
 
@@ -71417,6 +71456,17 @@ class ShortPartError extends Error {
         this.name = 'ShortPartError';
     }
 }
+/**
+ * Thrown when a later part comes from a different object than the first part: another job wrote
+ * the key during the download. The bytes of the two objects must not be mixed, so this is not
+ * retried; the caller treats it as a failed restore.
+ */
+class ObjectChangedError extends Error {
+    constructor(bucket, key, detail) {
+        super(`s3://${bucket}/${key}: the object changed during the download (${detail})`);
+        this.name = 'ObjectChangedError';
+    }
+}
 /** Splits `size` bytes into consecutive ranges of at most `partSize` bytes. */
 function planParts(size, partSize) {
     if (!Number.isInteger(size) || size < 0) {
@@ -71435,9 +71485,32 @@ function planParts(size, partSize) {
 function shouldDownloadInParts(size, partSize) {
     return size > partSize;
 }
-/** Fetches one part and checks that the server honoured the range. */
-async function getObjectRange(client, bucket, key, part, signal) {
-    const response = await client.send(new dist_cjs.GetObjectCommand({ Bucket: bucket, Key: key, Range: `bytes=${part.start}-${part.end}` }), { abortSignal: signal });
+/** The total size in a `Content-Range` value such as `bytes 0-9/25`; undefined when unknown. */
+function contentRangeTotal(value) {
+    const match = /\/(\d+)$/.exec(value ?? '');
+    return match ? Number(match[1]) : undefined;
+}
+/**
+ * Fetches one part and checks that the server honoured the range. With `etag` set, the request
+ * carries `IfMatch` and the response must have the same ETag and the expected total size, so every
+ * part comes from the object that the first part came from.
+ */
+async function getObjectRange(client, bucket, key, part, signal, size, etag) {
+    let response;
+    try {
+        response = await client.send(new dist_cjs.GetObjectCommand({
+            Bucket: bucket,
+            Key: key,
+            Range: `bytes=${part.start}-${part.end}`,
+            ...(etag ? { IfMatch: etag } : {}),
+        }), { abortSignal: signal });
+    }
+    catch (err) {
+        if (err.$metadata?.httpStatusCode === 412) {
+            throw new ObjectChangedError(bucket, key, 'the server refused the If-Match condition');
+        }
+        throw err;
+    }
     const body = response.Body;
     if (!body) {
         throw new Error(`Empty response body received from S3 for key: ${key}`);
@@ -71446,12 +71519,21 @@ async function getObjectRange(client, bucket, key, part, signal) {
         body.destroy();
         throw new RangeNotSupportedError(bucket, key);
     }
+    if (etag && response.ETag !== undefined && response.ETag !== etag) {
+        body.destroy();
+        throw new ObjectChangedError(bucket, key, `ETag ${response.ETag} instead of ${etag}`);
+    }
+    const total = contentRangeTotal(response.ContentRange);
+    if (total !== undefined && total !== size) {
+        body.destroy();
+        throw new ObjectChangedError(bucket, key, `size ${total} instead of ${size}`);
+    }
     const expected = part.end - part.start + 1;
     if (response.ContentLength !== undefined && response.ContentLength !== expected) {
         body.destroy();
         throw new Error(`s3://${bucket}/${key} returned ${response.ContentLength} bytes for range ${part.start}-${part.end}; expected ${expected}`);
     }
-    return { body, metadata: response.Metadata, tagCount: response.TagCount };
+    return { body, etag: response.ETag, metadata: response.Metadata, tagCount: response.TagCount };
 }
 /**
  * Feeds one part's body to `sink` chunk by chunk and confirms the byte count. The sink receives
@@ -71490,6 +71572,8 @@ class PartSource {
     controller = new AbortController();
     parts;
     first;
+    /** The ETag of the first part's response; every later request must match it. */
+    etag;
     constructor(client, bucket, key, options) {
         this.client = client;
         this.bucket = bucket;
@@ -71507,7 +71591,8 @@ class PartSource {
     async open() {
         this.first = this.fetch(this.parts[0]);
         try {
-            const { metadata, tagCount } = await this.first;
+            const { metadata, tagCount, etag } = await this.first;
+            this.etag = etag;
             return { metadata, tagCount };
         }
         catch (err) {
@@ -71539,7 +71624,7 @@ class PartSource {
         this.first?.then((response) => response.body.destroy()).catch(() => undefined);
     }
     fetch(part) {
-        return getObjectRange(this.client, this.bucket, this.key, part, this.controller.signal);
+        return getObjectRange(this.client, this.bucket, this.key, part, this.controller.signal, this.options.size, this.etag);
     }
 }
 /**
@@ -72012,6 +72097,10 @@ function compileKeyTemplate(rawOptions) {
         return true;
     };
     const indexesOf = (kind) => tokens.flatMap((token, index) => (token.kind === kind ? [index] : []));
+    const refSharesSegment = () => {
+        const refs = indexesOf('ref');
+        return refs.length > 0 && !refs.some((index) => isSegmentIsolated(index));
+    };
     /** One anchored matcher per ref, built like scopeMatcher's, reused across candidates. */
     const versionMatchers = new Map();
     const versionMatcher = (ref) => {
@@ -72053,12 +72142,12 @@ function compileKeyTemplate(rawOptions) {
             if (ref === undefined) {
                 return undefined;
             }
-            const refs = indexesOf('ref');
-            if (refs.length === 0) {
+            if (indexesOf('ref').length === 0) {
                 return 'no-ref';
             }
-            return refs.some((index) => isSegmentIsolated(index)) ? undefined : 'ref-shares-segment';
+            return refSharesSegment() ? 'ref-shares-segment' : undefined;
         },
+        refSharesSegment,
         extractKey: (ref, objectKey) => {
             const head = baseOf(ref);
             const tail = suffixOf(ref);
@@ -72230,6 +72319,9 @@ async function buildS3Tier(config, env, options = {}) {
     for (const warning of template.warnings) {
         log/* log */.R.warning(warning);
     }
+    if (scopedToRef && template.refSharesSegment()) {
+        log/* log */.R.warning('s3-key-pattern puts ${ref} in a path segment with other text, so a restore for one ref can match the cache of another ref. Put ${ref} in a path segment of its own.');
+    }
     // A pattern without ${ref} gives every ref the same object keys; search them only once.
     const usesRef = scopedToRef && template.objectKey('a', '') !== template.objectKey('b', '');
     const compressionLevel = clampCompressionLevel(config.compressionLevel, compression.method);
@@ -72245,13 +72337,28 @@ async function buildS3Tier(config, env, options = {}) {
         download: { concurrency: config.downloadConcurrency, partSize: config.downloadChunkSize },
         upload: {
             concurrency: config.uploadConcurrency,
-            partSize: config.uploadChunkSize ?? constants/* Defaults */.Hw.DefaultUploadChunkSize,
+            partSize: capUploadPartSize(config.uploadChunkSize ?? constants/* Defaults */.Hw.DefaultUploadChunkSize, storage.providerConfig, config.explicitTransfer.uploadChunkSize && options.uploads === true),
         },
         metadata: config.metadata,
         tags: config.tags,
         compressionLevel,
         tuning: config.transferTuning === 'auto' ? config.explicitTransfer : undefined,
     };
+}
+/**
+ * Caps an upload part at the largest request body the provider accepts. With one part per
+ * request, the cap also limits a single-request upload. A part size the workflow set gets a
+ * warning when the cap changes it.
+ */
+function capUploadPartSize(partSize, provider, explicit = false) {
+    const max = provider.maxPartSize;
+    if (max === undefined || partSize <= max) {
+        return partSize;
+    }
+    if (explicit) {
+        log/* log */.R.warning(`Input "upload-chunk-size" is ${(0,inputUtils/* formatSize */.Xq)(partSize)}, above the ${(0,inputUtils/* formatSize */.Xq)(max)} that provider "${provider.provider}" accepts in one request; using ${(0,inputUtils/* formatSize */.Xq)(max)}.`);
+    }
+    return max;
 }
 /**
  * The memory this process can use. `os.freemem()` is MemAvailable on Linux, so it counts the page
@@ -72289,6 +72396,9 @@ function settingsFor(tier, direction, sizeBytes) {
         freeMemoryBytes: (tier.memory ?? usableMemory)(),
         fixed,
     });
+    if (direction === 'upload') {
+        settings.partSize = capUploadPartSize(settings.partSize, tier.storage.providerConfig);
+    }
     log/* log */.R.info(formatTuning(direction, settings, sizeBytes, fixed));
     return settings;
 }
@@ -72439,8 +72549,10 @@ async function restoreFromS3(tier, primaryKey, restoreKeys, lookupOnly) {
             return { kind: 'error', error: (0,outcomes/* toError */.i)(err) };
         }
     }
-    const tempDir = external_node_fs_.mkdtempSync(external_node_path_.join(external_node_os_.tmpdir(), 'cloud-cache-restore-'));
+    // Created inside the try: a failure here is a failed tier, not a failed step.
+    let tempDir;
     try {
+        tempDir = external_node_fs_.mkdtempSync(external_node_path_.join((0,host/* getHost */.L)().context().tempDir, 'cloud-cache-restore-'));
         const archivePath = external_node_path_.join(tempDir, tier.compression.archiveFilename);
         const { bucket } = tier.storage;
         const transferStart = Date.now();
@@ -72474,7 +72586,9 @@ async function restoreFromS3(tier, primaryKey, restoreKeys, lookupOnly) {
         return { kind: 'error', error: (0,outcomes/* toError */.i)(err) };
     }
     finally {
-        external_node_fs_.rmSync(tempDir, { recursive: true, force: true });
+        if (tempDir) {
+            external_node_fs_.rmSync(tempDir, { recursive: true, force: true });
+        }
     }
 }
 async function saveToS3(tier, primaryKey, patterns) {
@@ -72517,7 +72631,7 @@ async function saveToS3(tier, primaryKey, patterns) {
  */
 async function saveToS3FileMode(tier, objectKey, entries, primaryKey, retryConflict = true, omitTags = false) {
     const { client, bucket } = tier.storage;
-    const tempDir = external_node_fs_.mkdtempSync(external_node_path_.join(external_node_os_.tmpdir(), 'cloud-cache-save-'));
+    const tempDir = external_node_fs_.mkdtempSync(external_node_path_.join((0,host/* getHost */.L)().context().tempDir, 'cloud-cache-save-'));
     try {
         const archivePath = external_node_path_.join(tempDir, tier.compression.archiveFilename);
         const archiveStart = Date.now();
@@ -72839,7 +72953,7 @@ function withStderrTail(err, tail) {
  */
 async function saveToS3Streaming(tier, objectKey, entries, tar, primaryKey) {
     const { client, bucket } = tier.storage;
-    const tempDir = external_node_fs_.mkdtempSync(external_node_path_.join(external_node_os_.tmpdir(), 'cloud-cache-save-'));
+    const tempDir = external_node_fs_.mkdtempSync(external_node_path_.join((0,host/* getHost */.L)().context().tempDir, 'cloud-cache-save-'));
     let child;
     let tarClose;
     // Set once the inner catch below has killed tar and waited for it, so the outer catch (which
@@ -73081,7 +73195,7 @@ async function restoreFromS3Streaming(tier, found, tar, hit) {
             compression: tier.compression.method,
             archivePath: '-',
             workspace: tier.workspace,
-            tempDir: external_node_os_.tmpdir(),
+            tempDir: (0,host/* getHost */.L)().context().tempDir,
         });
         child = spawnArchiveCommand(command, ['pipe', 'ignore', 'pipe']);
         const stderrTail = captureStderrTail(child.stderr);
@@ -73440,7 +73554,7 @@ function renderExplain(report) {
         lines.push(`[${searched.ref ?? 'unscoped'}] prefix "${searched.prefix}": ` +
             `${total} candidate${total === 1 ? '' : 's'}`);
         for (const candidate of searched.candidates) {
-            lines.push(`  ${candidate.versionMatches ? '✓' : '✗'} ${candidate.objectKey} ` +
+            lines.push(`  ${candidate.versionMatches ? '✓' : '✗'} ${(0,inputUtils/* escapeKey */.jv)(candidate.objectKey)} ` +
                 `(version ${candidate.version || 'unknown'}, ${(0,inputUtils/* formatSize */.Xq)(candidate.sizeBytes)}, ` +
                 `${candidate.lastModified || 'unknown'})`);
         }
@@ -73449,7 +73563,7 @@ function renderExplain(report) {
         }
     }
     for (const reason of report.reasons) {
-        lines.push(`Result: ${reason}`);
+        lines.push(`Result: ${(0,inputUtils/* escapeKey */.jv)(reason)}`);
     }
     return lines;
 }
@@ -73817,7 +73931,7 @@ async function abortStaleUploads(client, bucket, prefix, isCandidate, options) {
         }
         count += 1;
         if (count <= LOG_CAP) {
-            log/* log */.R.info(`${verb} ${upload.key} (upload ${upload.uploadId}, ${age})`);
+            log/* log */.R.info(`${verb} ${(0,inputUtils/* escapeKey */.jv)(upload.key)} (upload ${(0,inputUtils/* escapeKey */.jv)(upload.uploadId)}, ${age})`);
         }
     };
     await mapWithConcurrency(stale, options.concurrency, abortOne);
@@ -73830,7 +73944,7 @@ function logPruned(selections, now, dryRun) {
         const ageDays = object.lastModified
             ? Math.floor((now.getTime() - object.lastModified.getTime()) / prune_DAY_MS)
             : 0;
-        log/* log */.R.info(`${verb} ${object.key} (${(0,inputUtils/* formatSize */.Xq)(object.size)}, ${ageDays}d old, ${reason})`);
+        log/* log */.R.info(`${verb} ${(0,inputUtils/* escapeKey */.jv)(object.key)} (${(0,inputUtils/* formatSize */.Xq)(object.size)}, ${ageDays}d old, ${reason})`);
     }
     const totalBytes = selections.reduce((total, { object }) => total + object.size, 0);
     const counts = new Map();
@@ -74400,8 +74514,8 @@ function reportHit(state, config, source, hit) {
     (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheMatchedKey, hit.matchedKey);
     (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheHitSource, source);
     log/* log */.R.info(config.lookupOnly
-        ? `Cache found in ${source} and can be restored from key: ${hit.matchedKey}`
-        : `Cache restored from ${source} with key: ${hit.matchedKey}`);
+        ? `Cache found in ${source} and can be restored from key: ${(0,inputUtils/* escapeKey */.jv)(hit.matchedKey)}`
+        : `Cache restored from ${source} with key: ${(0,inputUtils/* escapeKey */.jv)(hit.matchedKey)}`);
     return hit.matchedKey;
 }
 async function restoreImpl(stateProvider, earlyExit) {
@@ -74511,7 +74625,8 @@ async function restoreImpl(stateProvider, earlyExit) {
         }
         const failedTiers = [];
         for (const source of restoreOrder(config)) {
-            const outcome = await attempt(source, config, s3);
+            // A rejection counts as a failed tier, so that the other tier still runs.
+            const outcome = await attempt(source, config, s3).catch((err) => ({ kind: 'error', error: (0,outcomes/* toError */.i)(err) }));
             switch (outcome.kind) {
                 case 'hit': {
                     const matchedKey = reportHit(stateProvider, config, source, outcome);
@@ -74678,6 +74793,7 @@ async function saveImpl_setUpS3(config, stateProvider) {
     try {
         const tier = await buildS3Tier(config, process.env, {
             compression: stateProvider.getState(constants/* State */.Uw.CacheCompression),
+            uploads: true,
         });
         (0,host/* getHost */.L)().setOutput(constants/* Outputs */.tY.CacheStorageProvider, tier.storage.providerConfig.provider);
         return tier;

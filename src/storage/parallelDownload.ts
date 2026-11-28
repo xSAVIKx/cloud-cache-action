@@ -4,7 +4,7 @@
  * fetched concurrently uses the whole link a runner has. Each part is retried on its own, so a
  * dropped connection costs one part, not the whole download.
  */
-import { GetObjectCommand, type S3Client } from '@aws-sdk/client-s3';
+import { GetObjectCommand, type GetObjectCommandOutput, type S3Client } from '@aws-sdk/client-s3';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Readable } from 'node:stream';
@@ -79,6 +79,18 @@ class ShortPartError extends Error {
   }
 }
 
+/**
+ * Thrown when a later part comes from a different object than the first part: another job wrote
+ * the key during the download. The bytes of the two objects must not be mixed, so this is not
+ * retried; the caller treats it as a failed restore.
+ */
+export class ObjectChangedError extends Error {
+  constructor(bucket: string, key: string, detail: string) {
+    super(`s3://${bucket}/${key}: the object changed during the download (${detail})`);
+    this.name = 'ObjectChangedError';
+  }
+}
+
 /** Splits `size` bytes into consecutive ranges of at most `partSize` bytes. */
 export function planParts(size: number, partSize: number): PartRange[] {
   if (!Number.isInteger(size) || size < 0) {
@@ -101,22 +113,48 @@ export function shouldDownloadInParts(size: number, partSize: number): boolean {
 
 interface RangeResponse {
   body: Readable;
+  etag?: string;
   metadata?: Record<string, string>;
   tagCount?: number;
 }
 
-/** Fetches one part and checks that the server honoured the range. */
+/** The total size in a `Content-Range` value such as `bytes 0-9/25`; undefined when unknown. */
+function contentRangeTotal(value: string | undefined): number | undefined {
+  const match = /\/(\d+)$/.exec(value ?? '');
+  return match ? Number(match[1]) : undefined;
+}
+
+/**
+ * Fetches one part and checks that the server honoured the range. With `etag` set, the request
+ * carries `IfMatch` and the response must have the same ETag and the expected total size, so every
+ * part comes from the object that the first part came from.
+ */
 async function getObjectRange(
   client: S3Client,
   bucket: string,
   key: string,
   part: PartRange,
-  signal: AbortSignal
+  signal: AbortSignal,
+  size: number,
+  etag?: string
 ): Promise<RangeResponse> {
-  const response = await client.send(
-    new GetObjectCommand({ Bucket: bucket, Key: key, Range: `bytes=${part.start}-${part.end}` }),
-    { abortSignal: signal }
-  );
+  let response: GetObjectCommandOutput;
+  try {
+    response = await client.send(
+      new GetObjectCommand({
+        Bucket: bucket,
+        Key: key,
+        Range: `bytes=${part.start}-${part.end}`,
+        ...(etag ? { IfMatch: etag } : {}),
+      }),
+      { abortSignal: signal }
+    );
+  } catch (err) {
+    if ((err as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode === 412) {
+      throw new ObjectChangedError(bucket, key, 'the server refused the If-Match condition');
+    }
+    throw err;
+  }
   const body = response.Body as Readable | undefined;
   if (!body) {
     throw new Error(`Empty response body received from S3 for key: ${key}`);
@@ -125,6 +163,15 @@ async function getObjectRange(
     body.destroy();
     throw new RangeNotSupportedError(bucket, key);
   }
+  if (etag && response.ETag !== undefined && response.ETag !== etag) {
+    body.destroy();
+    throw new ObjectChangedError(bucket, key, `ETag ${response.ETag} instead of ${etag}`);
+  }
+  const total = contentRangeTotal(response.ContentRange);
+  if (total !== undefined && total !== size) {
+    body.destroy();
+    throw new ObjectChangedError(bucket, key, `size ${total} instead of ${size}`);
+  }
   const expected = part.end - part.start + 1;
   if (response.ContentLength !== undefined && response.ContentLength !== expected) {
     body.destroy();
@@ -132,7 +179,7 @@ async function getObjectRange(
       `s3://${bucket}/${key} returned ${response.ContentLength} bytes for range ${part.start}-${part.end}; expected ${expected}`
     );
   }
-  return { body, metadata: response.Metadata, tagCount: response.TagCount };
+  return { body, etag: response.ETag, metadata: response.Metadata, tagCount: response.TagCount };
 }
 
 /**
@@ -174,6 +221,8 @@ class PartSource {
   readonly controller = new AbortController();
   readonly parts: PartRange[];
   private first?: Promise<RangeResponse>;
+  /** The ETag of the first part's response; every later request must match it. */
+  private etag?: string;
 
   constructor(
     private readonly client: S3Client,
@@ -194,7 +243,8 @@ class PartSource {
   async open(): Promise<Pick<RangeResponse, 'metadata' | 'tagCount'>> {
     this.first = this.fetch(this.parts[0]);
     try {
-      const { metadata, tagCount } = await this.first;
+      const { metadata, tagCount, etag } = await this.first;
+      this.etag = etag;
       return { metadata, tagCount };
     } catch (err) {
       this.first = undefined;
@@ -233,7 +283,15 @@ class PartSource {
   }
 
   private fetch(part: PartRange): Promise<RangeResponse> {
-    return getObjectRange(this.client, this.bucket, this.key, part, this.controller.signal);
+    return getObjectRange(
+      this.client,
+      this.bucket,
+      this.key,
+      part,
+      this.controller.signal,
+      this.options.size,
+      this.etag
+    );
   }
 }
 

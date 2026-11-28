@@ -12,6 +12,7 @@ import { getInputAsArray } from '../utils/inputUtils';
 import { type CliArgs, type CliRun, parseCliArgs, shortUsage, UsageError, usage } from './args';
 import { INPUT_DEFAULTS } from './defaults';
 import { expandHashTemplates } from './hashTemplate';
+import { commandUsage } from './help';
 import { checkTar } from './tarCheck';
 import { CLI_VERSION } from './version';
 import { withWorkflowCommandsRouted } from './workflowCommands';
@@ -28,6 +29,27 @@ function statePaths(state: FileStateProvider): string[] | undefined {
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Ignores a state file that another repository wrote. It removes the file, so the save works as if
+ * no restore ran. The check does not use the workspace, because restore and save can run in
+ * different directories of one repository. A file without an owner comes from an older CLI and stays.
+ */
+function dropForeignState(state: FileStateProvider, stateFile: string): void {
+  const repository = state.getState(State.CliRepository);
+  if (repository === '') {
+    return;
+  }
+  const context = getHost().context();
+  if (repository === context.repository) {
+    return;
+  }
+  getHost().log.warning(
+    `Ignoring the state file ${stateFile}. Restore wrote it for the repository ${repository}, ` +
+      `not for the repository ${context.repository}.`
+  );
+  state.reset();
 }
 
 /**
@@ -143,6 +165,12 @@ async function runOnHost(
     return;
   }
 
+  // Save trusts the state of the last restore, so a restore must not keep an older state. The
+  // reset comes first, so a usage error in the templates does not leave the old state.
+  const state = new FileStateProvider(args.stateFile);
+  if (args.command === 'restore') {
+    state.reset();
+  }
   const workspace = host.context().workspace;
   const expanded = await expandKeyInputs(inputs, workspace);
   Object.assign(inputs, expanded.inputs);
@@ -163,27 +191,28 @@ async function runOnHost(
         })
       : undefined;
   try {
-    await runCommand(args);
+    await runCommand(args, state);
   } finally {
     oidc?.cleanup();
   }
 }
 
-async function runCommand(args: CliRun): Promise<void> {
+async function runCommand(args: CliRun, state: FileStateProvider): Promise<void> {
   switch (args.command) {
     case 'restore': {
       await checkTar();
-      // Save trusts the state of the last restore, so a restore must not keep an older hit.
-      const state = new FileStateProvider(args.stateFile);
-      state.reset();
+      state.setState(State.CliRepository, getHost().context().repository);
       await restoreImpl(state, false);
       return;
     }
     case 'save': {
       await checkTar();
-      const state = new FileStateProvider(args.stateFile);
+      dropForeignState(state, args.stateFile);
       warnOnStateMismatch(state, args.stateFile);
       await saveImpl(state);
+      // A later save must not reuse the state of this job. A failed save keeps the state, so a
+      // retry of only the save step still has the state of the restore.
+      state.reset();
       return;
     }
     case 'inspect':
@@ -214,7 +243,7 @@ export async function main(argv: string[]): Promise<number> {
     return reportError(error);
   }
   if ('help' in args) {
-    process.stdout.write(usage());
+    process.stdout.write(args.topic ? commandUsage(args.topic) : usage());
     return 0;
   }
   if ('version' in args) {

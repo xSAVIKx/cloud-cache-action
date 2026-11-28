@@ -284,18 +284,36 @@ describe('main', () => {
     expect(restoreImpl).not.toHaveBeenCalled();
   });
 
-  it('help lists commands, flags with defaults, and the env rule', async () => {
+  it('help lists commands, the CLI flags, and the env rule', async () => {
     expect(await main(['--help'])).toBe(0);
     expect(stdout).toContain('Usage: cloud-cache <command> [flags]');
     for (const command of ['restore', 'save', 'inspect', 'prune']) {
       expect(stdout).toContain(command);
     }
-    expect(stdout).toContain('--retry-count <value>  (default: 3)');
-    expect(stdout).toContain('--max-candidates');
+    expect(stdout).toContain('Run cloud-cache <command> --help to see the flags of a command');
     expect(stdout).toContain('--state-file');
     expect(stdout).toContain('name<<delimiter');
     expect(stdout).toContain('CLOUD_CACHE_');
     expect(stderr).toBe('');
+  });
+
+  it('help after a command prints the help of that command only', async () => {
+    expect(await main(['inspect', '--help'])).toBe(0);
+    expect(stdout).toContain('Usage: cloud-cache inspect [flags]');
+    expect(stdout).toContain('--max-candidates <value>');
+    expect(stdout.replace(/\s+/g, ' ')).toContain('Env: CLOUD_CACHE_MAX_CANDIDATES.');
+    expect(stdout).not.toContain('--older-than-days');
+    expect(stdout).not.toContain('Usage: cloud-cache <command>');
+    expect(stderr).toBe('');
+    expect(inspectImpl).not.toHaveBeenCalled();
+  });
+
+  it('a usage error names the nearest flag and the command help', async () => {
+    expect(await main(['restore', '--buket', 'b'])).toBe(2);
+    expect(stderr).toContain(
+      'error: unknown flag --buket. The nearest flag of restore is --bucket\n'
+    );
+    expect(stderr).toContain('Run cloud-cache <command> --help to see the flags of a command.');
   });
 
   it('prints the version', async () => {
@@ -335,6 +353,7 @@ describe('main', () => {
     expect(saveImpl).toHaveBeenCalledTimes(1);
 
     // An env var counts as a value that the user gave.
+    writeFileSync(stateFile, JSON.stringify(restored));
     stderr = '';
     process.env.CLOUD_CACHE_KEY = 'k3';
     expect(await main(['save'])).toBe(0);
@@ -343,12 +362,128 @@ describe('main', () => {
     delete process.env.CLOUD_CACHE_KEY;
 
     // Equal values, no values, or no state give no warning.
+    writeFileSync(stateFile, JSON.stringify(restored));
     stderr = '';
     expect(await main(['save', '--key', 'k1', '--path', 'a', '--path', 'b'])).toBe(0);
+    writeFileSync(stateFile, JSON.stringify(restored));
     expect(await main(['save'])).toBe(0);
-    rmSync(stateFile);
     expect(await main(['save', '--key', 'k2', '--path', 'c'])).toBe(0);
     expect(stderr).toBe('');
+  });
+
+  it('restore clears the state file before it expands the hash templates', async () => {
+    const stateFile = join(dir, 'state.json');
+    writeFileSync(stateFile, JSON.stringify({ [State.CachePrimaryKey]: 'k1' }));
+
+    // The template has no closing brace, so the command stops with a usage error.
+    expect(await main(['restore', '--key', 'k-{hash:x', '--path', 'p'])).toBe(2);
+    expect(existsSync(stateFile)).toBe(false);
+  });
+
+  it('save removes the state file when it ends', async () => {
+    process.env.CLOUD_CACHE_REPOSITORY = 'o/r';
+    const stateFile = join(dir, 'state.json');
+    expect(await main(['restore', '--key', 'k1', '--path', 'p'])).toBe(0);
+    expect(existsSync(stateFile)).toBe(true);
+
+    expect(await main(['save', '--key', 'k1', '--path', 'p'])).toBe(0);
+    expect(existsSync(stateFile)).toBe(false);
+  });
+
+  it('save keeps the state file when save fails, so a retry still has it', async () => {
+    process.env.CLOUD_CACHE_REPOSITORY = 'o/r';
+    const stateFile = join(dir, 'state.json');
+    expect(await main(['restore', '--key', 'k1', '--path', 'p'])).toBe(0);
+    saveImpl.mockRejectedValueOnce(new Error('boom'));
+    expect(await main(['save', '--key', 'k1', '--path', 'p'])).toBe(1);
+    expect(existsSync(stateFile)).toBe(true);
+
+    expect(await main(['save', '--key', 'k1', '--path', 'p'])).toBe(0);
+    expect(existsSync(stateFile)).toBe(false);
+  });
+
+  it('save keeps the state file when a failed Bitbucket step skips save', async () => {
+    process.env.BITBUCKET_BUILD_NUMBER = '1';
+    process.env.BITBUCKET_EXIT_CODE = '1';
+    const stateFile = join(dir, 'state.json');
+    writeFileSync(stateFile, JSON.stringify({ [State.CachePrimaryKey]: 'k1' }));
+    expect(await main(['save', '--key', 'k1', '--path', 'p'])).toBe(0);
+    expect(saveImpl).not.toHaveBeenCalled();
+    expect(existsSync(stateFile)).toBe(true);
+  });
+
+  it('save keeps a state file without an owner, which an older CLI wrote', async () => {
+    const stateFile = join(dir, 'state.json');
+    writeFileSync(stateFile, JSON.stringify({ [State.CachePrimaryKey]: 'k1' }));
+    const seen: string[] = [];
+    saveImpl.mockImplementation(async (state) => {
+      seen.push(state.getState(State.CachePrimaryKey));
+      return undefined;
+    });
+    expect(await main(['save', '--key', 'k1', '--path', 'p'])).toBe(0);
+    expect(seen).toEqual(['k1']);
+    expect(stderr).not.toContain('Ignoring the state file');
+  });
+
+  it('save warns about a key mismatch, not about a foreign state, for a state of the same job', async () => {
+    process.env.CLOUD_CACHE_REPOSITORY = 'o/r';
+    restoreImpl.mockImplementation(async (state) => {
+      state.setState(State.CachePrimaryKey, 'k1');
+      return undefined;
+    });
+    expect(await main(['restore', '--key', 'k1', '--path', 'p'])).toBe(0);
+    const seen: string[] = [];
+    saveImpl.mockImplementation(async (state) => {
+      seen.push(state.getState(State.CachePrimaryKey));
+      return undefined;
+    });
+    expect(await main(['save', '--key', 'k2', '--path', 'p'])).toBe(0);
+    expect(seen).toEqual(['k1']);
+    expect(stderr).toContain('The key k2 differs from the key k1');
+    expect(stderr).not.toContain('Ignoring the state file');
+  });
+
+  it('save uses the state of restore when it runs in another workspace', async () => {
+    process.env.CLOUD_CACHE_REPOSITORY = 'o/r';
+    process.env.CLOUD_CACHE_WORKSPACE = join(dir, 'wa');
+    restoreImpl.mockImplementation(async (state) => {
+      state.setState(State.CachePrimaryKey, 'k1');
+      return undefined;
+    });
+    expect(await main(['restore', '--key', 'k1', '--path', 'p'])).toBe(0);
+    process.env.CLOUD_CACHE_WORKSPACE = join(dir, 'wa', 'sub');
+    const seen: string[] = [];
+    saveImpl.mockImplementation(async (state) => {
+      seen.push(state.getState(State.CachePrimaryKey));
+      return undefined;
+    });
+    expect(await main(['save', '--key', 'k1', '--path', 'p'])).toBe(0);
+    expect(seen).toEqual(['k1']);
+    expect(stderr).not.toContain('Ignoring the state file');
+  });
+
+  it('save ignores the state of another repository', async () => {
+    const stateFile = join(dir, 'state.json');
+    process.env.CLOUD_CACHE_REPOSITORY = 'o/a';
+    process.env.CLOUD_CACHE_WORKSPACE = join(dir, 'wa');
+    restoreImpl.mockImplementation(async (state) => {
+      state.setState(State.CachePrimaryKey, 'projA-key');
+      return undefined;
+    });
+    expect(await main(['restore', '--key', 'projA-key', '--path', 'data'])).toBe(0);
+    expect(existsSync(stateFile)).toBe(true);
+
+    process.env.CLOUD_CACHE_REPOSITORY = 'o/b';
+    const seen: string[] = [];
+    saveImpl.mockImplementation(async (state) => {
+      seen.push(state.getState(State.CachePrimaryKey));
+      return undefined;
+    });
+    expect(await main(['save', '--key', 'projB-key', '--path', 'build'])).toBe(0);
+    expect(seen).toEqual(['']);
+    expect(stderr).toContain(`warning: Ignoring the state file ${stateFile}`);
+    expect(stderr).not.toContain('differs');
+    expect(existsSync(stateFile)).toBe(false);
   });
 
   it('restore and save stop on a busybox tar error', async () => {

@@ -1,12 +1,12 @@
 ---
 title: Storage Providers
-description: "Compare the 9 storage providers of Cloud Cache Action, from AWS S3 and Cloudflare R2 to self-hosted MinIO: credentials, endpoint, conditional writes, tags."
+description: "Compare the 10 storage providers of Cloud Cache Action, from AWS S3 and Cloudflare R2 to self-hosted MinIO: credentials, endpoint, conditional writes, tags."
 ---
 
 # Storage Providers
 
-Cloud Cache Action stores caches in any S3-compatible bucket. These pages give the set-up for nine
-providers: five cloud services and four self-hosted servers. The table compares them. Each row
+Cloud Cache Action stores caches in any S3-compatible bucket. These pages give the set-up for ten
+providers: five cloud services, four self-hosted servers and one local test target. The table compares them. Each row
 links to the full set-up page.
 
 The action finds the provider, the region and the addressing style from the `endpoint` URL. To
@@ -18,11 +18,12 @@ override the result, set the `provider` input.
 | [Cloudflare R2](./cloudflare-r2.md) | R2 API token, scoped to the bucket | `https://<account-id>.r2.cloudflarestorage.com` | Not stated | Not stated | The action sets `region: auto` from the endpoint. Zero egress fees. |
 | [Google Cloud Storage (GCS)](./google-cloud-storage.md) | HMAC key of a dedicated service account | `https://storage.googleapis.com` | Reportedly ignored: last-writer-wins | No tagging API | The action sets path-style addressing. A streamed save attaches its checksum with a copy. |
 | [Backblaze B2](./backblaze-b2.md) | Application key, restricted to the bucket | `https://s3.<region>.backblazeb2.com` | Not stated | Not stated | The action reads the region from the endpoint. |
-| [Fastly Object Storage](./fastly-storage.md) | Access key pair, scoped to the bucket | `https://object.<region>.fastlystorage.com` | Not stated | Not stated | |
+| [Fastly Object Storage](./fastly-storage.md) | Access key pair, scoped to the bucket | `https://<region>.object.fastlystorage.app` | Not stated | Not stated | |
 | [Garage](./garage.md) (self-hosted) | Garage key with `--read --write` on the bucket | `http://<host>:3900`, with `provider: garage` | Not supported: last-writer-wins (verified) | Accepted on upload, cannot be read back | Metadata and the sha256 check work. |
 | [SeaweedFS](./seaweedfs.md) (self-hosted) | Identity in `s3.json` | `http://<host>:8333`, with `provider: seaweedfs` | Enforced (verified) | Verified | `prune` cannot abort incomplete uploads on SeaweedFS 4.46. |
 | [MinIO](./minio.md) (self-hosted) | Service account with a bucket policy | `https://<host>:9000`, with `force-path-style: true` | Enforced (verified) | Verified | `prune` finds no incomplete uploads. Use an ILM rule. |
 | [RustFS](./rustfs.md) (self-hosted) | Dedicated user with a bucket policy | `https://<host>:9000`, with `provider: rustfs` | Enforced (verified) | Verified | Without `provider`, the log shows an endpoint on port 9000 as `minio`. |
+| [AWS Emulator](./aws-emulator.md) (local test target) | New keys at each start, read from its credentials file | `https://127.0.0.1:9297`, with `provider: aws-emulator` | Enforced (verified) | Verified | In memory only, and at most 64 MiB in one bucket. For tests, not for real caches. |
 
 "Verified" means that the integration suite or a provider page measured the behavior. "Not
 stated" means that these docs do not give the behavior for that provider. The sources are
