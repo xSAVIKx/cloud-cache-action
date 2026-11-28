@@ -3295,6 +3295,7 @@ const _NVIM = "NextVersionIdMarker";
 const _NVT = "NoncurrentVersionTransitions";
 const _NVTL = "NoncurrentVersionTransitionList";
 const _NVTo = "NoncurrentVersionTransition";
+const _No = "Not";
 const _O = "Owner";
 const _OA = "ObjectAttributes";
 const _OAIATE = "ObjectAlreadyInActiveTierError";
@@ -3335,6 +3336,7 @@ const _OVI = "ObjectVersionId";
 const _OVL = "ObjectVersionList";
 const _Ob = "Objects";
 const _Obj = "Object";
+const _Or = "Or";
 const _P = "Prefix";
 const _PABC = "PublicAccessBlockConfiguration";
 const _PBA = "PutBucketAbac";
@@ -3416,6 +3418,7 @@ const _Payl = "Payload";
 const _Pe = "Permission";
 const _Po = "Policy";
 const _Pr = "Progress";
+const _Pre = "Prefixes";
 const _Pri = "Priority";
 const _Pro = "Protocol";
 const _Q = "Quiet";
@@ -3455,10 +3458,13 @@ const _ROe = "RestoreObject";
 const _RP = "RequestPayer";
 const _RPB = "RestrictPublicBuckets";
 const _RPC = "RequestPaymentConfiguration";
+const _RPL = "ReplicationPrefixList";
 const _RPe = "RequestProgress";
 const _RR = "RoutingRules";
 const _RRAO = "ReplicationRuleAndOperator";
 const _RRF = "ReplicationRuleFilter";
+const _RRNO = "ReplicationRuleNotOperator";
+const _RROO = "ReplicationRuleOrOperator";
 const _RRe = "ReplicationRule";
 const _RRep = "ReplicationRules";
 const _RReq = "RequestRoute";
@@ -3590,6 +3596,7 @@ const _UPCR = "UploadPartCopyRequest";
 const _UPO = "UploadPartOutput";
 const _UPR = "UploadPartRequest";
 const _URI = "URI";
+const _USMRK = "UseSourceMultiRegionKey";
 const _Up = "Upload";
 const _V = "Value";
 const _VC = "VersioningConfiguration";
@@ -3952,8 +3959,8 @@ var AbortIncompleteMultipartUpload$ = [3, n0, _AIMU,
 ];
 var AbortMultipartUploadOutput$ = [3, n0, _AMUO,
     0,
-    [_RC],
-    [[0, { [_hH]: _xarc }]]
+    [_RC, _VI],
+    [[0, { [_hH]: _xarc }], [0, { [_hH]: _xavi }]]
 ];
 var AbortMultipartUploadRequest$ = [3, n0, _AMUR,
     0,
@@ -4137,8 +4144,8 @@ var CreateBucketRequest$ = [3, n0, _CBR,
 ];
 var CreateMultipartUploadOutput$ = [3, n0, _CMUOr,
     { [_xN]: _IMUR },
-    [_ADb, _ARI, _B, _K, _UI, _SSE, _SSECA, _SSECKMD, _SSEKMSKI, _SSEKMSEC, _BKE, _RC, _CA, _CT],
-    [[4, { [_hH]: _xaad }], [0, { [_hH]: _xaari }], [0, { [_xN]: _B }], 0, 0, [0, { [_hH]: _xasse }], [0, { [_hH]: _xasseca }], [0, { [_hH]: _xasseckM }], [() => SSEKMSKeyId, { [_hH]: _xasseakki }], [() => SSEKMSEncryptionContext, { [_hH]: _xassec }], [2, { [_hH]: _xassebke }], [0, { [_hH]: _xarc }], [0, { [_hH]: _xaca }], [0, { [_hH]: _xact }]]
+    [_ADb, _ARI, _B, _K, _UI, _SSE, _SSECA, _SSECKMD, _SSEKMSKI, _SSEKMSEC, _BKE, _RC, _CA, _CT, _VI],
+    [[4, { [_hH]: _xaad }], [0, { [_hH]: _xaari }], [0, { [_xN]: _B }], 0, 0, [0, { [_hH]: _xasse }], [0, { [_hH]: _xasseca }], [0, { [_hH]: _xasseckM }], [() => SSEKMSKeyId, { [_hH]: _xasseakki }], [() => SSEKMSEncryptionContext, { [_hH]: _xassec }], [2, { [_hH]: _xassebke }], [0, { [_hH]: _xarc }], [0, { [_hH]: _xaca }], [0, { [_hH]: _xact }], [0, { [_hH]: _xavi }]]
 ];
 var CreateMultipartUploadRequest$ = [3, n0, _CMURr,
     0,
@@ -4327,8 +4334,8 @@ var Encryption$ = [3, n0, _En,
 ];
 var EncryptionConfiguration$ = [3, n0, _EC,
     0,
-    [_RKKID],
-    [0]
+    [_RKKID, _USMRK],
+    [0, () => UseSourceMultiRegionKey$]
 ];
 var EndEvent$ = [3, n0, _EE,
     0,
@@ -4982,8 +4989,8 @@ var ListObjectVersionsRequest$ = [3, n0, _LOVRi,
 ];
 var ListPartsOutput$ = [3, n0, _LPO,
     { [_xN]: _LPR },
-    [_ADb, _ARI, _B, _K, _UI, _PNM, _NPNM, _MP, _IT, _Pa, _In, _O, _SC, _RC, _CA, _CT],
-    [[4, { [_hH]: _xaad }], [0, { [_hH]: _xaari }], 0, 0, 0, 0, 0, 1, 2, [() => Parts, { [_xF]: 1, [_xN]: _Par }], () => Initiator$, () => Owner$, 0, [0, { [_hH]: _xarc }], 0, 0]
+    [_ADb, _ARI, _B, _K, _UI, _PNM, _NPNM, _MP, _IT, _Pa, _In, _O, _SC, _RC, _CA, _CT, _VI],
+    [[4, { [_hH]: _xaad }], [0, { [_hH]: _xaari }], 0, 0, 0, 0, 0, 1, 2, [() => Parts, { [_xF]: 1, [_xN]: _Par }], () => Initiator$, () => Owner$, 0, [0, { [_hH]: _xarc }], 0, 0, [0, { [_hH]: _xavi }]]
 ];
 var ListPartsRequest$ = [3, n0, _LPRi,
     0,
@@ -5047,8 +5054,8 @@ var MetricsConfiguration$ = [3, n0, _MCe,
 ];
 var MultipartUpload$ = [3, n0, _MU,
     0,
-    [_UI, _K, _Ini, _SC, _O, _In, _CA, _CT],
-    [0, 0, 4, 0, () => Owner$, () => Initiator$, 0, 0]
+    [_UI, _K, _Ini, _SC, _O, _In, _CA, _CT, _VI],
+    [0, 0, 4, 0, () => Owner$, () => Initiator$, 0, 0, 0]
 ];
 var NoncurrentVersionExpiration$ = [3, n0, _NVE,
     0,
@@ -5397,13 +5404,23 @@ var ReplicationRule$ = [3, n0, _RRe,
 ];
 var ReplicationRuleAndOperator$ = [3, n0, _RRAO,
     0,
-    [_P, _T],
-    [0, [() => TagSet, { [_xF]: 1, [_xN]: _Ta }]]
+    [_P, _T, _No],
+    [0, [() => TagSet, { [_xF]: 1, [_xN]: _Ta }], [() => ReplicationRuleNotOperator$, 0]]
 ];
 var ReplicationRuleFilter$ = [3, n0, _RRF,
     0,
-    [_P, _Ta, _An],
-    [0, () => Tag$, [() => ReplicationRuleAndOperator$, 0]]
+    [_P, _Ta, _An, _No],
+    [0, () => Tag$, [() => ReplicationRuleAndOperator$, 0], [() => ReplicationRuleNotOperator$, 0]]
+];
+var ReplicationRuleNotOperator$ = [3, n0, _RRNO,
+    0,
+    [_P, _Ta, _Or],
+    [0, () => Tag$, [() => ReplicationRuleOrOperator$, 0]]
+];
+var ReplicationRuleOrOperator$ = [3, n0, _RROO,
+    0,
+    [_Pre, _T],
+    [[() => ReplicationPrefixList, { [_xF]: 1, [_xN]: _P }], [() => TagSet, { [_xF]: 1, [_xN]: _Ta }]]
 ];
 var ReplicationTime$ = [3, n0, _RT,
     0,
@@ -5622,8 +5639,8 @@ var UpdateObjectEncryptionResponse$ = [3, n0, _UOERp,
 ];
 var UploadPartCopyOutput$ = [3, n0, _UPCO,
     0,
-    [_CSVI, _CPR, _SSE, _SSECA, _SSECKMD, _SSEKMSKI, _BKE, _RC],
-    [[0, { [_hH]: _xacsvi }], [() => CopyPartResult$, 16], [0, { [_hH]: _xasse }], [0, { [_hH]: _xasseca }], [0, { [_hH]: _xasseckM }], [() => SSEKMSKeyId, { [_hH]: _xasseakki }], [2, { [_hH]: _xassebke }], [0, { [_hH]: _xarc }]]
+    [_CSVI, _CPR, _SSE, _SSECA, _SSECKMD, _SSEKMSKI, _BKE, _RC, _VI],
+    [[0, { [_hH]: _xacsvi }], [() => CopyPartResult$, 16], [0, { [_hH]: _xasse }], [0, { [_hH]: _xasseca }], [0, { [_hH]: _xasseckM }], [() => SSEKMSKeyId, { [_hH]: _xasseakki }], [2, { [_hH]: _xassebke }], [0, { [_hH]: _xarc }], [0, { [_hH]: _xavi }]]
 ];
 var UploadPartCopyRequest$ = [3, n0, _UPCR,
     0,
@@ -5632,13 +5649,18 @@ var UploadPartCopyRequest$ = [3, n0, _UPCR,
 ];
 var UploadPartOutput$ = [3, n0, _UPO,
     0,
-    [_SSE, _ET, _CCRC, _CCRCC, _CCRCNVME, _CSHA, _CSHAh, _CSHAhe, _CMD, _CXXHASH, _CXXHASHh, _CXXHASHhe, _SSECA, _SSECKMD, _SSEKMSKI, _BKE, _RC],
-    [[0, { [_hH]: _xasse }], [0, { [_hH]: _ET }], [0, { [_hH]: _xacc }], [0, { [_hH]: _xacc_ }], [0, { [_hH]: _xacc__ }], [0, { [_hH]: _xacs }], [0, { [_hH]: _xacs_ }], [0, { [_hH]: _xacs__ }], [0, { [_hH]: _xacm }], [0, { [_hH]: _xacx }], [0, { [_hH]: _xacx_ }], [0, { [_hH]: _xacx__ }], [0, { [_hH]: _xasseca }], [0, { [_hH]: _xasseckM }], [() => SSEKMSKeyId, { [_hH]: _xasseakki }], [2, { [_hH]: _xassebke }], [0, { [_hH]: _xarc }]]
+    [_SSE, _ET, _CCRC, _CCRCC, _CCRCNVME, _CSHA, _CSHAh, _CSHAhe, _CMD, _CXXHASH, _CXXHASHh, _CXXHASHhe, _SSECA, _SSECKMD, _SSEKMSKI, _BKE, _RC, _VI],
+    [[0, { [_hH]: _xasse }], [0, { [_hH]: _ET }], [0, { [_hH]: _xacc }], [0, { [_hH]: _xacc_ }], [0, { [_hH]: _xacc__ }], [0, { [_hH]: _xacs }], [0, { [_hH]: _xacs_ }], [0, { [_hH]: _xacs__ }], [0, { [_hH]: _xacm }], [0, { [_hH]: _xacx }], [0, { [_hH]: _xacx_ }], [0, { [_hH]: _xacx__ }], [0, { [_hH]: _xasseca }], [0, { [_hH]: _xasseckM }], [() => SSEKMSKeyId, { [_hH]: _xasseakki }], [2, { [_hH]: _xassebke }], [0, { [_hH]: _xarc }], [0, { [_hH]: _xavi }]]
 ];
 var UploadPartRequest$ = [3, n0, _UPR,
     0,
     [_B, _K, _PN, _UI, _Bo, _CLo, _CMDo, _CA, _CCRC, _CCRCC, _CCRCNVME, _CSHA, _CSHAh, _CSHAhe, _CMD, _CXXHASH, _CXXHASHh, _CXXHASHhe, _SSECA, _SSECK, _SSECKMD, _RP, _EBO],
     [[0, 1], [0, 1], [1, { [_hQ]: _pN }], [0, { [_hQ]: _uI }], [() => StreamingBlob, 16], [1, { [_hH]: _CL__ }], [0, { [_hH]: _CM }], [0, { [_hH]: _xasca }], [0, { [_hH]: _xacc }], [0, { [_hH]: _xacc_ }], [0, { [_hH]: _xacc__ }], [0, { [_hH]: _xacs }], [0, { [_hH]: _xacs_ }], [0, { [_hH]: _xacs__ }], [0, { [_hH]: _xacm }], [0, { [_hH]: _xacx }], [0, { [_hH]: _xacx_ }], [0, { [_hH]: _xacx__ }], [0, { [_hH]: _xasseca }], [() => SSECustomerKey, { [_hH]: _xasseck }], [0, { [_hH]: _xasseckM }], [0, { [_hH]: _xarp }], [0, { [_hH]: _xaebo }]], 4
+];
+var UseSourceMultiRegionKey$ = [3, n0, _USMRK,
+    0,
+    [_S],
+    [0], 1
 ];
 var VersioningConfiguration$ = [3, n0, _VC,
     0,
@@ -5751,6 +5773,10 @@ var PartsList = [1, n0, _PL,
 var QueueConfigurationList = [1, n0, _QCL,
     0, [() => QueueConfiguration$,
         0]
+];
+var ReplicationPrefixList = [1, n0, _RPL,
+    0, [0,
+        { [_xN]: _P }]
 ];
 var ReplicationRules = [1, n0, _RRep,
     0, [() => ReplicationRule$,
@@ -6146,7 +6172,7 @@ var WriteGetObjectResponse$ = [9, n0, _WGOR,
 class CreateSessionCommand extends command(_ep4, _mw0, "CreateSession", CreateSession$) {
 }
 
-var version = "3.1168.0";
+var version = "3.1174.0";
 var packageInfo = {
 	version: version};
 
@@ -7207,6 +7233,10 @@ const DeleteMarkerReplicationStatus = {
     Disabled: "Disabled",
     Enabled: "Enabled",
 };
+const UseSourceMultiRegionKeyStatus = {
+    Disabled: "Disabled",
+    Enabled: "Enabled",
+};
 const MetricsStatus = {
     Disabled: "Disabled",
     Enabled: "Enabled",
@@ -7931,6 +7961,8 @@ exports.ReplicationConfiguration$ = ReplicationConfiguration$;
 exports.ReplicationRule$ = ReplicationRule$;
 exports.ReplicationRuleAndOperator$ = ReplicationRuleAndOperator$;
 exports.ReplicationRuleFilter$ = ReplicationRuleFilter$;
+exports.ReplicationRuleNotOperator$ = ReplicationRuleNotOperator$;
+exports.ReplicationRuleOrOperator$ = ReplicationRuleOrOperator$;
 exports.ReplicationRuleStatus = ReplicationRuleStatus;
 exports.ReplicationStatus = ReplicationStatus;
 exports.ReplicationTime$ = ReplicationTime$;
@@ -8021,6 +8053,8 @@ exports.UploadPartCopyOutput$ = UploadPartCopyOutput$;
 exports.UploadPartCopyRequest$ = UploadPartCopyRequest$;
 exports.UploadPartOutput$ = UploadPartOutput$;
 exports.UploadPartRequest$ = UploadPartRequest$;
+exports.UseSourceMultiRegionKey$ = UseSourceMultiRegionKey$;
+exports.UseSourceMultiRegionKeyStatus = UseSourceMultiRegionKeyStatus;
 exports.VersioningConfiguration$ = VersioningConfiguration$;
 exports.WebsiteConfiguration$ = WebsiteConfiguration$;
 exports.WriteGetObjectResponse$ = WriteGetObjectResponse$;
@@ -8050,6 +8084,7 @@ exports.waitUntilObjectNotExists = waitUntilObjectNotExists;
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
 const { HttpRequest, parseUrl } = __nccwpck_require__(3422);
+const { NoOpLogger } = __nccwpck_require__(2658);
 const { InvokeStore } = __nccwpck_require__(9320);
 const { normalizeProvider } = __nccwpck_require__(402);
 const { RETRY_MODES } = __nccwpck_require__(3609);
@@ -8186,18 +8221,22 @@ const getHostHeaderPlugin = (options) => ({
 const loggerMiddleware = () => (next, context) => async (args) => {
     try {
         const response = await next(args);
-        const { clientName, commandName, logger, dynamoDbDocumentClientOptions = {} } = context;
-        const { overrideInputFilterSensitiveLog, overrideOutputFilterSensitiveLog } = dynamoDbDocumentClientOptions;
-        const inputFilterSensitiveLog = overrideInputFilterSensitiveLog ?? context.inputFilterSensitiveLog;
-        const outputFilterSensitiveLog = overrideOutputFilterSensitiveLog ?? context.outputFilterSensitiveLog;
-        const { $metadata, ...outputWithoutMetadata } = response.output;
-        logger?.info?.({
-            clientName,
-            commandName,
-            input: inputFilterSensitiveLog(args.input),
-            output: outputFilterSensitiveLog(outputWithoutMetadata),
-            metadata: $metadata,
-        });
+        const { logger } = context;
+        const isNoOpLogger = logger instanceof NoOpLogger;
+        if (logger && !isNoOpLogger) {
+            const { clientName, commandName, dynamoDbDocumentClientOptions = {} } = context;
+            const { overrideInputFilterSensitiveLog, overrideOutputFilterSensitiveLog } = dynamoDbDocumentClientOptions;
+            const inputFilterSensitiveLog = overrideInputFilterSensitiveLog ?? context.inputFilterSensitiveLog;
+            const outputFilterSensitiveLog = overrideOutputFilterSensitiveLog ?? context.outputFilterSensitiveLog;
+            const { $metadata, ...outputWithoutMetadata } = response.output;
+            logger.info?.({
+                clientName,
+                commandName,
+                input: inputFilterSensitiveLog(args.input),
+                output: outputFilterSensitiveLog(outputWithoutMetadata),
+                metadata: $metadata,
+            });
+        }
         return response;
     }
     catch (error) {
@@ -12725,6 +12764,7 @@ class Upload extends EventEmitter {
                 ETag: partResult.ETag,
                 ...(partResult.ChecksumCRC32 && { ChecksumCRC32: partResult.ChecksumCRC32 }),
                 ...(partResult.ChecksumCRC32C && { ChecksumCRC32C: partResult.ChecksumCRC32C }),
+                ...(partResult.ChecksumCRC64NVME && { ChecksumCRC64NVME: partResult.ChecksumCRC64NVME }),
                 ...(partResult.ChecksumSHA1 && { ChecksumSHA1: partResult.ChecksumSHA1 }),
                 ...(partResult.ChecksumSHA256 && { ChecksumSHA256: partResult.ChecksumSHA256 }),
             });
@@ -14007,7 +14047,7 @@ const commonParams = {
     UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" },
 };
 
-var version = "3.998.2";
+var version = "3.998.3";
 var packageInfo = {
 	version: version};
 
@@ -14617,7 +14657,7 @@ const commonParams = {
     UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" },
 };
 
-var version = "3.998.2";
+var version = "3.998.3";
 var packageInfo = {
 	version: version};
 
@@ -15311,7 +15351,7 @@ const commonParams = {
     UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" },
 };
 
-var version = "3.998.2";
+var version = "3.998.3";
 var packageInfo = {
 	version: version};
 
@@ -15972,7 +16012,7 @@ const commonParams = {
     UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" },
 };
 
-var version = "3.998.2";
+var version = "3.998.3";
 var packageInfo = {
 	version: version};
 
